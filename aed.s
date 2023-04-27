@@ -1,7 +1,10 @@
 	.assume ADL = 1
-	.org $50000
+	.org $A0000
 
 	jp _start
+
+_debug01:	.ds 3,0
+_debug02:	.ds 3,0
 
 	.align 64
 
@@ -34,21 +37,35 @@ _start:
 ;   * 0: Success
 ;   * 1: Exit program
 _process_input:
-	; Get sysvars and call getkey.
+	; Get sysvars
 	ld a, 08h
 	rst.lil 08h
-	call _getkey
 
-	; First check if the CTRL key is pressed.
+	; Call getkey
+	ld a, 00h
+	rst.lil 08h
+
+	; First, check if we have the CTRL key pressed.
 	bit 0, (ix+06h)
-	jr NZ, @normal
 
-	; We have CTRL pressed.
-	cp 'q'
+	; If the bit isn't set, then we can continue processing as normal.
+	jp Z, @normal
+
+	; We have CTRL pressed, get the scancode for the pressed key.
+	ld a, (ix+17h)
+	; CTRL+q or CTRL+Q exists the editor.
+	cp 26h
+	jp Z, @exit
+	cp 40h
 	jp Z, @exit
 
+	; No more CTRL processing.
+	ld a,0
+	ret
+
+
 @normal:
-	; Anything below 32 and 7F is a control char.
+	; 7F and anything below 32 is a control char.
 	cp 32
 	jp M, @control
 	cp 7Fh
@@ -66,10 +83,6 @@ _process_input:
 	; Get keycode from sysvar. It is on offset 17h and is 1 byte.
 	ld a, (ix+17h)
 
-	; ESC quits the program
-	cp 7Dh
-	jr Z, @exit
-
 	; Left arrow.
 	cp 9Ah
 	jr Z, @m_left
@@ -86,8 +99,15 @@ _process_input:
 	cp 84h
 	jr Z, @m_bkspace
 
-	; Ignore other keys/
-	jp @done
+	; Home
+	cp 85h
+	jr Z, @m_home
+	cp 86h
+	jr Z, @m_home
+
+	; Ignore other keys
+	ld a,0
+	ret
 
 @m_left:
 	; First replace the cursor with the character under it.
@@ -102,6 +122,11 @@ _process_input:
 	; Move the cursor to left on VDP.
 	ld a, 8
 	rst.lil 10h
+
+	; Dec curx
+	ld a, (_s_curx)
+	dec a
+	ld (_s_curx), a
 	jr @done
 
 @m_right:
@@ -115,6 +140,11 @@ _process_input:
 	; Move the curosr right on VDP.
 	ld a, 9
 	rst.lil 10h
+
+	; Inc curx
+	ld a, (_s_curx)
+	inc a
+	ld (_s_curx), a
 	jr @done
 
 @m_del:
@@ -124,9 +154,16 @@ _process_input:
 	jr @done
 
 @m_bkspace:
-	call _replace_cur
 	call _s_bkspace
 	call tb_bkspace
+	jr @done
+
+@m_home:
+	call _replace_cur
+	call tb_home
+	xor a
+	ld (_s_curx), a
+	call _s_cback
 	jr @done
 
 @done:
@@ -183,11 +220,6 @@ _scroll_up:	.db 23,7,0,3,8
 _str:		.db "Hello, world!",0
 _str_end:
 
-_getkey:
-	ld a, 00h
-	rst.lil 08h
-	ret
-
 
 ;**** SCREEN BUFFER ****
 
@@ -201,6 +233,7 @@ _s_cury:	.db 0
 ; resolution change.
 _s_maxw:	.db 0
 _s_maxh:	.db 0
+_s_eos:		.db 0
 
 ; Screen foreground and background colors.
 _s_fg:		.db 15
@@ -214,9 +247,6 @@ _s_bg:		.db 0
 _init_vdp:	.db 23,1,0,17,15,17,128,12,30
 _init_vdp_end:
 
-; Scroll command. This is a template that we use to set the correct region.
-_dscroll:	.db 28,0,0,0,0
-_dscroll_end:
 
 ; S_INIT: Initializes the screen for the editor.
 ; Preserves:
@@ -235,35 +265,21 @@ _s_init:
 	ld a, 08h
 	rst.lil 08h
 
-	; Store #cols and #rows for the current resolution.
+	; Store #cols.
 	ld a, (ix+13h)
+	dec a
 	ld (_s_maxw), a
+
+	; Store #rows.
 	ld a, (ix+14h)
+	dec a
 	ld (_s_maxh), a
 
 	; Init cursor.
 	ld a, 0
 	ld (_s_curx), a
 	ld (_s_cury), a
-
-	; Define the scrolling region. X1 and Y1 is already 0. We need to set
-	; X2 and Y2. For X2, we want the full column size. For Y2, we want
-	; the full row size minus 8 pixels.
-
-	; First, X2.
-	ld ix, _dscroll
-	ld a, (_s_maxw)
-	ld (ix+3h), a
-
-	; Now Y2, with 1 row of characters removed.
-	ld a, (_s_maxh)
-	dec a
-	ld (ix+4h), a
-
-	; Now set the scroll region
-	ld hl, _dscroll
-	ld bc, _dscroll_end-_dscroll
-	rst.lil 18h
+	ld (_s_eos), a
 
 	; Show the cursor on screen
 	ld a, 32
@@ -272,6 +288,51 @@ _s_init:
 	; Init is done.
 	pop hl
 	pop bc
+	pop af
+	ret
+
+
+_vdp_tabxy:	.db 31,0,0
+
+; _S_CBACK: Moves cursor to _s_curx,_s_cury
+; Preserves:
+; - AF, BC, HL
+_s_cback:
+	push af
+	push bc
+	push hl
+	push ix
+
+	ld ix, _vdp_tabxy
+	ld a, (_s_curx)
+	ld (ix+1), a
+	ld a, (_s_cury)
+	ld (ix+2), a
+	ld hl, _vdp_tabxy
+	ld bc, 3
+	rst.lil 18h
+
+	pop ix
+	pop hl
+	pop bc
+	pop af
+	ret
+
+; _S_MCUR: Moves cursor to B,C
+_s_mcur:
+	push af
+	push hl
+	push ix
+
+	ld ix, _vdp_tabxy
+	ld (ix+1), b
+	ld (ix+2), c
+	ld hl, _vdp_tabxy
+	ld bc, 3
+	rst.lil 18h
+
+	pop ix
+	pop hl
 	pop af
 	ret
 
@@ -296,8 +357,7 @@ _s_hcur:
 
 	; Because printing the cursor moves it on vdp, we need to bring it
 	; back.
-	ld a, 8
-	rst.lil 10h
+	call _s_cback
 
 	; We are done
 	pop af
@@ -324,11 +384,12 @@ _s_scur:
 	; Now print the cursor.
 	rst.lil 10h
 
+	
+	; First reverse fg/bg.
 	; Because printing the cursor moves it on vdp, we need to bring it
 	; back.
-	ld a, 8
-	rst.lil 10h
-
+	call _s_cback
+@done:
 	; Now set the correct colors back.
 	ld hl, _s_fg
 	ld c, (hl)
@@ -371,56 +432,36 @@ _set_color:
 ; S_PUTC: Prints a character on screen.
 ; - A: Character to print.
 ; Preserves:
-; - AF, BC.
+; - AF, HL.
 _s_putc:
 	push af
 	push hl
 
-	; First, check if we can advance the cursor.
-	push af
-	ld hl, _s_curx
-	ld a, (_s_maxw)
-	dec a
-	sub a,(hl)
-	pop af
-	jr NZ, @print
-
-	; Can't add to screen. For now, do nothing.
-
+	; Adjust the view if needed.
+	call _s_pview
 @print:
+
 	; Print the char on screen
 	rst.lil 10h
 
 
-	; First Get the tail of the line and print it.
-	call tb_gettail
-	ld a, b
-	or c
-
-	; If zero, there is no tail to print.
-	jr Z, @inc
-
-
-	; We have a tail, print it.
-	push bc
-	rst.lil 18h
-	pop bc
-
-	; Since that moves the cursor in VDP, we need to bring it back the
-	; same number of times we printed it.
-@loop:
-	ld a, 8
-	rst.lil 10h
-	dec bc
-	ld a, b
-	or c
-	jp NZ, @loop
-
-@inc:
-	; Inc X position
+	; Inc curx and eos.
 	ld a, (_s_curx)
 	inc a
 	ld (_s_curx), a
+	
+	; Increment eos if we haven't filled the line.
+	ld a, (_s_maxw)
+	ld b, a
+	ld a, (_s_eos)
+	cp b
+
+	; If they are the same, we can' t increment.
+	jr Z, @done
+
+	; Still have space on the line.
+	inc a
+	ld (_s_eos), a
 
 	; Signal we moved
 	ld b, 0
@@ -430,51 +471,174 @@ _s_putc:
 	pop af
 	ret
 
+_s_offset:	.db 0,0,0
+
+; S_VIEW: Adjust the charactor view so that we can scroll the line.
+_s_pview:
+	push af
+	push de
+	push bc
+	push hl
+
+	; Given that this is only called right before putting a character on
+	; the screen, we want to make sure there is enough space for it.
+	; There are cases to handle:
+	; - Cursor at EOL:
+   	;   * Shift everyone to the left to create a space. No tail work.
+        ; - Cursor somewhere in line:
+	;   * Move everyone after the cursor to the right, removing char if 
+	;     needed.
+
+	; So first, let's figure out where we are.
+	ld a, (_s_curx)
+	ld b, a
+	ld a, (_s_maxw)
+	cp b
+
+	; If s_curx != s_maxw, then cursor is not at end of screen.
+	jr NZ, @inline
+
+	; We are at end of screen.
+	; To shift we want to shift the line to the left. For that we define
+	; The current line as the region we want to shift, shift it and then
+	; redefine the region again.
+	ld de, (_s_offset)
+	inc de
+	ld (_s_offset), de
+
+	; With this, HL points to start of string, BC has the string count.
+	call tb_gethead
+
+
+@shift_left:
+	inc hl
+	dec de
+
+	; If we still have chars to offset, loop back.
+	ld a, d
+	or e
+	jr NZ, @shift_left
+
+
+@print_left:
+	; So now, we move cursor to home
+	ld b, 0
+	ld a, (_s_cury)
+	ld c,a
+	call _s_mcur
+
+	; Print the string.
+	ld bc, 0
+	ld a, (_s_curx)
+	dec a
+	ld c, a
+	rst.lil 18h
+
+	; Move cursor one position back
+	ld a, (_s_curx)
+	dec a
+	ld (_s_curx), a
+
+	; Move cursor to curx,cury
+	call _s_cback
+
+	jr @done
+
+
+@inline:
+	; We have enough space. Then just adjust the tail.
+	call tb_gettail
+	ld a, b
+	or c
+
+	; If we have no tail, we are done.
+	jr Z, @done
+
+	; We have a tail. Move 1 space to the right,
+	ld a, 9
+	rst.lil 10h
+
+	; Get the current position.
+	ld a, (_s_curx)
+	ld e, a
+
+	; Print chars from tail until we are done or if we hit the end of the
+	; screen.
+@tail_print:
+	; Did we hit end of screen?
+	ld a, (_s_maxw)
+	cp e
+	jr Z, @move_back
+
+	; Did we finish writing chars?
+	ld a, b
+	or c
+	jr Z, @move_back
+
+	; Update counters.
+	inc e
+	dec bc
+
+	; Print char.
+	ld a, (hl)
+	inc hl
+	push de
+	push bc
+	rst.lil 10h
+	pop bc
+	pop de
+
+	; Next char.
+	jr @tail_print
+
+
+@move_back:
+	; Move the cursor back to _s_curx,_s_cury
+	call _s_cback
+
+	
+@done:
+	pop hl
+	pop bc
+	pop de
+	pop af
+	ret
+
 ; S_BACKSPACE: Erase a char to the left of the cursor on screen.
 ; Preserves:
 ; - AF
 _s_bkspace:
 	push af
 
-	; First move the cursor one to the left.
-	ld a, 8
-	rst.lil 10h
+	; First check if we can move.
+	ld a, (_s_curx)
+	or a
+	jr Z, @done
 
+	; Remove cursor from screen
+	call _replace_cur
+	
+	; Move cursor to the left.
+	dec a
+	ld (_s_curx), a
+	call _s_cback
 
 	; Get the tail
 	call tb_gettail
 	ld a, b
 	or c
-	jr Z, @notail
+	jr Z, @space
 
-	; We have tail. Print the tail + 1 space to move the tail 1 char left.
-	push bc
+	; We have tail, print it.
 	rst.lil 18h
+
+@space:
+	; Print the space to remove the char from the screen.
 	ld a, 32
 	rst.lil 10h
 
-	; Bring the cursor back to the correct position.
-	pop bc
-	inc bc ; to account for the space.
-@loop:
-	ld a, 8
-	rst.lil 10h
-	dec bc
-	ld a, b
-	or c
-	jr NZ, @loop
-
-	; Now we are done.
-	jr @done
-
-
-@notail:
-	; Since we have no tail, we can print a space over the char.
-	ld a, 32
-	rst.lil 10h
 	; Bring the cursor back
-	ld a, 8
-	rst.lil 10h
+	call _s_cback
 
 @done:
 	pop af
@@ -505,8 +669,7 @@ _s_delete:
 	pop bc
 	inc bc
 @loop:
-	ld a, 8
-	rst.lil 10h
+	call _s_cback
 	dec bc
 	ld a, b
 	or c
@@ -526,25 +689,6 @@ _s_done:
 	ld a, 30
 	rst.lil 10h
 
-	; Restore full window scrolling.
-	; First, X1,Y1
-	ld ix, _dscroll
-	ld (ix+1h), 0
-	ld (ix+2h), 0
-
-	; Now, X2.
-	ld a, (_s_maxw)
-	ld (ix+3h), a
-
-	; Finally Y2
-	ld a, (_s_maxh)
-	ld (ix+4h), a
-
-	; Set the scrolling region
-	ld hl, _dscroll
-	ld bc, _dscroll_end-_dscroll
-	rst.lil 18h
-
 	; Renable cursor
 	ld hl, _enable_cursor
 	ld bc, 3
@@ -557,81 +701,56 @@ _s_done:
 
 ;**** TEXT BUFFER ****
 
-; Gap Buffer for the text. 241k
-_tb_start:	.db 0,0,6
-_tb_end:	.db 0,C4h,8
-_ccur:		.db 0,0,6
-_cend:		.db 0,C4h,8
+; Gap Buffer for the text.
+_tb_start:	.ds 3,0	; Pointer to buf start.
+_tb_end:	.ds 3,0	; Pointer to buf end.
+_ccur:		.ds 3,0	; Pointer to cursor position in buf.
+_cend:		.ds 3,0	; Pointer to buffer suffix.
+_slptr:		.ds 3,0 ; Pointer to start of current line.
+_elptr:		.ds 3,0 ; Pointer to end of current line.
+_szptr:		.ds 3,0	; Pointer to line size.
 
-; Total char count
-_ccount:	.db 0,0,0
-; Absolute position in char buffer.
-_cpos:		.db 0,0,0
+; Line/Char position in buffer.
+_lpos:		.ds 3,0
+_cpos:		.ds 3,0
 
-; Char-per-line gap buffer for text. 15k, enough for 5k lines.
-_lb_start:	.db 0,C4h,8
-_lb_end:	.db 0,0,9
-_lcur:		.db 0,C4h,8
-_lend:		.db 0,0,9
-_lcount:	.db 0,0,0
-_lpos:		.db 0,0,0
-
-_debug01:	.db A0h,0,Ah
-_debug02:	.db A3h,0,Ah
+; Line count, init to 1.
+_lcount:	.db 1,0,0
+; Char count, init t0 0.
+_ccount:	.ds 3,0
 
 ; TB_INIT: Initializes the text buffer.
 ; Preserves:
-; - HL, BC.
+; - IX, HL, BC.
 tb_init:
 	push hl
 	push bc
 
-	ld hl, (_debug01)
-	ld (hl), 0
-	ld hl, (_debug02)
-	ld (hl), 0
-
 	; Set the start pointers for text buffer.
-	ld hl, 60000h
+	ld hl, 40000h
 	ld (_tb_start), hl
+	ld (_szptr), hl
+
+	; Every line starts with 3 bytes that is the size counter.
+	ld hl, 40003h
 	ld (_ccur), hl
+	ld (_slptr), hl
 
 	; Set the end pointers for text buffer.
-	ld hl, 8C400h
+	ld hl, A0000h
 	ld (_tb_end), hl
 	ld (_cend), hl
-
-	; Set the start pointers for line buffer.
-	ld (_lb_start), hl
-	ld (_lcur), hl
-
-	; Se the end pointers for line buffer.
-	ld hl, 90000h
-	ld (_lb_end), hl
-	ld (_lend), hl
-
-	; We set char count and pos to 0 and line count to 1.
-	ld hl, 0
-	ld (_ccount), hl
-	ld (_cpos), hl
-	ld (_lpos), hl
-
-	ld hl, 1
-	ld (_lcount), hl
-
-	; For the char-per-line buffer, we need to set the first value to 0.
-	ld hl, (_lcur)
-	ld bc, 0
-	ld (hl), bc
+	ld (_elptr), hl
 
 	; We are done.
 	pop bc
 	pop hl
 	ret
 
+
 ; TB_GETC: Returns the current char under the cursor.
 ; Returns:
-; - A: The ASCII code of current char, 0 if buffer is empty.
+; - A: The ASCII code of current char, 32 (space) if buffer is empty.
 ; Preserves:
 ; - DE, HL.
 tb_getc:
@@ -639,11 +758,10 @@ tb_getc:
 	push de
 	push hl
 
-
-	; If there are chars at end, then the cursor covering a char.
-	ld hl, (_tb_end)
+	; If there are chars at end, then the cursor is covering a char.
+	ld hl, (_elptr)
 	ld de, (_cend)
-	ld a,0
+	ld a,32
 
 	scf
 	ccf
@@ -660,41 +778,75 @@ tb_getc:
 	ret
 
 
+; TB_LINE_NO: Returns the current line number.
+; Returns:
+; - BC: Line number.
+tb_line_no:
+	ld bc, (_lpos)
+	ret
+
+
+
+; TB_CHAR_NO: Returns the current char number at current line.
+; Returns:
+; - BC: Char number.
+tb_char_no:
+	ld bc, (_cpos)
+	ret
+
+; TB_LINE_COUNT: Returns the number of lines in the buffer.
+tb_line_count:
+	ld bc, (_lcount)
+	ret
+
+
 ; TB_PUTC: Stores a char in the text buffer.
 ; Args:
 ; - A: Char to be stored.
 ; Preserves:
 ; - DE, HL
 tb_putc:
-	; First we add the char to the text buffer.
 	push de
 	push hl
+
+	; First check we can store
+	ld hl, (_cend)
+	ld de, (_ccur)
+	scf
+	ccf
+	sbc hl,de
+
+	; We can't store if there is no more space. For now, just return.
+	jr Z, @done
+
+	
+	; First we add the char to the text buffer.
 	ld de, (_ccur)
 	ld (de), a
 	inc de
 	ld (_ccur), de
 
-	; Now we update the number of chars.
-	ld de, (_ccount)
-	inc de
-	ld (_ccount), de
-
-
 	; Now update the number of chars for the current line.
-	ld hl, (_lcur)
-	ld de, (hl)
-	inc de
-	ld (hl), de
+	ld hl, (_szptr)
+	inc hl
+	ld (_szptr), hl
 
-	; Finally update the character position.
+	; Update the character position.
 	ld hl, (_cpos)
 	inc hl
 	ld (_cpos), hl
 
+	; Finally, update the character count.
+	ld hl, (_ccount)
+	inc hl
+	ld (_ccount), hl
+
+@done:
 	; Now we are done.
 	pop hl
 	pop de
 	ret
+
 
 ; TB_GETTAIL: Returns all characters at the end of the line.
 ; Returns:
@@ -703,35 +855,62 @@ tb_putc:
 ; Preserves:
 ; - DE
 tb_gettail:
-	; We want to count how many chars we have between _cend and either
-	; _tb_end or the first new line char.
-	ld bc, 0
-	ld hl, (_cend)
-	ld de, (_tb_end)
+	push de
 
-@loop:
-	push hl
+	; We want to count how many chars we have between _cend and _elptr.
+	ld bc, 0
+	ld hl, (_elptr)
+	ld de, (_cend)
+
+	; Get the number of characters.
 	scf
 	ccf
 	sbc hl, de
+
+	; In order to get the full 24 bit value, we need to store the data
+	; in memory.
+	push hl
+	ld hl, 0
+	add hl, sp
+	ld bc, (hl)
 	pop hl
 
-	; If there are any, we are done.
-	jr Z, @done
-
-	; We have a char. If it's a new line, we are also done
-	ld a, (hl)
-	cp '\r'
-	jr Z, @done
-
-	; It's a regular char. Count it, go to the next char.
-	inc bc
-	inc hl
-	jr @loop
-
-@done:
 	; We now return _cend and count of chars in bc.
 	ld hl, (_cend)
+	pop de
+	ret
+
+
+; TB_GETHEAD: Returns all characters from start of line to current cursor.
+; Returns:
+; - HL: Pointer to start of head.
+; - BC: Number of chars in tail til cursor.
+; Preserves:
+; - DE
+tb_gethead:
+	push de
+
+	; Count how many chars we have between start of line and current
+	; cursor position
+	ld bc, 0
+	ld hl, (_ccur)
+	ld de, (_slptr)
+
+	scf
+	ccf
+	sbc hl, de
+
+	; Because its a 24 bit value, we need to store it in memory to copy it
+	; to BC.
+	push hl
+	ld hl, 0
+	add hl, sp
+	ld bc, (hl)
+	pop hl
+
+	; We now return _slptr and count of chars in bc.
+	ld hl, (_slptr)
+	pop de
 	ret
 
 
@@ -747,7 +926,7 @@ tb_left:
 
 	; Get cursor and check if we can move left.
 	ld hl, (_ccur)
-	ld de, (_tb_start)
+	ld de, (_slptr)
 	scf
 	sbc hl, de
 	jp P, @move
@@ -785,6 +964,24 @@ tb_left:
 	pop hl
 	ret
 
+
+; TB_HOME: Move the cursor to the start of line.
+tb_home:
+	push af
+	push bc
+
+@loop:
+	call tb_left
+	ld a, b
+	or a
+	jr Z, @loop
+
+@done:
+	pop af
+	pop bc
+	ret
+
+
 ; TB_DELETE: Remove a character to the right of the cursor.
 tb_delete:
 	; Preserve registers
@@ -792,7 +989,7 @@ tb_delete:
 	push de
 
 	; Delete is equivalent to advancing the _cend pointer.
-	ld hl, (_tb_end)
+	ld hl, (_elptr)
 	ld de, (_cend)
 	scf
 	ccf
@@ -816,7 +1013,7 @@ tb_bkspace:
 
 	; Get cursor and check if we can move left.
 	ld hl, (_ccur)
-	ld de, (_tb_start)
+	ld de, (_slptr)
 	scf
 	sbc hl, de
 	jp P, @move
@@ -847,6 +1044,7 @@ tb_bkspace:
 	pop hl
 	ret
 
+
 ; TB_RIGHT: Move the cursor right.
 ; Returns:
 ; - A: The character that the cursor is now pointing after moving.
@@ -857,7 +1055,7 @@ tb_right:
 	push de
 
 	; Get cursor and check if we can move right.
-	ld hl, (_tb_end)
+	ld hl, (_elptr)
 	ld de, (_cend)
 	scf
 	sbc hl, de
@@ -905,32 +1103,6 @@ tb_newline:
 	ld a, '\n'
 	call tb_putc
 
-	; Count the number of charcters before the next CR.
-	ld bc, 0
-	ld hl, (_cend)
+	; TODO(icc): things to be done still.
 
-	; Now we add the line to the line buffer. This is analgous to tb_putc.
-	push hl
-	ld hl, (_lcur)
 
-	; Because we are using 3 bytes to store the chars in line count, we
- 	; need to add 3 to the pointer.
-	inc hl
-	inc hl
-	inc hl
-
-	; Write 0 to the current line
-	ld a, 0
-	ld (hl), a
-
-	; Now store the pointer back.
-	ld (_lcur), hl
-
-	; Increment the line count.
-	ld hl, (_lcount)
-	inc hl
-	ld (_lcount), hl
-
-	; We are done.
-	pop hl
-	ret
