@@ -29,14 +29,20 @@ void runOps(gap_buffer* gb) {
     info(gb);
 
     int sz = gb_used(gb);
-    CHAR* buf = (CHAR*) malloc(sz+1);
-    sz = gb_copy(gb, buf, sz);
-    buf[sz] = '\0';
+    info(gb);
+    for (int j = 0; j < sz+1; j++) {
+        gb_prev(gb, 1);
+        CHAR* buf = (CHAR*) malloc(sz);
+        sz = gb_copy(gb, buf, sz);
 
-    for (int i = 0; i < sz; i++) {
-        outchar(buf[i]);
+        for (int i = 0; i < sz; i++) {
+            outchar(buf[i]);
+        }
+        outchar('\r');
+        outchar('\n');
+        free(buf);
     }
-    free(buf);
+    info(gb);
 }
 
 void info(gap_buffer* gb) {

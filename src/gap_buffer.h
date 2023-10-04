@@ -25,8 +25,8 @@ void gb_del(gap_buffer* gb);
 void gb_bksp(gap_buffer* gb);
 
 // Cursor ops.
-int gb_next(gap_buffer* gb, int cnt);
-int gb_prev(gap_buffer* gb, int cnt);
+char gb_next(gap_buffer* gb, int cnt);
+char gb_prev(gap_buffer* gb, int cnt);
 
 // Char read.
 CHAR gb_peek(gap_buffer* gb);

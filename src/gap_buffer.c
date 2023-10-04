@@ -45,6 +45,18 @@ void gb_put(gap_buffer* gb, CHAR ch) {
     gb->curr_++;
 }
 
+char gb_prev(gap_buffer* gb, int cnt) {
+    if ((gb->curr_-cnt) < gb->buf_) {
+        return -1;
+    }
+
+    gb->cend_--;
+    gb->curr_--;
+    *(gb->cend_) = *(gb->curr_);
+
+    return 0;
+}
+
 CHAR gb_peek(gap_buffer* gb) {
     return *(gb->curr_-1);
 }
@@ -69,8 +81,16 @@ CHAR gb_peek_at(gap_buffer* gb, int idx) {
 }
 
 int gb_copy(gap_buffer* gb, CHAR* buf, int size) {
-    for (int i = 0; i < size; i++) {
-        buf[i] = gb->buf_[i];
+    const int prefix = gb->curr_-gb->buf_;
+    int used;
+    for (used = 0; used < size && used < prefix; used++) {
+        buf[used] = gb->buf_[used];
     }
-    return size;
+
+    const int suffix = (gb->buf_+gb->size_) - gb->cend_;
+    for (int i = 0; i < suffix && used < size; used++,i++) {
+        buf[used] = gb->cend_[i];
+    }
+
+    return used;
 }
