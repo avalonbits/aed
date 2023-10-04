@@ -1,8 +1,12 @@
 #include <stdio.h>
 
+#include "gap_buffer.h"
+
 int main(void) {
-    for (int i = 0; i < 10; i++) {
-        printf("Hello, world!\n");
+    gap_buffer gb;
+    if (!gb_init(&gb, 256 << 10)) {
+        return -1;
     }
+    gb_destroy(&gb);
     return 0;
 }
