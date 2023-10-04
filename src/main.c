@@ -43,6 +43,19 @@ void runOps(gap_buffer* gb) {
         free(buf);
     }
     info(gb);
+    for (int j = 0; j < sz+1; j++) {
+        gb_next(gb, 1);
+        CHAR* buf = (CHAR*) malloc(sz);
+        sz = gb_copy(gb, buf, sz);
+
+        for (int i = 0; i < sz; i++) {
+            outchar(buf[i]);
+        }
+        outchar('\r');
+        outchar('\n');
+        free(buf);
+    }
+
 }
 
 void info(gap_buffer* gb) {

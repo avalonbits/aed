@@ -52,9 +52,18 @@ char gb_prev(gap_buffer* gb, int cnt) {
 
     gb->cend_--;
     gb->curr_--;
-    *(gb->cend_) = *(gb->curr_);
+    *gb->cend_ = *gb->curr_;
 
     return 0;
+}
+
+char gb_next(gap_buffer* gb, int cnt) {
+    if ((gb->cend_+cnt) >(gb->buf_+gb->size_)) {
+        return -1;
+    }
+    *gb->curr_ = *gb->cend_;
+    gb->curr_++;
+    gb->cend_++;
 }
 
 CHAR gb_peek(gap_buffer* gb) {
