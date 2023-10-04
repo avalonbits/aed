@@ -1,3 +1,4 @@
+#include <agon/vdp_vdu.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,14 +9,17 @@ void runOps(gap_buffer* gb);
 void info(gap_buffer* gb);
 
 int main(void) {
+    vdp_cursor_enable(false);
+    vdp_clear_screen();
     gap_buffer gb;
     if (!gb_init(&gb, 256 << 10)) {
         return -1;
     }
 
     runOps(&gb);
-    gb_destroy(&gb);
 
+    gb_destroy(&gb);
+    vdp_cursor_enable(true);
     return 0;
 }
 
