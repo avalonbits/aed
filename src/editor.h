@@ -9,7 +9,7 @@ typedef struct _editor {
     gap_buffer* buf_;
 } editor;
 
-editor* ed_init(editor* ed, screen* scr, gap_buffer* gb);
+editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, char cursor);
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);

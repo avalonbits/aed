@@ -3,7 +3,12 @@
 #include <mos_api.h>
 #include <stdbool.h>
 
-editor* ed_init(editor* ed, screen* scr, gap_buffer* gb) {
+editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, char cursor) {
+    if (!gb_init(gb, mem_kb << 10)) {
+       return NULL;
+    }
+
+    scr_init(scr, cursor);
     ed->scr_ = scr;
     ed->buf_ = gb;
     return ed;
@@ -13,7 +18,6 @@ void ed_destroy(editor* ed) {
     ed->scr_ = NULL;
     ed->buf_ = NULL;
 }
-
 
 typedef enum _command {
     CMD_NOP = 0,

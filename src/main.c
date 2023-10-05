@@ -7,15 +7,10 @@ void info(gap_buffer* gb);
 
 int main(void) {
     screen scr;
-    scr_init(&scr, DEFAULT_CURSOR);
-
     gap_buffer gb;
-    if (!gb_init(&gb, 256 << 10)) {
-        return -1;
-    }
-
     editor ed;
-    ed_init(&ed, &scr, &gb);
+
+    ed_init(&ed, &scr, &gb, 256, DEFAULT_CURSOR);
     ed_run(&ed);
 
     ed_destroy(&ed);
