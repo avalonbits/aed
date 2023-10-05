@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "vkey.h"
+
 editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, char cursor) {
     if (!gb_init(gb, mem_kb << 10)) {
        return NULL;
@@ -28,8 +30,7 @@ typedef enum _command {
 typedef struct _key_command {
     Command cmd;
     char key;
-    uint8_t vkey;
-
+    VKey vkey;
 } key_command;
 
 key_command read_input();
@@ -53,11 +54,8 @@ void ed_run(editor* ed) {
     }
 }
 
-#define CTRL_KEY 0x01
-#define VKEY_q 0x26
-#define VKEY_Q 0x40
 key_command ctrlCmds(key_command kc) {
-    if (kc.vkey == VKEY_q || kc.vkey == VKEY_Q) {
+    if (kc.vkey == VK_q || kc.vkey == VK_Q) {
         kc.cmd = CMD_QUIT;
     } else {
         kc.cmd = CMD_NOP;
@@ -66,12 +64,12 @@ key_command ctrlCmds(key_command kc) {
 }
 
 key_command read_input() {
-    key_command kc = {CMD_NOP, ' '};
+    key_command kc = {CMD_NOP, ' ', VK_NONE};
     kc.key = getch();
     kc.vkey = getsysvar_vkeycode();
 
     const uint8_t mods = getsysvar_keymods();
-    if ((mods & CTRL_KEY)) {
+    if ((mods & MOD_CTRL)) {
         return ctrlCmds(kc);
     }
 
