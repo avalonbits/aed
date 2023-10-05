@@ -15,7 +15,7 @@ typedef struct _screen {
 
 #define DEFAULT_CURSOR 32
 
-screen* scr_init(screen* scr,  uint8_t rows, uint8_t cols, char cursor);
+screen* scr_init(screen* scr, char cursor);
 void scr_destroy(screen* scr);
 
 void scr_clear(screen* scr);

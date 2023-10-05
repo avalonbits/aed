@@ -4,13 +4,12 @@
 #include <mos_api.h>
 #include <stdio.h>
 
-screen *scr_init(screen* scr, uint8_t cols, uint8_t rows, char cursor) {
+screen *scr_init(screen* scr, char cursor) {
     vdp_cursor_enable(false);
-    scr->rows_ = rows;
-    scr->cols_ = cols;
+    scr->rows_ = getsysvar_scrRows();
+    scr->cols_ = getsysvar_scrCols();
     scr->cursor_ = cursor;
     scr_clear(scr);
-    printf("%dx%d\r\n", getsysvar_scrCols(), getsysvar_scrRows());
     return scr;
 }
 

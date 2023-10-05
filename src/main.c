@@ -1,18 +1,18 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "gap_buffer.h"
+#include "input_handler.h"
 #include "screen.h"
 
 void runOps(gap_buffer* gb);
 void info(gap_buffer* gb);
 
-static const char* msg = "Hello, world!";
-
 int main(void) {
     screen scr;
-    scr_init(&scr, 80, 60, DEFAULT_CURSOR);
+    scr_init(&scr, DEFAULT_CURSOR);
 
     gap_buffer gb;
     if (!gb_init(&gb, 256 << 10)) {
@@ -20,8 +20,12 @@ int main(void) {
     }
 
 
-    for (size_t i = 0; i < strlen(msg); i++) {
-        scr_putc(&scr, msg[i]);
+    while (true) {
+        key_command kc = read_input();
+        if (kc.key == 'q') {
+            break;
+        }
+        scr_putc(&scr, kc.key);
     }
 
     gb_destroy(&gb);
@@ -30,7 +34,7 @@ int main(void) {
 }
 
 
-
+static const char* msg = "Hello, world!";
 void runOps(gap_buffer* gb) {
     info(gb);
 
