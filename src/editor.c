@@ -2,6 +2,7 @@
 
 #include <mos_api.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, char cursor) {
     if (!gb_init(gb, mem_kb << 10)) {
@@ -27,6 +28,8 @@ typedef enum _command {
 typedef struct _key_command {
     Command cmd;
     char key;
+    uint8_t vkey;
+
 } key_command;
 
 key_command read_input();
@@ -50,14 +53,31 @@ void ed_run(editor* ed) {
     }
 }
 
+#define CTRL_KEY 0x01
+#define VKEY_q 0x26
+#define VKEY_Q 0x40
+key_command ctrlCmds(key_command kc) {
+    if (kc.vkey == VKEY_q || kc.vkey == VKEY_Q) {
+        kc.cmd = CMD_QUIT;
+    } else {
+        kc.cmd = CMD_NOP;
+    }
+    return kc;
+}
+
 key_command read_input() {
     key_command kc = {CMD_NOP, ' '};
     kc.key = getch();
+    kc.vkey = getsysvar_vkeycode();
 
-    if (kc.key == 'q') {
-        kc.cmd = CMD_QUIT;
-    } else if (kc.key != 0x7F && kc.key >= 32) {
+    const uint8_t mods = getsysvar_keymods();
+    if ((mods & CTRL_KEY)) {
+        return ctrlCmds(kc);
+    }
+
+    if (kc.key != 0x7F && kc.key >= 32) {
         kc.cmd = CMD_PUTC;
+    } else {
     }
 
     return kc;
