@@ -23,9 +23,11 @@ void ed_destroy(editor* ed) {
 }
 
 typedef enum _command {
-    CMD_NOP = 0,
-    CMD_PUTC = 1,
-    CMD_QUIT = 2,
+    CMD_NOOP,
+    CMD_PUTC,
+    CMD_QUIT,
+    CMD_BKSP,
+    CMD_LEFT,
 } Command;
 
 typedef struct _key_command {
@@ -44,6 +46,8 @@ void ed_run(editor* ed) {
     while (!done) {
         key_command kc = read_input();
         switch (kc.cmd) {
+            case CMD_NOOP:
+                break;
             case CMD_QUIT:
                 done = true;
                 break;
@@ -51,34 +55,58 @@ void ed_run(editor* ed) {
                 scr_putc(scr, kc.key);
 				gb_put(buf, kc.key);
                 break;
-            case CMD_NOP:
+            case CMD_BKSP:
+                break;
+            case CMD_LEFT:
                 break;
         }
     }
+    scr_clear(scr);
+
+    int sz = gb_used(buf);
+    for (int i = 0; i < sz; i++) {
+        outchar(gb_peek_at(buf, i));
+    }
 }
 
-key_command ctrlCmds(key_command kc) {
+key_command modCmds(key_command kc) {
     if (kc.vkey == VK_q || kc.vkey == VK_Q) {
         kc.cmd = CMD_QUIT;
     } else {
-        kc.cmd = CMD_NOP;
+        kc.cmd = CMD_NOOP;
+    }
+    return kc;
+}
+
+key_command ctrlCmds(key_command kc) {
+    switch (kc.vkey) {
+        case VK_LEFT:
+        case VK_KP_LEFT:
+            kc.cmd = CMD_LEFT;
+            break;
+        case VK_BACKSPACE:
+            kc.cmd = CMD_BKSP;
+            break;
+        default:
+            break;
     }
     return kc;
 }
 
 key_command read_input() {
-    key_command kc = {CMD_NOP, '\0', VK_NONE};
+    key_command kc = {CMD_NOOP, '\0', VK_NONE};
     kc.key = getch();
     kc.vkey = getsysvar_vkeycode();
 
     const uint8_t mods = getsysvar_keymods();
     if ((mods & MOD_CTRL)) {
-        return ctrlCmds(kc);
+        return modCmds(kc);
     }
 
     if (kc.key != 0x7F && kc.key >= 32) {
         kc.cmd = CMD_PUTC;
     } else {
+        return ctrlCmds(kc);
     }
 
     return kc;

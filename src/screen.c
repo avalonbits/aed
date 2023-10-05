@@ -34,7 +34,6 @@ screen *scr_init(screen* scr, char cursor, char fg, char bg) {
 }
 
 void scr_destroy(screen* scr) {
-    scr_clear(scr);
     vdp_cursor_enable(true);
     scr->currX_ = 0;
     scr->currY_ = 0;
