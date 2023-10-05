@@ -34,6 +34,7 @@ screen *scr_init(screen* scr, char cursor, char fg, char bg) {
 }
 
 void scr_destroy(screen* scr) {
+    scr_clear(scr);
     vdp_cursor_enable(true);
     scr->currX_ = 0;
     scr->currY_ = 0;
@@ -55,7 +56,6 @@ static void scr_hide_cursor(screen* scr) {
     putch(scr->cursor_);
     vdp_cursor_left();
 }
-
 
 void scr_putc(screen* scr, char ch) {
     scr_hide_cursor(scr);
