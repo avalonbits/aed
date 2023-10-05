@@ -1,29 +1,37 @@
-#include <agon/vdp_vdu.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "gap_buffer.h"
+#include "screen.h"
 
 void runOps(gap_buffer* gb);
 void info(gap_buffer* gb);
 
+static const char* msg = "Hello, world!";
+
 int main(void) {
-    vdp_cursor_enable(false);
-    vdp_clear_screen();
+    screen scr;
+    scr_init(&scr, 80, 60, DEFAULT_CURSOR);
+    scr_clear(&scr);
+
     gap_buffer gb;
     if (!gb_init(&gb, 256 << 10)) {
         return -1;
     }
 
-    runOps(&gb);
+
+    for (int i = 0; i < strlen(msg); i++) {
+        scr_putc(&scr, msg[i]);
+    }
 
     gb_destroy(&gb);
-    vdp_cursor_enable(true);
+    scr_destroy(&scr);
     return 0;
 }
 
-static const char* msg = "Hello, world!";
+
+
 void runOps(gap_buffer* gb) {
     info(gb);
 
