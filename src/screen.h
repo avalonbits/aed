@@ -11,11 +11,15 @@ typedef struct _screen {
     uint8_t currY_;
 
     char cursor_;
+    char fg_;
+    char bg_;
 } screen;
 
 #define DEFAULT_CURSOR 32
+#define DEFAULT_FG 15
+#define DEFAULT_BG 0
 
-screen* scr_init(screen* scr, char cursor);
+screen* scr_init(screen* scr, char cursor, char fg, char bg);
 void scr_destroy(screen* scr);
 
 void scr_clear(screen* scr);
