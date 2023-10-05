@@ -1,13 +1,13 @@
 #ifndef _GAP_BUFFER_H_
 #define _GAP_BUFFER_H_
 
-typedef unsigned char CHAR;
+#include <stdint.h>
 
 typedef struct _gap_buffer  {
     int size_;
-    CHAR* buf_;
-    CHAR* curr_;
-    CHAR* cend_;
+    uint8_t* buf_;
+    uint8_t* curr_;
+    uint8_t* cend_;
 } gap_buffer;
 
 // Setup ops.
@@ -20,18 +20,18 @@ int gb_available(gap_buffer* gb);
 int gb_used(gap_buffer* gb);
 
 // Characterr ops.
-void gb_put(gap_buffer* gb, CHAR ch);
+void gb_put(gap_buffer* gb, uint8_t ch);
 void gb_del(gap_buffer* gb);
 void gb_bksp(gap_buffer* gb);
 
 // Cursor ops.
-char gb_next(gap_buffer* gb, int cnt);
-char gb_prev(gap_buffer* gb, int cnt);
+uint8_t gb_next(gap_buffer* gb, int cnt);
+uint8_t gb_prev(gap_buffer* gb, int cnt);
 
 // Char read.
-CHAR gb_peek(gap_buffer* gb);
-CHAR gb_peek_at(gap_buffer* gb, int idx);
-int gb_copy(gap_buffer* gb, CHAR* buf, int size);
+uint8_t gb_peek(gap_buffer* gb);
+uint8_t gb_peek_at(gap_buffer* gb, int idx);
+int gb_copy(gap_buffer* gb, uint8_t* buf, int size);
 
 
 #endif  // _GAP_BUFFER_H_

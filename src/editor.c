@@ -2,11 +2,12 @@
 
 #include <mos_api.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "vkey.h"
 
-editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, char cursor) {
+editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, uint8_t cursor) {
     if (!gb_init(gb, mem_kb << 10)) {
        return NULL;
     }
@@ -29,7 +30,7 @@ typedef enum _command {
 
 typedef struct _key_command {
     Command cmd;
-    char key;
+    uint8_t key;
     VKey vkey;
 } key_command;
 
@@ -37,6 +38,7 @@ key_command read_input();
 
 void ed_run(editor* ed) {
     screen* scr = ed->scr_;
+    gap_buffer* buf = ed->buf_;
 
     bool done = false;
     while (!done) {
@@ -47,6 +49,7 @@ void ed_run(editor* ed) {
                 break;
             case CMD_PUTC:
                 scr_putc(scr, kc.key);
+				gb_put(buf, kc.key);
                 break;
             case CMD_NOP:
                 break;
@@ -64,7 +67,7 @@ key_command ctrlCmds(key_command kc) {
 }
 
 key_command read_input() {
-    key_command kc = {CMD_NOP, ' ', VK_NONE};
+    key_command kc = {CMD_NOP, '\0', VK_NONE};
     kc.key = getch();
     kc.vkey = getsysvar_vkeycode();
 

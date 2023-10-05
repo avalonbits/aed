@@ -7,7 +7,7 @@ gap_buffer* gb_init(gap_buffer* gb, int size) {
         return NULL;
     }
 
-    gb->buf_ = (CHAR*) malloc(sizeof(CHAR) * size);
+    gb->buf_ = (uint8_t*) malloc(sizeof(uint8_t) * size);
     if (gb->buf_ == NULL) {
         return NULL;
     }
@@ -32,7 +32,7 @@ int gb_available(gap_buffer* gb) {
 }
 
 int gb_used(gap_buffer* gb) {
-    CHAR* end = gb->buf_ + gb->size_;
+    uint8_t* end = gb->buf_ + gb->size_;
     int total = 0;
 
     total += (gb->curr_ - gb->buf_);
@@ -40,12 +40,12 @@ int gb_used(gap_buffer* gb) {
     return total;
 }
 
-void gb_put(gap_buffer* gb, CHAR ch) {
+void gb_put(gap_buffer* gb, uint8_t ch) {
     *gb->curr_ = ch;
     gb->curr_++;
 }
 
-char gb_prev(gap_buffer* gb, int cnt) {
+uint8_t gb_prev(gap_buffer* gb, int cnt) {
     if ((gb->curr_-cnt) < gb->buf_) {
         return -1;
     }
@@ -57,7 +57,7 @@ char gb_prev(gap_buffer* gb, int cnt) {
     return 0;
 }
 
-char gb_next(gap_buffer* gb, int cnt) {
+uint8_t gb_next(gap_buffer* gb, int cnt) {
     if ((gb->cend_+cnt) >(gb->buf_+gb->size_)) {
         return -1;
     }
@@ -66,11 +66,11 @@ char gb_next(gap_buffer* gb, int cnt) {
     gb->cend_++;
 }
 
-CHAR gb_peek(gap_buffer* gb) {
+uint8_t gb_peek(gap_buffer* gb) {
     return *(gb->curr_-1);
 }
 
-CHAR gb_peek_at(gap_buffer* gb, int idx) {
+uint8_t gb_peek_at(gap_buffer* gb, int idx) {
     if (idx < 0) {
         return '\0';
     }
@@ -89,7 +89,7 @@ CHAR gb_peek_at(gap_buffer* gb, int idx) {
     return '\0';
 }
 
-int gb_copy(gap_buffer* gb, CHAR* buf, int size) {
+int gb_copy(gap_buffer* gb, uint8_t* buf, int size) {
     const int prefix = gb->curr_-gb->buf_;
     int used;
     for (used = 0; used < size && used < prefix; used++) {
