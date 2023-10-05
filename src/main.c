@@ -13,7 +13,6 @@ static const char* msg = "Hello, world!";
 int main(void) {
     screen scr;
     scr_init(&scr, 80, 60, DEFAULT_CURSOR);
-    scr_clear(&scr);
 
     gap_buffer gb;
     if (!gb_init(&gb, 256 << 10)) {
@@ -21,7 +20,7 @@ int main(void) {
     }
 
 
-    for (int i = 0; i < strlen(msg); i++) {
+    for (size_t i = 0; i < strlen(msg); i++) {
         scr_putc(&scr, msg[i]);
     }
 
