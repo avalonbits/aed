@@ -7,8 +7,10 @@ static void cmd_noop(screen* scr, gap_buffer* buf, key_command kc) {
 }
 
 static void cmd_putc(screen* scr, gap_buffer* buf, key_command kc) {
-    scr_putc(scr, kc.key);
 	gb_put(buf, kc.key);
+    int sz = 0;
+    uint8_t* suffix = gb_suffix(buf, &sz);
+    scr_putc(scr, kc.key, suffix, sz);
 }
 
 static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {

@@ -33,6 +33,7 @@ uint8_t gb_prev(gap_buffer* gb);
 uint8_t gb_peek(gap_buffer* gb);
 uint8_t gb_peek_at(gap_buffer* gb, int idx);
 int gb_copy(gap_buffer* gb, uint8_t* buf, int size);
+uint8_t* gb_suffix(gap_buffer* gb, int* sz);
 
 
 #endif  // _GAP_BUFFER_H_

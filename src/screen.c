@@ -64,20 +64,34 @@ static void scr_hide_cursor(screen* scr) {
     scr_hide_cursor_ch(scr, scr->cursor_);
 }
 
-void scr_putc(screen* scr, char ch) {
+void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
     scr_hide_cursor(scr);
     putch(ch);
-    scr_show_cursor(scr);
     scr->currX_++;
+    if (suffix != NULL && sz > 0) {
+        for (int i = 0; i < sz; i++) {
+            putch(suffix[i]);
+        }
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor(scr);
 }
 
 void scr_bksp(screen* scr) {
+    if (scr->currX_ == 0) {
+        return;
+    }
+    scr->currX_--;
     scr_hide_cursor(scr);
     vdp_cursor_left();
     scr_show_cursor(scr);
 }
 
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
+    if (scr->currX_ == 0) {
+        return;
+    }
+    scr->currX_--;
     if (from_ch == 0) {
         from_ch = scr->cursor_;
     }

@@ -101,6 +101,18 @@ uint8_t gb_peek_at(gap_buffer* gb, int idx) {
     return '\0';
 }
 
+uint8_t* gb_suffix(gap_buffer* gb, int* sz) {
+    const uint8_t* end = gb->buf_ + gb->size_;
+    int pSZ = end - gb->cend_;
+    if (sz != NULL) {
+        *sz = pSZ;
+    }
+    if (pSZ > 0) {
+        return gb->cend_;
+    }
+    return NULL;
+}
+
 int gb_copy(gap_buffer* gb, uint8_t* buf, int size) {
     const int prefix = gb->curr_-gb->buf_;
     int used;
