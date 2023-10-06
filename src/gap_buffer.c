@@ -65,21 +65,25 @@ uint8_t gb_prev(gap_buffer* gb) {
 }
 
 uint8_t gb_next(gap_buffer* gb) {
-    if (gb->cend_ > gb->buf_+gb->size_) {
-        return 0;
+    const uint8_t* end = gb->buf_+gb->size_;
+    if (gb->cend_ < end) {
+        *gb->curr_ = *gb->cend_;
+        gb->curr_++;
+        gb->cend_++;
+
+        if (gb->cend_ < end) {
+            return *gb->cend_;
+        }
     }
-    uint8_t ch = *gb->curr_ = *gb->cend_;
-    gb->curr_++;
-    gb->cend_++;
-    return ch;
+    return 0;
 }
 
 uint8_t gb_peek(gap_buffer* gb) {
     const uint8_t* end = gb->buf_ + gb->size_;
-    if (gb->curr_ == gb->buf_ || gb->cend_ == end) {
+    if (gb->cend_ == end) {
         return 0;
     }
-    return *gb->curr_;
+    return *gb->cend_;
 }
 
 uint8_t gb_peek_at(gap_buffer* gb, int idx) {

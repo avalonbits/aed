@@ -1,5 +1,8 @@
 #include "cmd_ops.h"
 
+#include <agon/vdp_vdu.h>
+#include <stdio.h>
+
 #define UN(x) (void)(x)
 
 static void cmd_noop(screen* scr, gap_buffer* buf, key_command kc) {
@@ -33,8 +36,8 @@ static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
 static void cmd_rght(screen* scr, gap_buffer* buf, key_command kc) {
     uint8_t from_ch = gb_peek(buf);
     uint8_t to_ch = gb_next(buf);
-    if (to_ch == 0) {
-        // We are at the end of the buffer.
+
+    if (from_ch == 0 && to_ch == 0) {
         return;
     }
     scr_right(scr, from_ch, to_ch);
