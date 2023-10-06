@@ -5,18 +5,22 @@
 #include <stdio.h>
 
 
-static void scr_show_cursor(screen* scr) {
+static void scr_show_cursor_ch(screen* scr, uint8_t ch) {
     // First reverse colors
     vdp_set_text_colour(scr->bg_);
     vdp_set_text_colour(scr->fg_+128);
 
     // Print the cursor;
-    putch(scr->cursor_);
+    putch(ch);
     vdp_cursor_left();
 
     // Reverse colors back.
     vdp_set_text_colour(scr->fg_);
     vdp_set_text_colour(scr->bg_+128);
+}
+
+static void scr_show_cursor(screen* scr) {
+    scr_show_cursor_ch(scr, scr->cursor_);
 }
 
 screen *scr_init(screen* scr, char cursor, char fg, char bg) {
@@ -49,11 +53,15 @@ void scr_clear(screen* scr) {
     scr->currY_ = 0;
 }
 
-static void scr_hide_cursor(screen* scr) {
+static void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
     vdp_set_text_colour(scr->fg_);
     vdp_set_text_colour(scr->bg_+128);
-    putch(scr->cursor_);
+    putch(ch);
     vdp_cursor_left();
+}
+
+static void scr_hide_cursor(screen* scr) {
+    scr_hide_cursor_ch(scr, scr->cursor_);
 }
 
 void scr_putc(screen* scr, char ch) {
@@ -69,3 +77,11 @@ void scr_bksp(screen* scr) {
     scr_show_cursor(scr);
 }
 
+void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
+    if (from_ch == 0) {
+        from_ch = scr->cursor_;
+    }
+    scr_hide_cursor_ch(scr, from_ch);
+    vdp_cursor_left();
+    scr_show_cursor_ch(scr, to_ch);
+}

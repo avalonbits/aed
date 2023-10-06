@@ -19,6 +19,13 @@ static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
 }
 
 static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
+    uint8_t from_ch = gb_peek(buf);
+    uint8_t to_ch = gb_prev(buf);
+    if (to_ch == 0) {
+        // We are at the begining of the buffer.
+        return;
+    }
+    scr_left(scr, from_ch, to_ch);
 }
 
 

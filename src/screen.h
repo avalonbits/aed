@@ -26,4 +26,6 @@ void scr_clear(screen* scr);
 void scr_putc(screen* scr, char ch);
 void scr_bksp(screen* scr);
 
+void scr_left(screen* scr, uint8_t from_ch, uint8_t to_char);
+
 #endif  // _SCREEN_H_
