@@ -22,7 +22,7 @@ int gb_used(gap_buffer* gb);
 // Characterr ops.
 void gb_put(gap_buffer* gb, uint8_t ch);
 void gb_del(gap_buffer* gb);
-void gb_bksp(gap_buffer* gb);
+uint8_t gb_bksp(gap_buffer* gb);
 
 // Cursor ops.
 uint8_t gb_next(gap_buffer* gb, int cnt);

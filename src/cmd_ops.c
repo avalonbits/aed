@@ -2,19 +2,20 @@
 
 #define UN(x) (void)(x)
 
-void cmd_noop(screen* scr, gap_buffer* buf, key_command kc) {
+static void cmd_noop(screen* scr, gap_buffer* buf, key_command kc) {
     UN(scr);UN(buf);UN(kc);
 }
 
-void cmd_putc(screen* scr, gap_buffer* buf, key_command kc) {
+static void cmd_putc(screen* scr, gap_buffer* buf, key_command kc) {
     scr_putc(scr, kc.key);
 	gb_put(buf, kc.key);
 }
 
-void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
+static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
+    gb_bksp(buf);
 }
 
-void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
+static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
 }
 
 

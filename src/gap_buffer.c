@@ -45,6 +45,14 @@ void gb_put(gap_buffer* gb, uint8_t ch) {
     gb->curr_++;
 }
 
+uint8_t gb_bksp(gap_buffer* gb) {
+    if (gb->curr_ == gb->buf_) {
+        return -1;
+    }
+    gb->curr_--;
+    return 0;
+}
+
 uint8_t gb_prev(gap_buffer* gb, int cnt) {
     if ((gb->curr_-cnt) < gb->buf_) {
         return -1;
