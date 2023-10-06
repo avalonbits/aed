@@ -63,6 +63,7 @@ void ed_run(editor* ed) {
     }
     scr_clear(scr);
 
+    printf("Buf contents:\r\n");
     int sz = gb_used(buf);
     for (int i = 0; i < sz; i++) {
         outchar(gb_peek_at(buf, i));
