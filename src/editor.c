@@ -59,6 +59,10 @@ key_command ctrlCmds(key_command kc) {
         case VK_KP_LEFT:
             kc.cmd = CMD_LEFT;
             break;
+        case VK_RIGHT:
+        case VK_KP_RIGHT:
+            kc.cmd = CMD_RGHT;
+            break;
         case VK_BACKSPACE:
             kc.cmd = CMD_BKSP;
             break;

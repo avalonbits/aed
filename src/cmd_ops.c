@@ -30,6 +30,15 @@ static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
     scr_left(scr, from_ch, to_ch);
 }
 
+static void cmd_rght(screen* scr, gap_buffer* buf, key_command kc) {
+    uint8_t from_ch = gb_peek(buf);
+    uint8_t to_ch = gb_next(buf);
+    if (to_ch == 0) {
+        // We are at the end of the buffer.
+        return;
+    }
+    scr_right(scr, from_ch, to_ch);
+}
 
 cmd_op cmds[] = {
     cmd_noop,
@@ -37,7 +46,8 @@ cmd_op cmds[] = {
 
     cmd_putc,
     cmd_bksp,
-    cmd_left
+    cmd_left,
+    cmd_rght
 };
 
 
