@@ -1,6 +1,7 @@
 #ifndef _GAP_BUFFER_H_
 #define _GAP_BUFFER_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct _gap_buffer  {
@@ -22,11 +23,11 @@ int gb_used(gap_buffer* gb);
 // Characterr ops.
 void gb_put(gap_buffer* gb, uint8_t ch);
 void gb_del(gap_buffer* gb);
-uint8_t gb_bksp(gap_buffer* gb);
+bool gb_bksp(gap_buffer* gb);
 
 // Cursor ops.
-uint8_t gb_next(gap_buffer* gb, int cnt);
-uint8_t gb_prev(gap_buffer* gb, int cnt);
+bool gb_next(gap_buffer* gb, int cnt);
+bool gb_prev(gap_buffer* gb, int cnt);
 
 // Char read.
 uint8_t gb_peek(gap_buffer* gb);

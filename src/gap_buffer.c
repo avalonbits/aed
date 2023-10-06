@@ -45,33 +45,34 @@ void gb_put(gap_buffer* gb, uint8_t ch) {
     gb->curr_++;
 }
 
-uint8_t gb_bksp(gap_buffer* gb) {
-    if (gb->curr_ == gb->buf_) {
-        return -1;
+bool gb_bksp(gap_buffer* gb) {
+    const bool bk = gb->curr_ > gb->buf_;
+    if (bk) {
+        gb->curr_--;
     }
-    gb->curr_--;
-    return 0;
+    return bk;
 }
 
-uint8_t gb_prev(gap_buffer* gb, int cnt) {
+bool gb_prev(gap_buffer* gb, int cnt) {
     if ((gb->curr_-cnt) < gb->buf_) {
-        return -1;
+        return false;;
     }
 
     gb->cend_--;
     gb->curr_--;
     *gb->cend_ = *gb->curr_;
 
-    return 0;
+    return true;
 }
 
-uint8_t gb_next(gap_buffer* gb, int cnt) {
+bool gb_next(gap_buffer* gb, int cnt) {
     if ((gb->cend_+cnt) >(gb->buf_+gb->size_)) {
-        return -1;
+        return false;
     }
     *gb->curr_ = *gb->cend_;
     gb->curr_++;
     gb->cend_++;
+    return true;
 }
 
 uint8_t gb_peek(gap_buffer* gb) {
