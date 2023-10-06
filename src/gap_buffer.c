@@ -76,6 +76,9 @@ bool gb_next(gap_buffer* gb, int cnt) {
 }
 
 uint8_t gb_peek(gap_buffer* gb) {
+    if (gb->curr_ == gb->buf_) {
+        return 0;
+    }
     return *(gb->curr_-1);
 }
 

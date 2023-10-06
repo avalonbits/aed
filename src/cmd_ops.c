@@ -15,6 +15,7 @@ static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
     if (!gb_bksp(buf)) {
         return;
     }
+    scr_bksp(scr);
 }
 
 static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {

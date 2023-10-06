@@ -62,3 +62,10 @@ void scr_putc(screen* scr, char ch) {
     scr_show_cursor(scr);
     scr->currX_++;
 }
+
+void scr_bksp(screen* scr) {
+    scr_hide_cursor(scr);
+    vdp_cursor_left();
+    scr_show_cursor(scr);
+}
+
