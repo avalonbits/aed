@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "vkey.h"
+#include "cmd_ops.h"
 
 editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, uint8_t cursor) {
     if (!gb_init(gb, mem_kb << 10)) {
@@ -22,44 +22,18 @@ void ed_destroy(editor* ed) {
     ed->buf_ = NULL;
 }
 
-typedef enum _command {
-    CMD_NOOP,
-    CMD_PUTC,
-    CMD_QUIT,
-    CMD_BKSP,
-    CMD_LEFT,
-} Command;
-
-typedef struct _key_command {
-    Command cmd;
-    uint8_t key;
-    VKey vkey;
-} key_command;
-
 key_command read_input();
 
 void ed_run(editor* ed) {
     screen* scr = ed->scr_;
     gap_buffer* buf = ed->buf_;
 
-    bool done = false;
-    while (!done) {
+    for (;;) {
         key_command kc = read_input();
-        switch (kc.cmd) {
-            case CMD_NOOP:
-                break;
-            case CMD_QUIT:
-                done = true;
-                break;
-            case CMD_PUTC:
-                scr_putc(scr, kc.key);
-				gb_put(buf, kc.key);
-                break;
-            case CMD_BKSP:
-                break;
-            case CMD_LEFT:
-                break;
+        if (kc.cmd == CMD_QUIT) {
+            break;
         }
+        cmds[kc.cmd](scr, buf, kc);
     }
     scr_clear(scr);
 
