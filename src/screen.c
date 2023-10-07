@@ -104,8 +104,8 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
 
 void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch) {
     scr->currX_++;
-    if (from_ch == 0) {
-        from_ch = scr->cursor_;
+    if (to_ch == 0) {
+        to_ch = scr->cursor_;
     }
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_right();

@@ -17,6 +17,7 @@ static void cmd_putc(screen* scr, gap_buffer* buf, key_command kc) {
 }
 
 static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
+    UN(kc);
     if (!gb_bksp(buf)) {
         return;
     }
@@ -24,6 +25,7 @@ static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
 }
 
 static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
+    UN(kc);
     uint8_t from_ch = gb_peek(buf);
     uint8_t to_ch = gb_prev(buf);
     if (to_ch == 0) {
@@ -34,12 +36,12 @@ static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {
 }
 
 static void cmd_rght(screen* scr, gap_buffer* buf, key_command kc) {
+    UN(kc);
     uint8_t from_ch = gb_peek(buf);
-    uint8_t to_ch = gb_next(buf);
-
-    if (from_ch == 0 && to_ch == 0) {
+    if (from_ch == 0) {
         return;
     }
+    uint8_t to_ch = gb_next(buf);
     scr_right(scr, from_ch, to_ch);
 }
 
