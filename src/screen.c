@@ -79,14 +79,20 @@ void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
     }
 }
 
-void scr_bksp(screen* scr) {
+void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     if (scr->currX_ == 0) {
         return;
     }
+    scr_erase(scr, sz);
     scr->currX_--;
     scr_hide_cursor(scr);
     vdp_cursor_left();
     scr_show_cursor(scr);
+    for (int i = 0; i < sz; i++) {
+        putch(suffix[i]);
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+
 }
 
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
@@ -110,4 +116,11 @@ void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch) {
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_right();
     scr_show_cursor_ch(scr, to_ch);
+}
+
+void scr_erase(screen* scr, int sz) {
+    for (int i = 0; i < sz; i++) {
+        putch(' ');
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
 }

@@ -18,10 +18,17 @@ static void cmd_putc(screen* scr, gap_buffer* buf, key_command kc) {
 
 static void cmd_bksp(screen* scr, gap_buffer* buf, key_command kc) {
     UN(kc);
+
+    int sz = 0;
+    gb_suffix(buf, &sz);
+    scr_erase(scr, sz);
+
     if (!gb_bksp(buf)) {
         return;
     }
-    scr_bksp(scr);
+    sz = 0;
+    uint8_t* suffix = gb_suffix(buf, &sz);
+    scr_bksp(scr, suffix, sz);
 }
 
 static void cmd_left(screen* scr, gap_buffer* buf, key_command kc) {

@@ -24,9 +24,9 @@ void scr_destroy(screen* scr);
 
 void scr_clear(screen* scr);
 void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz);
-void scr_bksp(screen* scr);
+void scr_bksp(screen* scr, uint8_t* suffix, int sz);
 
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_char);
 void scr_right(screen* scr, uint8_t from_ch, uint8_t to_char);
-
+void scr_erase(screen* scr, int sz);
 #endif  // _SCREEN_H_
