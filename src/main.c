@@ -2,9 +2,6 @@
 #include "editor.h"
 #include "screen.h"
 
-void runOps(char_buffer* cb);
-void info(char_buffer* cb);
-
 int main(void) {
     editor ed;
 
