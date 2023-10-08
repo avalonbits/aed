@@ -10,6 +10,9 @@ typedef struct _screen {
     uint8_t currX_;
     uint8_t currY_;
 
+    uint8_t topY_;
+    uint8_t bottomY_;
+
     char cursor_;
     char fg_;
     char bg_;

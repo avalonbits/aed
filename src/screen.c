@@ -31,6 +31,8 @@ screen *scr_init(screen* scr, char cursor, char fg, char bg) {
     scr->cursor_ = cursor;
     scr->fg_ = fg;
     scr->bg_ = bg;
+    scr->topY_ = 1;
+    scr->bottomY_ = scr->cols_-2;
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
@@ -45,12 +47,26 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
+static void scr_set_reverse_colours(screen* scr) {
+    vdp_set_text_colour(scr->bg_);
+    vdp_set_text_colour(scr->fg_+128);
+}
+
+static void scr_set_colours(screen* scr) {
+    vdp_set_text_colour(scr->fg_);
+    vdp_set_text_colour(scr->bg_+128);
+}
+
+const char* title = "AED - Agon Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
-
+    scr_set_reverse_colours(scr);
+    printf("                             %s                             ", title);
     scr->currX_ = 0;
-    scr->currY_ = 0;
+    scr->currY_ = scr->topY_;
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_set_colours(scr);
 }
 
 static void scr_hide_cursor_ch(screen* scr, uint8_t ch) {

@@ -1,5 +1,6 @@
 #include "editor.h"
 
+#include <agon/vdp_vdu.h>
 #include <mos_api.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,6 +35,7 @@ void ed_run(editor* ed) {
         cmds[kc.cmd](scr, buf, kc);
     }
     scr_clear(scr);
+    vdp_clear_screen();
 
     printf("Buf contents:\r\n");
     int sz = tb_used(buf);
