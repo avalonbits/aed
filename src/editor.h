@@ -7,11 +7,11 @@
 #include "char_buffer.h"
 
 typedef struct _editor {
-    screen* scr_;
-    char_buffer* buf_;
+    screen scr_;
+    char_buffer buf_;
 } editor;
 
-editor* ed_init(editor* ed, screen* scr, char_buffer* cb, int mem_kb, uint8_t cursor);
+editor* ed_init(editor* ed, int mem_kb, uint8_t cursor);
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);

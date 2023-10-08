@@ -7,26 +7,24 @@
 
 #include "cmd_ops.h"
 
-editor* ed_init(editor* ed, screen* scr, char_buffer* cb, int mem_kb, uint8_t cursor) {
-    if (!cb_init(cb, mem_kb << 10)) {
+editor* ed_init(editor* ed, int mem_kb, uint8_t cursor) {
+    if (!cb_init(&ed->buf_, mem_kb << 10)) {
        return NULL;
     }
-    scr_init(scr, cursor, DEFAULT_FG, DEFAULT_BG);
-    ed->scr_ = scr;
-    ed->buf_ = cb;
+    scr_init(&ed->scr_, cursor, DEFAULT_FG, DEFAULT_BG);
     return ed;
 }
 
 void ed_destroy(editor* ed) {
-    ed->scr_ = NULL;
-    ed->buf_ = NULL;
+    scr_destroy(&ed->scr_);
+    cb_destroy(&ed->buf_);
 }
 
 key_command read_input();
 
 void ed_run(editor* ed) {
-    screen* scr = ed->scr_;
-    char_buffer* buf = ed->buf_;
+    screen* scr = &ed->scr_;
+    char_buffer* buf = &ed->buf_;
 
     for (;;) {
         key_command kc = read_input();
