@@ -8,7 +8,7 @@
 #include "cmd_ops.h"
 
 editor* ed_init(editor* ed, int mem_kb, uint8_t cursor) {
-    if (!cb_init(&ed->buf_, mem_kb << 10)) {
+    if (!tb_init(&ed->buf_, mem_kb << 10)) {
        return NULL;
     }
     scr_init(&ed->scr_, cursor, DEFAULT_FG, DEFAULT_BG);
@@ -17,14 +17,14 @@ editor* ed_init(editor* ed, int mem_kb, uint8_t cursor) {
 
 void ed_destroy(editor* ed) {
     scr_destroy(&ed->scr_);
-    cb_destroy(&ed->buf_);
+    tb_destroy(&ed->buf_);
 }
 
 key_command read_input();
 
 void ed_run(editor* ed) {
     screen* scr = &ed->scr_;
-    char_buffer* buf = &ed->buf_;
+    text_buffer* buf = &ed->buf_;
 
     for (;;) {
         key_command kc = read_input();
@@ -36,9 +36,9 @@ void ed_run(editor* ed) {
     scr_clear(scr);
 
     printf("Buf contents:\r\n");
-    int sz = cb_used(buf);
+    int sz = tb_used(buf);
     for (int i = 0; i < sz; i++) {
-        outchar(cb_peek_at(buf, i));
+        outchar(tb_peek_at(buf, i));
     }
 }
 

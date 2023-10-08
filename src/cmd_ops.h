@@ -1,7 +1,7 @@
 #ifndef _CMD_OPS_H_
 #define _CMD_OPS_H_
 
-#include "char_buffer.h"
+#include "text_buffer.h"
 #include "screen.h"
 #include "vkey.h"
 
@@ -21,7 +21,7 @@ typedef struct _key_command {
     VKey vkey;
 } key_command;
 
-typedef void(*cmd_op)(screen*, char_buffer*, key_command);
+typedef void(*cmd_op)(screen*, text_buffer*, key_command);
 
 extern cmd_op cmds[];
 
