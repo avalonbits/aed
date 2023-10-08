@@ -2,19 +2,19 @@
 #include "editor.h"
 #include "screen.h"
 
-void runOps(gap_buffer* gb);
-void info(gap_buffer* gb);
+void runOps(char_buffer* cb);
+void info(char_buffer* cb);
 
 int main(void) {
     screen scr;
-    gap_buffer gb;
+    char_buffer cb;
     editor ed;
 
-    ed_init(&ed, &scr, &gb, 256, DEFAULT_CURSOR);
+    ed_init(&ed, &scr, &cb, 256, DEFAULT_CURSOR);
     ed_run(&ed);
 
     ed_destroy(&ed);
-    gb_destroy(&gb);
+    cb_destroy(&cb);
     scr_destroy(&scr);
     return 0;
 }

@@ -7,13 +7,13 @@
 
 #include "cmd_ops.h"
 
-editor* ed_init(editor* ed, screen* scr, gap_buffer* gb, int mem_kb, uint8_t cursor) {
-    if (!gb_init(gb, mem_kb << 10)) {
+editor* ed_init(editor* ed, screen* scr, char_buffer* cb, int mem_kb, uint8_t cursor) {
+    if (!cb_init(cb, mem_kb << 10)) {
        return NULL;
     }
     scr_init(scr, cursor, DEFAULT_FG, DEFAULT_BG);
     ed->scr_ = scr;
-    ed->buf_ = gb;
+    ed->buf_ = cb;
     return ed;
 }
 
@@ -26,7 +26,7 @@ key_command read_input();
 
 void ed_run(editor* ed) {
     screen* scr = ed->scr_;
-    gap_buffer* buf = ed->buf_;
+    char_buffer* buf = ed->buf_;
 
     for (;;) {
         key_command kc = read_input();
@@ -38,9 +38,9 @@ void ed_run(editor* ed) {
     scr_clear(scr);
 
     printf("Buf contents:\r\n");
-    int sz = gb_used(buf);
+    int sz = cb_used(buf);
     for (int i = 0; i < sz; i++) {
-        outchar(gb_peek_at(buf, i));
+        outchar(cb_peek_at(buf, i));
     }
 }
 
