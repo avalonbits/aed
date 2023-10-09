@@ -27,6 +27,8 @@ bool tb_bksp(text_buffer* tb);
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb);
 uint8_t tb_prev(text_buffer* tb);
+uint8_t tb_home(text_buffer* tb);
+void tb_end(text_buffer* tb);
 int tb_xpos(text_buffer* tb);
 int tb_ypos(text_buffer* tb);
 

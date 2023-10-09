@@ -71,6 +71,10 @@ key_command ctrlCmds(key_command kc) {
         case VK_KP_DELETE:
             kc.cmd = CMD_DEL;
             break;
+        case VK_HOME:
+        case VK_KP_HOME:
+            kc.cmd = CMD_HOME;
+            break;
         default:
             break;
     }

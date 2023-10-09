@@ -12,8 +12,11 @@ typedef enum _command {
     CMD_PUTC,
     CMD_DEL,
     CMD_BKSP,
+
     CMD_LEFT,
     CMD_RGHT,
+    CMD_HOME,
+    CMD_END,
 } Command;
 
 typedef struct _key_command {

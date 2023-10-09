@@ -59,6 +59,18 @@ static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
     scr_right(scr, from_ch, to_ch);
 }
 
+static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
+    uint8_t from_ch = tb_home(buf);
+    if (from_ch != 0) {
+        scr_home(scr, from_ch, tb_peek_at(buf, 0));
+    }
+}
+
+static void cmd_end(screen* scr, text_buffer* buf, key_command kc) {
+    tb_end(buf);
+    scr_end(scr);
+}
+
 cmd_op cmds[] = {
     cmd_noop,
     cmd_noop,
@@ -66,8 +78,11 @@ cmd_op cmds[] = {
     cmd_putc,
     cmd_del,
     cmd_bksp,
+
     cmd_left,
-    cmd_rght
+    cmd_rght,
+    cmd_home,
+    cmd_end
 };
 
 

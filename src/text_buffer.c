@@ -61,6 +61,15 @@ uint8_t tb_prev(text_buffer* tb) {
     return ch;
 }
 
+uint8_t tb_home(text_buffer* tb) {
+    tb->x_ = 1;
+    return cb_home(&tb->cb_);
+}
+
+void tb_end(text_buffer* tb) {
+}
+
+
 int tb_xpos(text_buffer* tb) {
     return tb->x_;
 }
