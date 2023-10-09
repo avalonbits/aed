@@ -17,13 +17,12 @@ static void cmd_putc(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_del(screen* scr, text_buffer* buf, key_command kc) {
-    uint8_t at = tb_peek(buf);
-    if (at == 0) {
-        return;
-    }
     int sz = 0;
     uint8_t* suffix = tb_suffix(buf, &sz);
-    scr_del(scr, buf, sz);
+    if (!tb_del(buf)) {
+        return;
+    }
+    scr_del(scr, suffix, sz);
 }
 
 static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
