@@ -47,9 +47,9 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
-static void scr_set_reverse_colours(screen* scr) {
-    vdp_set_text_colour(scr->bg_);
-    vdp_set_text_colour(scr->fg_+128);
+static void set_colours(uint8_t fg, uint8_t bg) {
+    vdp_set_text_colour(fg);
+    vdp_set_text_colour(bg+128);
 }
 
 static void scr_set_colours(screen* scr) {
@@ -61,8 +61,12 @@ const char* title = "AED - Agon Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
+    scr_set_colours(scr);
+    printf("-----------------------------");
     scr_set_reverse_colours(scr);
-    printf("                             %s                             ", title);
+    printf("%s",title);
+    scr_set_colours(scr);
+    printf("-----------------------------");
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
     vdp_cursor_tab(scr->currY_, scr->currX_);
@@ -108,7 +112,6 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
         putch(suffix[i]);
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
-
 }
 
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
