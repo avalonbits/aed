@@ -63,7 +63,7 @@ void scr_clear(screen* scr) {
     vdp_cursor_home();
     scr_set_colours(scr);
     printf("-----------------------------");
-    scr_set_reverse_colours(scr);
+    set_colours(scr->bg_, scr->fg_);
     printf("%s",title);
     scr_set_colours(scr);
     printf("-----------------------------");
