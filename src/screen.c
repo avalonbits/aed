@@ -105,9 +105,14 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     scr->currX_--;
     scr_hide_cursor(scr);
     vdp_cursor_left();
-    scr_show_cursor(scr);
-    for (int i = 0; i < sz; i++) {
-        putch(suffix[i]);
+    if (suffix != NULL && sz > 0) {
+        for (int i = 0; i < sz; i++) {
+            putch(suffix[i]);
+        }
+        vdp_cursor_tab(scr->currY_, scr->currX_);
+        scr_show_cursor_ch(scr, suffix[0]);
+    } else {
+        scr_show_cursor(scr);
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
