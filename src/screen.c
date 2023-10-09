@@ -73,8 +73,7 @@ void scr_clear(screen* scr) {
 }
 
 static void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
-    vdp_set_text_colour(scr->fg_);
-    vdp_set_text_colour(scr->bg_+128);
+    set_colours(scr->fg_, scr->bg_);
     putch(ch);
     vdp_cursor_left();
 }

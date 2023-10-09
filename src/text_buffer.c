@@ -45,18 +45,15 @@ bool tb_bksp(text_buffer* tb) {
 
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb) {
-    const bool ok = cb_next(&tb->cb_);
-    if (ok) {
-        tb->x_++;
-    }
-    return ok;
+    tb->x_++;
+    return cb_next(&tb->cb_);
 }
 uint8_t tb_prev(text_buffer* tb) {
-    const bool ok = cb_prev(&tb->cb_);
-    if (ok) {
+    const uint8_t ch = cb_prev(&tb->cb_);
+    if (ch) {
         tb->x_--;
     }
-    return ok;
+    return ch;
 }
 
 int tb_xpos(text_buffer* tb) {
