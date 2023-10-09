@@ -34,7 +34,7 @@ screen *scr_init(screen* scr, char cursor, char fg, char bg) {
     scr->fg_ = fg;
     scr->bg_ = bg;
     scr->topY_ = 1;
-    scr->bottomY_ = scr->cols_-2;
+    scr->bottomY_ = scr->rows_-1;
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
@@ -47,6 +47,14 @@ void scr_destroy(screen* scr) {
     scr->currY_ = 0;
     scr->rows_ = 0;
     scr->cols_ = 0;
+}
+
+void scr_footer(screen* scr, int x, int y) {
+    vdp_cursor_tab(scr->bottomY_, 0);
+    set_colours(scr->bg_, scr->fg_);
+    printf("                                                                  %6d,%-6d", x, y);
+    set_colours(scr->fg_, scr->bg_);
+    vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
 const char* title = "AED - Agon Text Editor";

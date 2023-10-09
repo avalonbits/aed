@@ -26,6 +26,7 @@ screen* scr_init(screen* scr, char cursor, char fg, char bg);
 void scr_destroy(screen* scr);
 
 void scr_clear(screen* scr);
+void scr_footer(screen* scr, int x, int y);
 void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz);
 void scr_bksp(screen* scr, uint8_t* suffix, int sz);
 

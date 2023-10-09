@@ -10,6 +10,8 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb) {
         cb_destroy(&tb->cb_);
         return NULL;
     }
+    tb->x_ = 1;
+    tb->y_ = 1;
     return tb;
 }
 
@@ -31,17 +33,38 @@ int tb_used(text_buffer* tb) {
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch) {
     cb_put(&tb->cb_, ch);
+    tb->x_++;
 }
 bool tb_bksp(text_buffer* tb) {
-    return cb_bksp(&tb->cb_);
+    const bool ok = cb_bksp(&tb->cb_);
+    if (ok) {
+        tb->x_--;
+    }
+    return ok;
 }
 
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb) {
-    return cb_next(&tb->cb_);
+    const bool ok = cb_next(&tb->cb_);
+    if (ok) {
+        tb->x_++;
+    }
+    return ok;
 }
 uint8_t tb_prev(text_buffer* tb) {
-    return cb_prev(&tb->cb_);
+    const bool ok = cb_prev(&tb->cb_);
+    if (ok) {
+        tb->x_--;
+    }
+    return ok;
+}
+
+int tb_xpos(text_buffer* tb) {
+    return tb->x_;
+}
+
+int tb_ypos(text_buffer* tb) {
+    return tb->y_;
 }
 
 // Char read.

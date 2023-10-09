@@ -7,6 +7,8 @@
 typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
+    int x_;
+    int y_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb);
@@ -17,7 +19,7 @@ int tb_size(text_buffer* tb);
 int tb_available(text_buffer* tb);
 int tb_used(text_buffer* tb);
 
-// Characterr ops.
+// Character ops.
 void tb_put(text_buffer* tb, uint8_t ch);
 void tb_del(text_buffer* tb);
 bool tb_bksp(text_buffer* tb);
@@ -25,6 +27,8 @@ bool tb_bksp(text_buffer* tb);
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb);
 uint8_t tb_prev(text_buffer* tb);
+int tb_xpos(text_buffer* tb);
+int tb_ypos(text_buffer* tb);
 
 // Char read.
 uint8_t tb_peek(text_buffer* tb);
