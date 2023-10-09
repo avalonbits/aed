@@ -60,9 +60,10 @@ static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
-    uint8_t from_ch = tb_home(buf);
-    if (from_ch != 0) {
-        scr_home(scr, from_ch, tb_peek_at(buf, 0));
+    uint8_t from_ch = tb_peek(buf);
+    uint8_t to_ch = tb_home(buf);
+    if (to_ch != 0) {
+        scr_home(scr, from_ch, tb_peek(buf));
     }
 }
 
