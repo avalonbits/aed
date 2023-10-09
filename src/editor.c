@@ -9,7 +9,7 @@
 #include "cmd_ops.h"
 
 editor* ed_init(editor* ed, int mem_kb, uint8_t cursor) {
-    if (!tb_init(&ed->buf_, mem_kb << 10)) {
+    if (!tb_init(&ed->buf_, mem_kb)) {
        return NULL;
     }
     scr_init(&ed->scr_, cursor, DEFAULT_FG, DEFAULT_BG);

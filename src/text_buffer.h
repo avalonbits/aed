@@ -2,9 +2,11 @@
 #define _TEXT_BUFFER_H_
 
 #include "char_buffer.h"
+#include "line_buffer.h"
 
 typedef struct _text_buffer {
     char_buffer cb_;
+    line_buffer lb_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb);

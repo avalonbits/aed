@@ -1,7 +1,13 @@
 #include "text_buffer.h"
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb) {
-    if (!cb_init(&tb->cb_, mem_kb)) {
+    int line_count = mem_kb << 5;
+    int char_count = (mem_kb << 10) - line_count;
+    if (!cb_init(&tb->cb_, char_count)) {
+        return NULL;
+    }
+    if (!lb_init(&tb->lb_, line_count)) {
+        cb_destroy(&tb->cb_);
         return NULL;
     }
     return tb;

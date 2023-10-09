@@ -3,10 +3,6 @@
 #include <stdlib.h>
 
 char_buffer* cb_init(char_buffer* cb, int size) {
-    if (cb == NULL) {
-        return NULL;
-    }
-
     cb->buf_ = (uint8_t*) malloc(sizeof(uint8_t) * size);
     if (cb->buf_ == NULL) {
         return NULL;

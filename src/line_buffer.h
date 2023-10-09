@@ -1,5 +1,5 @@
-#ifndef _LINEBUFFER_H_
-#define _LINEBUFFER_H_
+#ifndef _LINE_BUFFER_H_
+#define _LINE_BUFFER_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,4 +32,4 @@ bool lb_up(line_buffer* lb);
 bool lb_down(line_buffer* lb);
 bool lb_new(line_buffer* lb);
 
-#endif  // _LINEBUFFER_H_
+#endif  // _LINE_BUFFER_H_
