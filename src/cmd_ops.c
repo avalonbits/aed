@@ -20,14 +20,12 @@ static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
 
     int sz = 0;
-    tb_suffix(buf, &sz);
+    uint8_t* suffix = tb_suffix(buf, &sz);
     scr_erase(scr, sz);
 
     if (!tb_bksp(buf)) {
         return;
     }
-    sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
     scr_bksp(scr, suffix, sz);
 }
 
