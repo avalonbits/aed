@@ -4,19 +4,21 @@
 #include <mos_api.h>
 #include <stdio.h>
 
+static void set_colours(uint8_t fg, uint8_t bg) {
+    vdp_set_text_colour(fg);
+    vdp_set_text_colour(bg+128);
+}
 
 static void scr_show_cursor_ch(screen* scr, uint8_t ch) {
     // First reverse colors
-    vdp_set_text_colour(scr->bg_);
-    vdp_set_text_colour(scr->fg_+128);
+    set_colours(scr->bg_, scr->fg_);
 
     // Print the cursor;
     putch(ch);
     vdp_cursor_left();
 
     // Reverse colors back.
-    vdp_set_text_colour(scr->fg_);
-    vdp_set_text_colour(scr->bg_+128);
+    set_colours(scr->fg_, scr->bg_);
 }
 
 static void scr_show_cursor(screen* scr) {
@@ -47,30 +49,19 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
-static void set_colours(uint8_t fg, uint8_t bg) {
-    vdp_set_text_colour(fg);
-    vdp_set_text_colour(bg+128);
-}
-
-static void scr_set_colours(screen* scr) {
-    vdp_set_text_colour(scr->fg_);
-    vdp_set_text_colour(scr->bg_+128);
-}
-
 const char* title = "AED - Agon Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
-    scr_set_colours(scr);
+    set_colours(scr->fg_, scr->bg_);
     printf("-----------------------------");
     set_colours(scr->bg_, scr->fg_);
     printf("%s",title);
-    scr_set_colours(scr);
+    set_colours(scr->fg_, scr->bg_);
     printf("-----------------------------");
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
     vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_set_colours(scr);
 }
 
 static void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
