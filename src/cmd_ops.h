@@ -10,6 +10,7 @@ typedef enum _command {
     CMD_QUIT,
 
     CMD_PUTC,
+    CMD_DEL,
     CMD_BKSP,
     CMD_LEFT,
     CMD_RGHT,

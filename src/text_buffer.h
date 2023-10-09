@@ -21,7 +21,7 @@ int tb_used(text_buffer* tb);
 
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch);
-void tb_del(text_buffer* tb);
+bool tb_del(text_buffer* tb);
 bool tb_bksp(text_buffer* tb);
 
 // Cursor ops.

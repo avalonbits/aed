@@ -16,6 +16,16 @@ static void cmd_putc(screen* scr, text_buffer* buf, key_command kc) {
     scr_putc(scr, kc.key, suffix, sz);
 }
 
+static void cmd_del(screen* scr, text_buffer* buf, key_command kc) {
+    uint8_t at = tb_peek(buf);
+    if (at == 0) {
+        return;
+    }
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    scr_del(scr, buf, sz);
+}
+
 static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
 
@@ -55,6 +65,7 @@ cmd_op cmds[] = {
     cmd_noop,
 
     cmd_putc,
+    cmd_del,
     cmd_bksp,
     cmd_left,
     cmd_rght

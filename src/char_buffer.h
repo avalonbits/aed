@@ -22,7 +22,7 @@ int cb_used(char_buffer* cb);
 
 // Characterr ops.
 void cb_put(char_buffer* cb, uint8_t ch);
-void cb_del(char_buffer* cb);
+bool cb_del(char_buffer* cb);
 bool cb_bksp(char_buffer* cb);
 
 // Cursor ops.

@@ -41,6 +41,13 @@ void cb_put(char_buffer* cb, uint8_t ch) {
     cb->curr_++;
 }
 
+bool cb_del(char_buffer* cb) {
+    const uint8_t* end = cb->buf_+cb->size_;
+    const bool ok = cb->cend_ < end;
+    cb->cend_ += (int)ok;
+    return ok;
+}
+
 bool cb_bksp(char_buffer* cb) {
     const bool bk = cb->curr_ > cb->buf_;
     if (bk) {

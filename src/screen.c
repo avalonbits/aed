@@ -97,6 +97,19 @@ void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
     }
 }
 
+void scr_del(screen* scr, uint8_t* suffix, int sz) {
+    scr_erase(scr, sz);
+    if (sz > 1) {
+        for (int i = 1; i < sz; i++) {
+            putch(suffix[i]);
+        }
+        vdp_cursor_tab(scr->currY_, scr->currX_);
+        scr_show_cursor_ch(scr, suffix[1]);
+    } else {
+        scr_show_cursor(scr);
+    }
+}
+
 void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     if (scr->currX_ == 0) {
         return;

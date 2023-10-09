@@ -35,6 +35,11 @@ void tb_put(text_buffer* tb, uint8_t ch) {
     cb_put(&tb->cb_, ch);
     tb->x_++;
 }
+
+bool tb_del(text_buffer* tb) {
+    return cb_del(&tb->cb_);
+}
+
 bool tb_bksp(text_buffer* tb) {
     const bool ok = cb_bksp(&tb->cb_);
     if (ok) {

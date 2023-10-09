@@ -67,6 +67,10 @@ key_command ctrlCmds(key_command kc) {
         case VK_BACKSPACE:
             kc.cmd = CMD_BKSP;
             break;
+        case VK_DELETE:
+        case VK_KP_DELETE:
+            kc.cmd = CMD_DEL;
+            break;
         default:
             break;
     }
