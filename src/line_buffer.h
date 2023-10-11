@@ -24,8 +24,6 @@ int lb_used(line_buffer* lb);
 bool lb_linc(line_buffer* lb);
 bool lb_ldec(line_buffer* lb);
 int lb_lcur(line_buffer* lb);
-int lb_lmax(line_buffer* lb);
-int lb_lused(line_buffer* lb);
 
 // Cursor ops.
 bool lb_up(line_buffer* lb);

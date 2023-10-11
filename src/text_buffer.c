@@ -17,6 +17,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb) {
 
 void tb_destroy(text_buffer* tb) {
     cb_destroy(&tb->cb_);
+    lb_destroy(&tb->lb_);
 }
 
 // Info ops.
@@ -34,18 +35,27 @@ int tb_used(text_buffer* tb) {
 void tb_put(text_buffer* tb, uint8_t ch) {
     cb_put(&tb->cb_, ch);
     tb->x_++;
+    lb_linc(&tb->lb_);
 }
 
 bool tb_del(text_buffer* tb) {
-    return cb_del(&tb->cb_);
+    if (cb_del(&tb->cb_)) {
+        lb_ldec(&tb->lb_);
+    }
 }
 
 bool tb_bksp(text_buffer* tb) {
     const bool ok = cb_bksp(&tb->cb_);
     if (ok) {
         tb->x_--;
+        lb_ldec(&tb->lb_);
     }
     return ok;
+}
+
+bool tb_enter(text_buffer* tb) {
+    tb_put(tb, '\r');
+    tb_put(tb, '\n');
 }
 
 // Cursor ops.
@@ -75,7 +85,7 @@ int tb_xpos(text_buffer* tb) {
 }
 
 int tb_ypos(text_buffer* tb) {
-    return tb->y_;
+    return lb_lcur(&tb->lb_)+1;
 }
 
 // Char read.
