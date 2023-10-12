@@ -38,7 +38,7 @@ static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
     scr_bksp(scr, suffix, sz);
 }
 
-static void cmd_entr(screen* scr, text_buffer* buf, key_command kc) {
+static void cmd_newl(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {
@@ -82,7 +82,7 @@ cmd_op cmds[] = {
     cmd_putc,
     cmd_del,
     cmd_bksp,
-    cmd_entr,
+    cmd_newl,
 
     cmd_left,
     cmd_rght,
