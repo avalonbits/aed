@@ -130,6 +130,24 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
+void scr_newl(screen* scr, uint8_t* suffix, int sz) {
+    scr_hide_cursor(scr);
+    scr_erase(scr, sz);
+    // NOTE(icc): Handle scrolling.
+    scr->currX_ = 0;
+    scr->currY_++;
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+
+    if (sz > 0) {
+        for (int i = 0; i < sz; i++) {
+            outchar(suffix[i]);
+        }
+        vdp_cursor_tab(scr->currY_, scr->currX_);
+        scr_show_cursor_ch(scr, suffix[0]);
+    } else {
+        scr_show_cursor(scr);
+    }
+}
 
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
     if (scr->currX_ == 0) {

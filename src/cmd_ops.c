@@ -39,11 +39,18 @@ static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_newl(screen* scr, text_buffer* buf, key_command kc) {
-    tb_newline(buf);
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    if (tb_newline(buf)) {
+        scr_newl(scr, suffix, sz);
+    }
 }
 
 static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
+    if (tb_xpos(buf) == 0) {
+        return;
+    }
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_prev(buf);
     if (to_ch == 0) {
@@ -55,6 +62,10 @@ static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {
 
 static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
+    if (tb_xpos(buf) >= scr->cols_) {
+        return;
+    }
+
     uint8_t from_ch = tb_peek(buf);
     if (from_ch == 0) {
         return;

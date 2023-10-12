@@ -124,9 +124,7 @@ uint8_t cb_peek_at(char_buffer* cb, int idx) {
 uint8_t* cb_suffix(char_buffer* cb, int* sz) {
     const uint8_t* end = cb->buf_ + cb->size_;
     int pSZ = end - cb->cend_;
-    if (sz != NULL) {
-        *sz = pSZ;
-    }
+    *sz = pSZ;
     if (pSZ > 0) {
         return cb->cend_;
     }
