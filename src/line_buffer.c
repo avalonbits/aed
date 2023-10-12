@@ -5,9 +5,12 @@
 
 // Setup ops.
 line_buffer* lb_init(line_buffer* lb, int size) {
-    lb->buf_ = (uint8_t*) calloc(size, sizeof(uint8_t));
+    lb->buf_ = (uint8_t*) malloc(size * sizeof(uint8_t));
     if (lb->buf_ == NULL) {
         return NULL;
+    }
+    for (int i = 0; i < size; ++i) {
+        lb->buf_[i] = 0;
     }
     lb->size_ = size;
     lb->curr_ = lb->buf_;
@@ -23,32 +26,35 @@ void lb_destroy(line_buffer* lb) {
 }
 
 // Info ops
-int lb_size(line_buffer* lb) {
+int lb_curr(line_buffer* lb) {
+    return lb->curr_ - lb->buf_;
 }
-int lb_available(line_buffer* lb) {
+int lb_avai(line_buffer* lb) {
+    return lb->cend_ - lb->curr_;
 }
-int lb_used(line_buffer* lb) {
+int lb_max(line_buffer* lb) {
+    return lb->cend_ - lb->buf_;
 }
 
 // Line ops.
-bool lb_linc(line_buffer* lb) {
-    uint8_t cur = *lb->buf_;
+bool lb_cinc(line_buffer* lb) {
+    uint8_t cur = *lb->curr_;
     if (cur < 0xFF) {
-        (*lb->buf_) = cur + 1;
+        (*lb->curr_) = cur + 1;
         return true;
     }
     return false;
 }
-bool lb_ldec(line_buffer* lb) {
-    uint8_t cur = *lb->buf_;
+bool lb_cdec(line_buffer* lb) {
+    uint8_t cur = *lb->curr_;
     if (cur > 0) {
-        (*lb->buf_) = cur - 1;
+        (*lb->curr_) = cur - 1;
         return true;
     }
     return false;
 }
-int lb_lcur(line_buffer* lb) {
-    return lb->curr_ - lb->buf_;
+int lb_csize(line_buffer* lb) {
+    return *lb->curr_;
 }
 
 // Cursor ops.
@@ -70,9 +76,10 @@ bool lb_down(line_buffer* lb) {
     }
     return ok;
 }
-bool lb_new(line_buffer* lb) {
+bool lb_new(line_buffer* lb, uint8_t size) {
     const bool ok = lb->curr_ < lb->cend_;
     if (ok) {
+        *lb->curr_ = size;
         lb->curr_++;
     }
     return ok;

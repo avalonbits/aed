@@ -39,6 +39,7 @@ static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_newl(screen* scr, text_buffer* buf, key_command kc) {
+    tb_newline(buf);
 }
 
 static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {

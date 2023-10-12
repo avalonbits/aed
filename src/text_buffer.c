@@ -35,12 +35,12 @@ int tb_used(text_buffer* tb) {
 void tb_put(text_buffer* tb, uint8_t ch) {
     cb_put(&tb->cb_, ch);
     tb->x_++;
-    lb_linc(&tb->lb_);
+    lb_cinc(&tb->lb_);
 }
 
 bool tb_del(text_buffer* tb) {
     if (cb_del(&tb->cb_)) {
-        lb_ldec(&tb->lb_);
+        lb_cdec(&tb->lb_);
     }
 }
 
@@ -48,14 +48,17 @@ bool tb_bksp(text_buffer* tb) {
     const bool ok = cb_bksp(&tb->cb_);
     if (ok) {
         tb->x_--;
-        lb_ldec(&tb->lb_);
+        lb_cdec(&tb->lb_);
     }
     return ok;
 }
 
-bool tb_enter(text_buffer* tb) {
+bool tb_newline(text_buffer* tb) {
     tb_put(tb, '\r');
     tb_put(tb, '\n');
+    int lsz = lb_csize(&tb->lb_)+1;
+    lb_new(&tb->lb_, tb->x_);
+    tb->x_ = lsz - tb->x_;
 }
 
 // Cursor ops.
@@ -85,7 +88,7 @@ int tb_xpos(text_buffer* tb) {
 }
 
 int tb_ypos(text_buffer* tb) {
-    return lb_lcur(&tb->lb_)+1;
+    return lb_curr(&tb->lb_)+1;
 }
 
 // Char read.

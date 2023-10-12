@@ -16,18 +16,18 @@ line_buffer* lb_init(line_buffer* lb, int size);
 void lb_destroy(line_buffer* lb);
 
 // Info ops
-int lb_size(line_buffer* lb);
-int lb_available(line_buffer* lb);
-int lb_used(line_buffer* lb);
+int lb_curr(line_buffer* lb);
+int lb_avai(line_buffer* lb);
+int lb_max(line_buffer* lb);
 
 // Line ops.
-bool lb_linc(line_buffer* lb);
-bool lb_ldec(line_buffer* lb);
-int lb_lcur(line_buffer* lb);
+bool lb_cinc(line_buffer* lb);
+bool lb_cdec(line_buffer* lb);
+int lb_csize(line_buffer* lb);
 
 // Cursor ops.
 bool lb_up(line_buffer* lb);
 bool lb_down(line_buffer* lb);
-bool lb_new(line_buffer* lb);
+bool lb_new(line_buffer* lb, uint8_t size);
 
 #endif  // _LINE_BUFFER_H_
