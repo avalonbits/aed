@@ -8,7 +8,6 @@ typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
     int x_;
-    int y_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb);
@@ -29,7 +28,9 @@ bool tb_newline(text_buffer* tb);
 uint8_t tb_next(text_buffer* tb);
 uint8_t tb_prev(text_buffer* tb);
 uint8_t tb_home(text_buffer* tb);
-void tb_end(text_buffer* tb);
+uint8_t tb_up(text_buffer* tb);
+uint8_t tb_down(text_buffer* tb);
+uint8_t tb_end(text_buffer* tb);
 int tb_xpos(text_buffer* tb);
 int tb_ypos(text_buffer* tb);
 

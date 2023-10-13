@@ -10,8 +10,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb) {
         cb_destroy(&tb->cb_);
         return NULL;
     }
-    tb->x_ = 1;
-    tb->y_ = 1;
+    tb->x_ = 0;
     return tb;
 }
 
@@ -78,17 +77,23 @@ uint8_t tb_prev(text_buffer* tb) {
     return ch;
 }
 
+uint8_t tb_up(text_buffer* tb) {
+}
+
+uint8_t tb_down(text_buffer* tb) {
+}
+
 uint8_t tb_home(text_buffer* tb) {
-    tb->x_ = 1;
+    tb->x_ = 0;
     return cb_home(&tb->cb_);
 }
 
-void tb_end(text_buffer* tb) {
+uint8_t tb_end(text_buffer* tb) {
 }
 
 
 int tb_xpos(text_buffer* tb) {
-    return tb->x_;
+    return tb->x_ + 1;
 }
 
 int tb_ypos(text_buffer* tb) {
@@ -108,5 +113,3 @@ int tb_copy(text_buffer* tb, uint8_t* buf, int sz) {
 uint8_t* tb_suffix(text_buffer* tb, int* sz) {
     return cb_suffix(&tb->cb_, sz);
 }
-
-#

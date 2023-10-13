@@ -16,6 +16,8 @@ typedef enum _command {
 
     CMD_LEFT,
     CMD_RGHT,
+    CMD_UP,
+    CMD_DOWN,
     CMD_HOME,
     CMD_END,
 } Command;

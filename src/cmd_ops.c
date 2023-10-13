@@ -74,6 +74,12 @@ static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
     scr_right(scr, from_ch, to_ch);
 }
 
+static void cmd_up(screen* scr, text_buffer* buf, key_command kc) {
+}
+
+static void cmd_down(screen* scr, text_buffer* buf, key_command kc) {
+}
+
 static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_home(buf);
@@ -98,6 +104,8 @@ cmd_op cmds[] = {
 
     cmd_left,
     cmd_rght,
+    cmd_up,
+    cmd_down,
     cmd_home,
     cmd_end
 };
