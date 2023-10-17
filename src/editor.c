@@ -45,7 +45,7 @@ void ed_run(editor* ed) {
     }
 }
 
-key_command modCmds(key_command kc) {
+key_command ctrlCmds(key_command kc) {
     if (kc.vkey == VK_q || kc.vkey == VK_Q) {
         kc.cmd = CMD_QUIT;
     } else {
@@ -54,7 +54,7 @@ key_command modCmds(key_command kc) {
     return kc;
 }
 
-key_command ctrlCmds(key_command kc) {
+key_command editCmds(key_command kc) {
     switch (kc.vkey) {
         case VK_LEFT:
         case VK_KP_LEFT:
@@ -79,6 +79,14 @@ key_command ctrlCmds(key_command kc) {
         case VK_KP_ENTER:
             kc.cmd = CMD_NEWL;
             break;
+        case VK_UP:
+        case VK_KP_UP:
+            kc.cmd = CMD_UP;
+            break;
+        case VK_DOWN:
+        case VK_KP_DOWN:
+            kc.cmd = CMD_DOWN;
+            break;
         default:
             break;
     }
@@ -92,13 +100,13 @@ key_command read_input() {
 
     const uint8_t mods = getsysvar_keymods();
     if ((mods & MOD_CTRL)) {
-        return modCmds(kc);
+        return ctrlCmds(kc);
     }
 
     if (kc.key != 0x7F && kc.key >= 32) {
         kc.cmd = CMD_PUTC;
     } else {
-        return ctrlCmds(kc);
+        return editCmds(kc);
     }
 
     return kc;

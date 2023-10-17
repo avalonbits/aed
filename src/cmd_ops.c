@@ -75,9 +75,11 @@ static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_up(screen* scr, text_buffer* buf, key_command kc) {
+    tb_up(buf);
 }
 
 static void cmd_down(screen* scr, text_buffer* buf, key_command kc) {
+    tb_down(buf);
 }
 
 static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
