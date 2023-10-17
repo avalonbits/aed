@@ -94,6 +94,10 @@ static void cmd_down(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
+    if (tb_bol(buf)) {
+        return;
+    }
+
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_home(buf);
     if (to_ch != 0) {
@@ -102,6 +106,9 @@ static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_end(screen* scr, text_buffer* buf, key_command kc) {
+    if (tb_eol(buf)) {
+        return;
+    }
     tb_end(buf);
     scr_end(scr);
 }

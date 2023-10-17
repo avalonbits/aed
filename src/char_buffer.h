@@ -28,7 +28,6 @@ bool cb_bksp(char_buffer* cb);
 // Cursor ops.
 uint8_t cb_next(char_buffer* cb, int cnt);
 uint8_t cb_prev(char_buffer* cb, int cnt);
-uint8_t cb_home(char_buffer* cb);
 
 // Char read.
 uint8_t cb_peek(char_buffer* cb);

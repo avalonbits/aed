@@ -70,19 +70,6 @@ uint8_t cb_prev(char_buffer* cb, int cnt) {
     return *cb->cend_;
 }
 
-uint8_t cb_home(char_buffer* cb) {
-    const bool pr = cb->curr_ > cb->buf_;
-    if (pr) {
-        while (cb->curr_ > cb->buf_) {
-            cb->cend_--;
-            cb->curr_--;
-            *cb->cend_ = *cb->curr_;
-        }
-        return *cb->cend_;
-    }
-    return 0;
-}
-
 uint8_t cb_next(char_buffer* cb, int cnt) {
     const uint8_t* end = cb->buf_+cb->size_;
     if (cb->cend_ >= end) {

@@ -105,8 +105,9 @@ uint8_t tb_down(text_buffer* tb) {
 }
 
 uint8_t tb_home(text_buffer* tb) {
+    const int back = tb->x_;
     tb->x_ = 0;
-    return cb_home(&tb->cb_);
+    return cb_prev(&tb->cb_, back);
 }
 
 uint8_t tb_end(text_buffer* tb) {
