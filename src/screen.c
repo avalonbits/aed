@@ -10,6 +10,10 @@ static void set_colours(uint8_t fg, uint8_t bg) {
 }
 
 static void scr_show_cursor_ch(screen* scr, uint8_t ch) {
+    if (ch == 0 || ch == '\r' || ch == '\n') {
+        ch = scr->cursor_;
+    }
+
     // First reverse colors
     set_colours(scr->bg_, scr->fg_);
 
@@ -74,6 +78,10 @@ void scr_clear(screen* scr) {
 }
 
 static void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
+    if (ch == 0 || ch == '\r' || ch == '\n') {
+        ch = scr->cursor_;
+    }
+
     set_colours(scr->fg_, scr->bg_);
     putch(ch);
     vdp_cursor_left();
@@ -154,9 +162,6 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
         return;
     }
     scr->currX_--;
-    if (from_ch == 0) {
-        from_ch = scr->cursor_;
-    }
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_left();
     scr_show_cursor_ch(scr, to_ch);
@@ -164,18 +169,12 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
 
 void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch) {
     scr->currX_++;
-    if (to_ch == 0) {
-        to_ch = scr->cursor_;
-    }
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_right();
     scr_show_cursor_ch(scr, to_ch);
 }
 
 void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch) {
-    if (from_ch == 0) {
-        from_ch = scr->cursor_;
-    }
     scr_hide_cursor_ch(scr, from_ch);
     scr->currX_ = 0;
     vdp_cursor_tab(scr->currY_, scr->currX_);
@@ -183,12 +182,6 @@ void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch) {
 }
 
 void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
-    if (from_ch == 0) {
-        from_ch = scr->cursor_;
-    }
-    if (to_ch == '\r') {
-        from_ch = scr->cursor_;
-    }
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
     scr->currX_ = currX;
