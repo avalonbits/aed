@@ -35,6 +35,9 @@ int lb_avai(line_buffer* lb) {
 int lb_max(line_buffer* lb) {
     return lb->cend_ - lb->buf_;
 }
+const bool lb_last(line_buffer* lb) {
+    return lb->cend_ == (lb->buf_ + lb->size_);
+}
 
 // Line ops.
 bool lb_cinc(line_buffer* lb) {

@@ -17,6 +17,9 @@ static void cmd_putc(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_del(screen* scr, text_buffer* buf, key_command kc) {
+    if (tb_eol(buf)) {
+        return;
+    }
     int sz = 0;
     uint8_t* suffix = tb_suffix(buf, &sz);
     if (!tb_del(buf)) {
@@ -27,6 +30,9 @@ static void cmd_del(screen* scr, text_buffer* buf, key_command kc) {
 
 static void cmd_bksp(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
+    if (tb_bol(buf)) {
+        return;
+    }
 
     int sz = 0;
     uint8_t* suffix = tb_suffix(buf, &sz);

@@ -111,7 +111,7 @@ uint8_t cb_peek(char_buffer* cb) {
 
 uint8_t cb_peek_at(char_buffer* cb, int idx) {
     if (idx < 0) {
-        return '\0';
+        return 0;
     }
 
     const int prefix = cb->curr_-cb->buf_;
@@ -125,7 +125,7 @@ uint8_t cb_peek_at(char_buffer* cb, int idx) {
         return *(cb->cend_+idx);
     }
 
-    return '\0';
+    return 0;
 }
 
 uint8_t* cb_suffix(char_buffer* cb, int* sz) {

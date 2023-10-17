@@ -132,5 +132,9 @@ int tb_copy(text_buffer* tb, uint8_t* buf, int sz) {
     return cb_copy(&tb->cb_, buf, sz);
 }
 uint8_t* tb_suffix(text_buffer* tb, int* sz) {
-    return cb_suffix(&tb->cb_, sz);
+    uint8_t* suffix = cb_suffix(&tb->cb_, sz);
+    if (!lb_last(&tb->lb_)) {
+        *sz = (lb_csize(&tb->lb_) - tb->x_ - 2);
+    }
+    return suffix;
 }
