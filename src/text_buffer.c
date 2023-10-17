@@ -67,10 +67,10 @@ bool tb_newline(text_buffer* tb) {
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb) {
     tb->x_++;
-    return cb_next(&tb->cb_);
+    return cb_next(&tb->cb_, 1);
 }
 uint8_t tb_prev(text_buffer* tb) {
-    const uint8_t ch = cb_prev(&tb->cb_);
+    const uint8_t ch = cb_prev(&tb->cb_, 1);
     if (ch) {
         tb->x_--;
     }
@@ -78,6 +78,7 @@ uint8_t tb_prev(text_buffer* tb) {
 }
 
 uint8_t tb_up(text_buffer* tb) {
+
 }
 
 uint8_t tb_down(text_buffer* tb) {

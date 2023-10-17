@@ -53,7 +53,7 @@ void scr_footer(screen* scr, int x, int y) {
     vdp_cursor_tab(scr->bottomY_, 0);
     putch(' ');
     set_colours(scr->bg_, scr->fg_);
-    printf("                                                                 %6d,%-6d", x, y);
+    printf("                                                                 %5d,%-6d", y, x);
     set_colours(scr->fg_, scr->bg_);
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }

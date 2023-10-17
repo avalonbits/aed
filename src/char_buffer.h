@@ -26,8 +26,8 @@ bool cb_del(char_buffer* cb);
 bool cb_bksp(char_buffer* cb);
 
 // Cursor ops.
-uint8_t cb_next(char_buffer* cb);
-uint8_t cb_prev(char_buffer* cb);
+uint8_t cb_next(char_buffer* cb, int cnt);
+uint8_t cb_prev(char_buffer* cb, int cnt);
 uint8_t cb_home(char_buffer* cb);
 
 // Char read.

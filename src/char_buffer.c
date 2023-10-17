@@ -56,15 +56,18 @@ bool cb_bksp(char_buffer* cb) {
     return bk;
 }
 
-uint8_t cb_prev(char_buffer* cb) {
+uint8_t cb_prev(char_buffer* cb, int cnt) {
     const bool pr = cb->curr_ > cb->buf_;
-    if (pr) {
+    if (!pr) {
+        return 0;
+    }
+
+    while (cnt-- > 0 && cb->curr_ > cb->buf_) {
         cb->cend_--;
         cb->curr_--;
         *cb->cend_ = *cb->curr_;
-        return *cb->cend_;
     }
-    return 0;
+    return *cb->cend_;
 }
 
 uint8_t cb_home(char_buffer* cb) {
@@ -80,16 +83,20 @@ uint8_t cb_home(char_buffer* cb) {
     return 0;
 }
 
-uint8_t cb_next(char_buffer* cb) {
+uint8_t cb_next(char_buffer* cb, int cnt) {
     const uint8_t* end = cb->buf_+cb->size_;
-    if (cb->cend_ < end) {
+    if (cb->cend_ >= end) {
+        return 0;
+    }
+
+    while (cnt-- > 0 && cb->cend_ < end) {
         *cb->curr_ = *cb->cend_;
         cb->curr_++;
         cb->cend_++;
+    }
 
-        if (cb->cend_ < end) {
-            return *cb->cend_;
-        }
+    if (cb->cend_ < end) {
+        return *cb->cend_;
     }
     return 0;
 }
