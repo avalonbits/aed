@@ -48,7 +48,7 @@ static void cmd_newl(screen* scr, text_buffer* buf, key_command kc) {
 
 static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
-    if (tb_xpos(buf) <= 1) {
+    if (tb_bol(buf)) {
         return;
     }
     uint8_t from_ch = tb_peek(buf);
@@ -62,12 +62,12 @@ static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {
 
 static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
-    if (tb_xpos(buf) >= scr->cols_) {
+    if (tb_xpos(buf) >= scr->cols_ || tb_eol(buf)) {
         return;
     }
 
     uint8_t from_ch = tb_peek(buf);
-    if (from_ch == 0) {
+    if (from_ch == 0 ) {
         return;
     }
     uint8_t to_ch = tb_next(buf);

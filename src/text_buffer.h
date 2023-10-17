@@ -17,6 +17,8 @@ void tb_destroy(text_buffer* tb);
 int tb_size(text_buffer* tb);
 int tb_available(text_buffer* tb);
 int tb_used(text_buffer* tb);
+const bool tb_eol(text_buffer* tb);
+const bool tb_bol(text_buffer* tb);
 
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch);

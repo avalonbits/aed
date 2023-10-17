@@ -29,6 +29,13 @@ int tb_available(text_buffer* tb) {
 int tb_used(text_buffer* tb) {
     return cb_used(&tb->cb_);
 }
+const bool tb_eol(text_buffer* tb) {
+    const uint8_t ch = cb_peek(&tb->cb_);
+    return ch == '\r' || ch == '\n' && ch == 0;
+}
+const bool tb_bol(text_buffer* tb) {
+    return tb->x_ == 0;
+}
 
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch) {
