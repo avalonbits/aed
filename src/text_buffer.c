@@ -78,7 +78,20 @@ uint8_t tb_prev(text_buffer* tb) {
 }
 
 uint8_t tb_up(text_buffer* tb) {
+    if (!lb_up(&tb->lb_)) {
+        return 0;
+    }
 
+    int back = tb->x_;
+    const int sz = lb_csize(&tb->lb_);
+    if (back >= sz) {
+        // Remove the \r\n count.
+        tb->x_ = sz-2;
+        back += 2;
+    } else {
+        back += (sz - back);
+    }
+    return cb_prev(&tb->cb_, back);
 }
 
 uint8_t tb_down(text_buffer* tb) {

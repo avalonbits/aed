@@ -48,7 +48,7 @@ static void cmd_newl(screen* scr, text_buffer* buf, key_command kc) {
 
 static void cmd_left(screen* scr, text_buffer* buf, key_command kc) {
     UN(kc);
-    if (tb_xpos(buf) == 0) {
+    if (tb_xpos(buf) <= 1) {
         return;
     }
     uint8_t from_ch = tb_peek(buf);
