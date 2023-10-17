@@ -182,6 +182,21 @@ void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch) {
     scr_show_cursor_ch(scr, to_ch);
 }
 
+void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
+    if (from_ch == 0) {
+        from_ch = scr->cursor_;
+    }
+    if (to_ch == '\r') {
+        from_ch = scr->cursor_;
+    }
+    scr_hide_cursor_ch(scr, from_ch);
+    scr->currY_--;
+    scr->currX_ = currX;
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, to_ch);
+}
+
+
 void scr_end(screen* scr) {
 }
 

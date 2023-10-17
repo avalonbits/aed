@@ -75,7 +75,12 @@ static void cmd_rght(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_up(screen* scr, text_buffer* buf, key_command kc) {
-    tb_up(buf);
+    if (tb_ypos(buf) == 1) {
+        return;
+    }
+    uint8_t from_ch = tb_peek(buf);
+    uint8_t to_ch = tb_up(buf);
+    scr_up(scr, from_ch, to_ch, tb_xpos(buf)-1);
 }
 
 static void cmd_down(screen* scr, text_buffer* buf, key_command kc) {
