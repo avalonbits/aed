@@ -29,11 +29,14 @@ int tb_available(text_buffer* tb) {
 int tb_used(text_buffer* tb) {
     return cb_used(&tb->cb_);
 }
-const bool tb_eol(text_buffer* tb) {
-    const uint8_t ch = cb_peek(&tb->cb_);
-    return ch == '\r' || ch == '\n' && ch == 0;
+
+// This is a hack because llvm was failing with 3 ORed conditions.
+#define IS_EOL(x) (x <= 13 && x != 9)
+
+bool tb_eol(text_buffer* tb) {
+    IS_EOL(cb_peek(&tb->cb_));
 }
-const bool tb_bol(text_buffer* tb) {
+bool tb_bol(text_buffer* tb) {
     return tb->x_ == 0;
 }
 
@@ -102,6 +105,7 @@ uint8_t tb_up(text_buffer* tb) {
 }
 
 uint8_t tb_down(text_buffer* tb) {
+    return cb_peek(&tb->cb_);
 }
 
 uint8_t tb_home(text_buffer* tb) {
@@ -111,6 +115,12 @@ uint8_t tb_home(text_buffer* tb) {
 }
 
 uint8_t tb_end(text_buffer* tb) {
+    uint8_t ch = cb_peek(&tb->cb_);
+    while (!IS_EOL(ch)) {
+        ch = cb_next(&tb->cb_, 1);
+        tb->x_++;
+    }
+    return 0;
 }
 
 

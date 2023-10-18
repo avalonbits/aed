@@ -181,16 +181,19 @@ void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch) {
     scr_show_cursor_ch(scr, to_ch);
 }
 
+void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
+    scr_hide_cursor_ch(scr, from_ch);
+    scr->currX_ += deltaX;
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, to_ch);
+}
+
 void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
     scr->currX_ = currX;
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, to_ch);
-}
-
-
-void scr_end(screen* scr) {
 }
 
 void scr_erase(screen* scr, int sz) {

@@ -106,11 +106,13 @@ static void cmd_home(screen* scr, text_buffer* buf, key_command kc) {
 }
 
 static void cmd_end(screen* scr, text_buffer* buf, key_command kc) {
-    if (tb_eol(buf)) {
-        return;
+    const uint8_t from_x = tb_xpos(buf);
+    uint8_t from_ch = tb_peek(buf);
+    uint8_t to_ch = tb_end(buf);
+    const uint8_t deltaX = tb_xpos(buf) - from_x;
+    if (deltaX > 0) {
+        scr_end(scr, from_ch, to_ch, deltaX);
     }
-    tb_end(buf);
-    scr_end(scr);
 }
 
 cmd_op cmds[] = {

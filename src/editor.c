@@ -75,6 +75,10 @@ key_command editCmds(key_command kc) {
         case VK_KP_HOME:
             kc.cmd = CMD_HOME;
             break;
+        case VK_END:
+        case VK_KP_END:
+            kc.cmd = CMD_END;
+            break;
         case VK_RETURN:
         case VK_KP_ENTER:
             kc.cmd = CMD_NEWL;

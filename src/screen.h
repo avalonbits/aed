@@ -35,7 +35,7 @@ void scr_newl(screen* scr, uint8_t* suffix, int sz);
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch);
 void scr_right(screen* scr, uint8_t from_ch, uint8_t to_c);
 void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch);
+void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX);
 void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
-void scr_end(screen* scr);
 void scr_erase(screen* scr, int sz);
 #endif  // _SCREEN_H_
