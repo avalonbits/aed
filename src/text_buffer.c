@@ -1,5 +1,7 @@
 #include "text_buffer.h"
 
+#include <stdio.h>
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
@@ -88,14 +90,14 @@ uint8_t tb_prev(text_buffer* tb) {
 }
 
 uint8_t tb_w_prev(text_buffer* tb) {
-    const uint8_t ch = cb_prev(&tb->cb_, 1);
-    if (ch) {
+    uint8_t ch = 0;
+    do {
+        ch = cb_prev(&tb->cb_, 1);
         tb->x_--;
-    }
+    } while (tb->x_ > 0 && ((!IS_EOL(ch) && ch != ' ' && ch != '\t')));
+
     return ch;
 }
-
-
 
 uint8_t tb_up(text_buffer* tb) {
     if (!lb_up(&tb->lb_)) {

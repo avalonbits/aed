@@ -76,7 +76,8 @@ void cmd_w_left(screen* scr, text_buffer* buf, key k) {
     int from_x = tb_xpos(buf);
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_w_prev(buf);
-    scr_left(scr, from_ch, to_ch, from_x - tb_xpos(buf));
+    const uint8_t deltaX = from_x - tb_xpos(buf);
+    scr_left(scr, from_ch, to_ch, deltaX);
 }
 
 void cmd_right(screen* scr, text_buffer* buf, key k) {

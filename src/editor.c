@@ -52,10 +52,18 @@ void ed_run(editor* ed) {
 }
 
 key_command ctrlCmds(key_command kc) {
-    if (kc.k.vkey == VK_q || kc.k.vkey == VK_Q) {
-        kc.cmd = CMD_QUIT;
-    } else {
-        kc.cmd = &cmd_noop;
+    switch (kc.k.vkey) {
+        case VK_q:
+        case VK_Q:
+            kc.cmd = CMD_QUIT;
+            break;
+        case VK_LEFT:
+        case VK_KP_LEFT:
+            kc.cmd = cmd_w_left;
+            break;
+        default:
+            kc.cmd = cmd_noop;
+            break;
     }
     return kc;
 }
