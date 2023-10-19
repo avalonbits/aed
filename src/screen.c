@@ -167,8 +167,8 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch) {
-    scr->currX_++;
+void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
+    scr->currX_ += deltaX;
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, to_ch);

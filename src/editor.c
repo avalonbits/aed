@@ -61,6 +61,10 @@ key_command ctrlCmds(key_command kc) {
         case VK_KP_LEFT:
             kc.cmd = cmd_w_left;
             break;
+        case VK_RIGHT:
+        case VK_KP_RIGHT:
+            kc.cmd = cmd_w_right;
+            break;
         default:
             kc.cmd = cmd_noop;
             break;

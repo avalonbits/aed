@@ -92,8 +92,23 @@ void cmd_right(screen* scr, text_buffer* buf, key k) {
         return;
     }
     uint8_t to_ch = tb_next(buf);
-    scr_right(scr, from_ch, to_ch);
+    scr_right(scr, from_ch, to_ch, 1);
 }
+
+void cmd_w_right(screen* scr, text_buffer* buf, key k) {
+    UN(k);
+
+    if (tb_xpos(buf) >= scr->cols_ || tb_eol(buf)) {
+        return;
+    }
+
+    int from_x = tb_xpos(buf);
+    uint8_t from_ch = tb_peek(buf);
+    uint8_t to_ch = tb_w_next(buf);
+    const uint8_t deltaX = tb_xpos(buf) - from_x;
+    scr_right(scr, from_ch, to_ch, deltaX);
+}
+
 
 void cmd_up(screen* scr, text_buffer* buf, key k) {
     UN(k);

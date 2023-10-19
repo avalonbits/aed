@@ -81,6 +81,17 @@ uint8_t tb_next(text_buffer* tb) {
     tb->x_++;
     return cb_next(&tb->cb_, 1);
 }
+
+uint8_t tb_w_next(text_buffer* tb) {
+    uint8_t ch = 0;
+    do {
+        ch = cb_next(&tb->cb_, 1);
+        tb->x_++;
+    } while (!IS_EOL(ch) && ch != ' ' && ch != '\t');
+
+    return ch;
+}
+
 uint8_t tb_prev(text_buffer* tb) {
     const uint8_t ch = cb_prev(&tb->cb_, 1);
     if (ch) {
