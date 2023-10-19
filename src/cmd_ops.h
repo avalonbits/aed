@@ -5,31 +5,24 @@
 #include "screen.h"
 #include "vkey.h"
 
-typedef enum _command {
-    CMD_NOOP = 0,
-    CMD_QUIT,
-
-    CMD_PUTC,
-    CMD_DEL,
-    CMD_BKSP,
-    CMD_NEWL,
-
-    CMD_LEFT,
-    CMD_RGHT,
-    CMD_UP,
-    CMD_DOWN,
-    CMD_HOME,
-    CMD_END,
-} Command;
-
-typedef struct _key_command {
-    Command cmd;
+typedef struct _key {
     uint8_t key;
     VKey vkey;
-} key_command;
+} key;
 
-typedef void(*cmd_op)(screen*, text_buffer*, key_command);
+typedef void(*cmd_op)(screen*, text_buffer*, key);
 
-extern cmd_op cmds[];
+void cmd_noop(screen* scr, text_buffer* buf, key k);
+void cmd_putc(screen* scr, text_buffer* buf, key k);
+void cmd_del(screen* scr, text_buffer* buf, key k);
+void cmd_bksp(screen* scr, text_buffer* buf, key k);
+void cmd_newl(screen* scr, text_buffer* buf, key k);
+void cmd_left(screen* scr, text_buffer* buf, key k);
+void cmd_right(screen* scr, text_buffer* buf, key k);
+void cmd_up(screen* scr, text_buffer* buf, key k);
+void cmd_down(screen* scr, text_buffer* buf, key k);
+void cmd_home(screen* scr, text_buffer* buf, key k);
+void cmd_end(screen* scr, text_buffer* buf, key k);
+
 
 #endif  // _CMD_OPS_H_

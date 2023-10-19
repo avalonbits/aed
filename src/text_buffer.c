@@ -34,7 +34,7 @@ int tb_used(text_buffer* tb) {
 #define IS_EOL(x) (x <= 13 && x != 9)
 
 bool tb_eol(text_buffer* tb) {
-    IS_EOL(cb_peek(&tb->cb_));
+    return IS_EOL(cb_peek(&tb->cb_));
 }
 bool tb_bol(text_buffer* tb) {
     return tb->x_ == 0;

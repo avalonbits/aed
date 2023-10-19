@@ -19,7 +19,7 @@ void lb_destroy(line_buffer* lb);
 int lb_curr(line_buffer* lb);
 int lb_avai(line_buffer* lb);
 int lb_max(line_buffer* lb);
-const bool lb_last(line_buffer* lb);
+bool lb_last(line_buffer* lb);
 
 // Line ops.
 bool lb_cinc(line_buffer* lb);

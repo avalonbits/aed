@@ -21,6 +21,12 @@ void ed_destroy(editor* ed) {
     tb_destroy(&ed->buf_);
 }
 
+#define CMD_QUIT NULL
+typedef struct _key_command {
+    cmd_op cmd;
+    key k;
+} key_command;
+
 key_command read_input();
 
 void ed_run(editor* ed) {
@@ -33,7 +39,7 @@ void ed_run(editor* ed) {
         if (kc.cmd == CMD_QUIT) {
             break;
         }
-        cmds[kc.cmd](scr, buf, kc);
+        kc.cmd(scr, buf, kc.k);
     }
     scr_clear(scr);
     vdp_clear_screen();
@@ -46,50 +52,50 @@ void ed_run(editor* ed) {
 }
 
 key_command ctrlCmds(key_command kc) {
-    if (kc.vkey == VK_q || kc.vkey == VK_Q) {
+    if (kc.k.vkey == VK_q || kc.k.vkey == VK_Q) {
         kc.cmd = CMD_QUIT;
     } else {
-        kc.cmd = CMD_NOOP;
+        kc.cmd = &cmd_noop;
     }
     return kc;
 }
 
 key_command editCmds(key_command kc) {
-    switch (kc.vkey) {
+    switch (kc.k.vkey) {
         case VK_LEFT:
         case VK_KP_LEFT:
-            kc.cmd = CMD_LEFT;
+            kc.cmd = cmd_left;
             break;
         case VK_RIGHT:
         case VK_KP_RIGHT:
-            kc.cmd = CMD_RGHT;
+            kc.cmd = cmd_right;
             break;
         case VK_BACKSPACE:
-            kc.cmd = CMD_BKSP;
+            kc.cmd = cmd_bksp;
             break;
         case VK_DELETE:
         case VK_KP_DELETE:
-            kc.cmd = CMD_DEL;
+            kc.cmd = cmd_del;
             break;
         case VK_HOME:
         case VK_KP_HOME:
-            kc.cmd = CMD_HOME;
+            kc.cmd = cmd_home;
             break;
         case VK_END:
         case VK_KP_END:
-            kc.cmd = CMD_END;
+            kc.cmd = cmd_end;
             break;
         case VK_RETURN:
         case VK_KP_ENTER:
-            kc.cmd = CMD_NEWL;
+            kc.cmd = cmd_newl;
             break;
         case VK_UP:
         case VK_KP_UP:
-            kc.cmd = CMD_UP;
+            kc.cmd = cmd_up;
             break;
         case VK_DOWN:
         case VK_KP_DOWN:
-            kc.cmd = CMD_DOWN;
+            kc.cmd = cmd_down;
             break;
         default:
             break;
@@ -98,17 +104,17 @@ key_command editCmds(key_command kc) {
 }
 
 key_command read_input() {
-    key_command kc = {CMD_NOOP, '\0', VK_NONE};
-    kc.key = getch();
-    kc.vkey = getsysvar_vkeycode();
+    key_command kc = {cmd_noop, {'\0', VK_NONE}};
+    kc.k.key = getch();
+    kc.k.vkey = getsysvar_vkeycode();
 
     const uint8_t mods = getsysvar_keymods();
     if ((mods & MOD_CTRL)) {
         return ctrlCmds(kc);
     }
 
-    if (kc.key != 0x7F && kc.key >= 32) {
-        kc.cmd = CMD_PUTC;
+    if (kc.k.key != 0x7F && kc.k.key >= 32) {
+        kc.cmd = cmd_putc;
     } else {
         return editCmds(kc);
     }
