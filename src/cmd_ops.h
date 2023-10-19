@@ -18,6 +18,8 @@ void cmd_del(screen* scr, text_buffer* buf, key k);
 void cmd_bksp(screen* scr, text_buffer* buf, key k);
 void cmd_newl(screen* scr, text_buffer* buf, key k);
 void cmd_left(screen* scr, text_buffer* buf, key k);
+void cmd_w_left(screen* scr, text_buffer* buf, key k);
+void cmd_w_right(screen* scr, text_buffer* buf, key k);
 void cmd_right(screen* scr, text_buffer* buf, key k);
 void cmd_up(screen* scr, text_buffer* buf, key k);
 void cmd_down(screen* scr, text_buffer* buf, key k);

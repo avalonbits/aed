@@ -64,11 +64,19 @@ void cmd_left(screen* scr, text_buffer* buf, key k) {
     }
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_prev(buf);
-    if (to_ch == 0) {
-        // We are at the begining of the buffer.
+    scr_left(scr, from_ch, to_ch, 1);
+}
+
+void cmd_w_left(screen* scr, text_buffer* buf, key k) {
+    UN(k);
+
+    if (tb_bol(buf)) {
         return;
     }
-    scr_left(scr, from_ch, to_ch);
+    int from_x = tb_xpos(buf);
+    uint8_t from_ch = tb_peek(buf);
+    uint8_t to_ch = tb_w_prev(buf);
+    scr_left(scr, from_ch, to_ch, from_x - tb_xpos(buf));
 }
 
 void cmd_right(screen* scr, text_buffer* buf, key k) {

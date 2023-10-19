@@ -157,11 +157,11 @@ void scr_newl(screen* scr, uint8_t* suffix, int sz) {
     }
 }
 
-void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch) {
+void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
     if (scr->currX_ == 0) {
         return;
     }
-    scr->currX_--;
+    scr->currX_ -= deltaX;
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_left();
     scr_show_cursor_ch(scr, to_ch);

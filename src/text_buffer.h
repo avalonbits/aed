@@ -29,6 +29,7 @@ bool tb_newline(text_buffer* tb);
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb);
 uint8_t tb_prev(text_buffer* tb);
+uint8_t tb_w_prev(text_buffer* tb);
 uint8_t tb_home(text_buffer* tb);
 uint8_t tb_up(text_buffer* tb);
 uint8_t tb_down(text_buffer* tb);

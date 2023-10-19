@@ -87,6 +87,16 @@ uint8_t tb_prev(text_buffer* tb) {
     return ch;
 }
 
+uint8_t tb_w_prev(text_buffer* tb) {
+    const uint8_t ch = cb_prev(&tb->cb_, 1);
+    if (ch) {
+        tb->x_--;
+    }
+    return ch;
+}
+
+
+
 uint8_t tb_up(text_buffer* tb) {
     if (!lb_up(&tb->lb_)) {
         return 0;
