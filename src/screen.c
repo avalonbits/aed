@@ -4,6 +4,7 @@
 #include <mos_api.h>
 #include <stdio.h>
 
+#define MAX_COLS 256
 static void set_colours(uint8_t fg, uint8_t bg) {
     vdp_set_text_colour(fg);
     vdp_set_text_colour(bg+128);
@@ -139,9 +140,10 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
+
 void scr_newl(screen* scr, uint8_t* suffix, int sz) {
     scr_hide_cursor(scr);
-    scr_erase(scr, sz);
+    scr_erase(scr, MAX_COLS);
     // NOTE(icc): Handle scrolling.
     scr->currX_ = 0;
     scr->currY_++;
@@ -207,3 +209,4 @@ void scr_erase(screen* scr, int sz) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
+
