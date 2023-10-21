@@ -42,6 +42,7 @@ screen *scr_init(screen* scr, char cursor, char fg, char bg) {
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
+
     return scr;
 }
 
@@ -197,7 +198,11 @@ void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
 }
 
 void scr_erase(screen* scr, int sz) {
-    for (int i = 0; i < sz; i++) {
+    sz = sz + scr->currX_;
+    if (sz > scr->cols_) {
+        sz = scr->cols_;
+    }
+    for (int i = scr->currX_; i < sz; ++i) {
         putch(' ');
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
