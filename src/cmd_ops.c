@@ -5,8 +5,8 @@
 
 #define UN(x) (void)(x)
 
-void cmd_noop(screen* scr, text_buffer* buf, key k) {
-    UN(scr);UN(buf);UN(k);
+void cmd_noop(screen* scr, text_buffer* buf) {
+    UN(scr);UN(buf);
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {
@@ -16,9 +16,7 @@ void cmd_putc(screen* scr, text_buffer* buf, key k) {
     scr_putc(scr, k.key, suffix, sz);
 }
 
-void cmd_del(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_del(screen* scr, text_buffer* buf) {
     if (tb_eol(buf)) {
         return;
     }
@@ -30,8 +28,7 @@ void cmd_del(screen* scr, text_buffer* buf, key k) {
     scr_del(scr, suffix, sz);
 }
 
-void cmd_bksp(screen* scr, text_buffer* buf, key k) {
-    UN(k);
+void cmd_bksp(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
         return;
     }
@@ -46,9 +43,7 @@ void cmd_bksp(screen* scr, text_buffer* buf, key k) {
     scr_bksp(scr, suffix, sz);
 }
 
-void cmd_newl(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_newl(screen* scr, text_buffer* buf) {
     int sz = 0;
     uint8_t* suffix = tb_suffix(buf, &sz);
     if (tb_newline(buf)) {
@@ -56,9 +51,7 @@ void cmd_newl(screen* scr, text_buffer* buf, key k) {
     }
 }
 
-void cmd_left(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_left(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
         return;
     }
@@ -67,9 +60,7 @@ void cmd_left(screen* scr, text_buffer* buf, key k) {
     scr_left(scr, from_ch, to_ch, 1);
 }
 
-void cmd_w_left(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_w_left(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
         return;
     }
@@ -80,9 +71,7 @@ void cmd_w_left(screen* scr, text_buffer* buf, key k) {
     scr_left(scr, from_ch, to_ch, deltaX);
 }
 
-void cmd_right(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_right(screen* scr, text_buffer* buf) {
     if (tb_xpos(buf) >= scr->cols_ || tb_eol(buf)) {
         return;
     }
@@ -95,9 +84,7 @@ void cmd_right(screen* scr, text_buffer* buf, key k) {
     scr_right(scr, from_ch, to_ch, 1);
 }
 
-void cmd_w_right(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_w_right(screen* scr, text_buffer* buf) {
     if (tb_xpos(buf) >= scr->cols_ || tb_eol(buf)) {
         return;
     }
@@ -109,10 +96,7 @@ void cmd_w_right(screen* scr, text_buffer* buf, key k) {
     scr_right(scr, from_ch, to_ch, deltaX);
 }
 
-
-void cmd_up(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_up(screen* scr, text_buffer* buf) {
     if (tb_ypos(buf) == 1) {
         return;
     }
@@ -121,15 +105,11 @@ void cmd_up(screen* scr, text_buffer* buf, key k) {
     scr_up(scr, from_ch, to_ch, tb_xpos(buf)-1);
 }
 
-void cmd_down(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_down(screen* scr, text_buffer* buf) {
     tb_down(buf);
 }
 
-void cmd_home(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_home(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
         return;
     }
@@ -141,9 +121,7 @@ void cmd_home(screen* scr, text_buffer* buf, key k) {
     }
 }
 
-void cmd_end(screen* scr, text_buffer* buf, key k) {
-    UN(k);
-
+void cmd_end(screen* scr, text_buffer* buf) {
     const uint8_t from_x = tb_xpos(buf);
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_end(buf);

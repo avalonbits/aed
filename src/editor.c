@@ -21,7 +21,9 @@ void ed_destroy(editor* ed) {
     tb_destroy(&ed->buf_);
 }
 
-#define CMD_QUIT NULL
+#define CMD_QUIT 0x00
+#define CMD_PUTC 0x01
+
 typedef struct _key_command {
     cmd_op cmd;
     key k;
@@ -36,10 +38,13 @@ void ed_run(editor* ed) {
     for (;;) {
         scr_footer(scr, tb_xpos(buf), tb_ypos(buf));
         key_command kc = read_input();
-        if (kc.cmd == CMD_QUIT) {
+        if (kc.cmd == CMD_PUTC) {
+            cmd_putc(scr, buf, kc.k);
+        } else if (kc.cmd == CMD_QUIT) {
             break;
+        } else {
+            kc.cmd(scr, buf);
         }
-        kc.cmd(scr, buf, kc.k);
     }
     scr_clear(scr);
     vdp_clear_screen();
@@ -126,7 +131,7 @@ key_command read_input() {
     }
 
     if (kc.k.key != 0x7F && kc.k.key >= 32) {
-        kc.cmd = cmd_putc;
+        kc.cmd = CMD_PUTC;
     } else {
         return editCmds(kc);
     }
