@@ -36,5 +36,6 @@ void scr_right(screen* scr, uint8_t from_ch, uint8_t to_c, uint8_t deltaX);
 void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch);
 void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX);
 void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
+void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
 void scr_erase(screen* scr, int sz);
 #endif  // _SCREEN_H_
