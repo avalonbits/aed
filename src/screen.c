@@ -64,16 +64,16 @@ void scr_footer(screen* scr, int x, int y) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
-const char* title = "AED - Another Text Editor";
+const char* title = "AED: Another Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
     set_colours(scr->fg_, scr->bg_);
-    printf("-----------------------------");
+    printf("----------------------------");
     set_colours(scr->bg_, scr->fg_);
     printf("%s",title);
     set_colours(scr->fg_, scr->bg_);
-    printf("-----------------------------");
+    printf("----------------------------");
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
     vdp_cursor_tab(scr->currY_, scr->currX_);
@@ -139,6 +139,11 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
         scr_show_cursor(scr);
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
+}
+
+void scr_clear_suffix(screen* scr) {
+    scr_hide_cursor(scr);
+    scr_erase(scr, MAX_COLS);
 }
 
 void scr_newl(screen* scr, uint8_t* suffix, int sz) {
