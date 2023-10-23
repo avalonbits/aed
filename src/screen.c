@@ -64,7 +64,7 @@ void scr_footer(screen* scr, int x, int y) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
-const char* title = "AED - Agon Text Editor";
+const char* title = "AED - Another Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
