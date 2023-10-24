@@ -43,13 +43,15 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
     scr_bksp(scr, suffix, sz);
 }
 
+static void scroll_lines(screen* scr, text_buffer* buf) {
+    scr_clear_suffix(scr);
+}
+
 void cmd_newl(screen* scr, text_buffer* buf) {
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
     if (!tb_newline(buf)) {
         return;
     }
-    scr_clear_suffix(scr);
+    scroll_lines(scr, buf);
 }
 
 void cmd_left(screen* scr, text_buffer* buf) {

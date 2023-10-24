@@ -128,7 +128,16 @@ uint8_t tb_up(text_buffer* tb) {
 }
 
 uint8_t tb_down(text_buffer* tb) {
-    return cb_peek(&tb->cb_);
+    int move = lb_csize(&tb->lb_);
+    if (lb_down(&tb->lb_)) {
+            return 0;
+    }
+    const int cend = lb_csize(&tb->lb_);
+    if (tb->x_ > cend) {
+        move -= (tb->x_ - cend);
+        tb->x_ = cend;
+    }
+    return cb_next(&tb->cb_, move);
 }
 
 uint8_t tb_home(text_buffer* tb) {
@@ -153,6 +162,62 @@ int tb_xpos(text_buffer* tb) {
 
 int tb_ypos(text_buffer* tb) {
     return lb_curr(&tb->lb_)+1;
+}
+
+static text_buffer tb;
+static int ypos;
+static int lused;
+
+static line lnext() {
+	if (ypos >= lused) {
+        line l = {NULL, 0};
+        return l;
+    }
+
+    ++ypos;
+    line l = {tb.cb_.buf_, *tb.lb_.buf_};
+    tb_down(&tb);
+
+    return l;
+}
+
+line_itr tb_nline(text_buffer* buf) {
+    tb.lb_.buf_ = buf->lb_.buf_;
+    tb.lb_.curr_ = buf->lb_.curr_;
+    tb.lb_.cend_ = buf->lb_.cend_;
+
+    tb.cb_.buf_ = buf->cb_.buf_;
+    tb.cb_.curr_ = buf->cb_.curr_;
+    tb.cb_.cend_ = buf->cb_.cend_;
+
+    tb.x_ = buf->x_;
+	ypos = lb_curr(&tb.lb_);
+    lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
+    tb_home(&tb);
+
+    return lnext;
+}
+
+static line lprev() {
+    line l = {NULL, 0};
+    return l;
+}
+
+line_itr tb_pline(text_buffer* buf) {
+    tb.lb_.buf_ = buf->lb_.buf_;
+    tb.lb_.curr_ = buf->lb_.curr_;
+    tb.lb_.cend_ = buf->lb_.cend_;
+
+    tb.cb_.buf_ = buf->cb_.buf_;
+    tb.cb_.curr_ = buf->cb_.curr_;
+    tb.cb_.cend_ = buf->cb_.cend_;
+
+    tb.x_ = buf->x_;
+    ypos = lb_curr(&tb.lb_);
+    lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
+    tb_home(&tb);
+
+    return lprev;
 }
 
 // Char read.

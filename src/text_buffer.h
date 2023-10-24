@@ -44,4 +44,14 @@ uint8_t tb_peek_at(text_buffer* tb, int idx);
 int tb_copy(text_buffer* tb, uint8_t* buf, int sz);
 uint8_t* tb_suffix(text_buffer* tb, int* sz);
 
+// Line read
+typedef struct _line {
+    uint8_t* b;
+    int sz;
+} line;
+typedef line(*line_itr)();
+
+line_itr tb_pline(text_buffer* buf);
+line_itr tb_nline(text_buffer* buf);
+
 #endif // _TEXT_BUFFER_H_
