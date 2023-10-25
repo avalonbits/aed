@@ -31,4 +31,6 @@ bool lb_up(line_buffer* lb);
 bool lb_down(line_buffer* lb);
 bool lb_new(line_buffer* lb, uint8_t size);
 
+int lb_copy(line_buffer* cb, uint8_t* buf, int size);
+
 #endif  // _LINE_BUFFER_H_

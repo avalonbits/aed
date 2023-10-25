@@ -237,9 +237,7 @@ uint8_t tb_peek(text_buffer* tb) {
 uint8_t tb_peek_at(text_buffer* tb, int idx) {
     return cb_peek_at(&tb->cb_, idx);
 }
-int tb_copy(text_buffer* tb, uint8_t* buf, int sz) {
-    return cb_copy(&tb->cb_, buf, sz);
-}
+
 uint8_t* tb_suffix(text_buffer* tb, int* sz) {
     uint8_t* suffix = cb_suffix(&tb->cb_, sz);
     *sz = lb_csize(&tb->lb_) - tb->x_;

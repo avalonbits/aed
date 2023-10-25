@@ -126,7 +126,7 @@ uint8_t* cb_suffix(char_buffer* cb, int* sz) {
 }
 
 int cb_copy(char_buffer* cb, uint8_t* buf, int size) {
-    const int prefix = cb->curr_-cb->buf_;
+    const int prefix = cb->curr_ - cb->buf_;
     int used;
     for (used = 0; used < size && used < prefix; used++) {
         buf[used] = cb->buf_[used];

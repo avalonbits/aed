@@ -64,9 +64,9 @@ int lb_csize(line_buffer* lb) {
 bool lb_up(line_buffer* lb) {
     bool ok = lb->curr_ > lb->buf_;
     if (ok) {
-        lb->curr_--;
         lb->cend_--;
         *lb->cend_ = *lb->curr_;
+        lb->curr_--;
     }
     return ok;
 }
@@ -90,4 +90,19 @@ bool lb_new(line_buffer* lb, uint8_t size) {
     return ok;
 }
 
+int lb_copy(line_buffer* lb, uint8_t* buf, int size) {
+    const int prefix = lb->curr_ - lb->buf_+1;
+    int used;
+    for (used = 0; used < size && used < prefix; used++) {
+        buf[used] = lb->buf_[used];
+    }
+
+    const int suffix = (lb->buf_+lb->size_) - lb->cend_;
+    for (int i = 0; i < suffix && used < size; used++,i++) {
+        buf[used] = lb->cend_[i];
+    }
+
+    return used;
+
+}
 

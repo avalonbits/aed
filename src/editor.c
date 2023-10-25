@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include "cmd_ops.h"
+#include "line_buffer.h"
 
 editor* ed_init(editor* ed, int mem_kb, uint8_t cursor) {
     if (!tb_init(&ed->buf_, mem_kb)) {
@@ -53,6 +54,14 @@ void ed_run(editor* ed) {
     int sz = tb_used(buf);
     for (int i = 0; i < sz; i++) {
         outchar(tb_peek_at(buf, i));
+    }
+
+    printf("\r\n\r\n");
+
+    uint8_t lc[256];
+    int used = lb_copy(&buf->lb_, lc, 256);
+    for (int i = 0; i < used; i++) {
+        printf("%d ", lc[i]);
     }
 }
 
