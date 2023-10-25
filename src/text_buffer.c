@@ -165,9 +165,27 @@ int tb_ypos(text_buffer* tb) {
     return lb_curr(&tb->lb_)+1;
 }
 
+// State for the line iterator
 static text_buffer tb;
 static int ypos;
 static int lused;
+
+static void itr_state(text_buffer* buf) {
+    tb.lb_.buf_ = buf->lb_.buf_;
+    tb.lb_.curr_ = buf->lb_.curr_;
+    tb.lb_.cend_ = buf->lb_.cend_;
+    tb.lb_.size_ = buf->lb_.size_;
+
+    tb.cb_.buf_ = buf->cb_.buf_;
+    tb.cb_.curr_ = buf->cb_.curr_;
+    tb.cb_.cend_ = buf->cb_.cend_;
+    tb.cb_.size_ = buf->cb_.size_;
+
+    tb.x_ = buf->x_;
+	ypos = lb_curr(&tb.lb_);
+    lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
+    tb_home(&tb);
+}
 
 static line lnext() {
 	if (ypos > lused) {
@@ -177,7 +195,6 @@ static line lnext() {
 
     int sz = 0;
     uint8_t* suffix = tb_suffix(&tb, &sz);
-    vdp_cursor_tab(30+ypos,0);
 
     ++ypos;
     line l = {suffix, sz};
@@ -187,46 +204,28 @@ static line lnext() {
 }
 
 line_itr tb_nline(text_buffer* buf) {
-    tb.lb_.buf_ = buf->lb_.buf_;
-    tb.lb_.curr_ = buf->lb_.curr_;
-    tb.lb_.cend_ = buf->lb_.cend_;
-    tb.lb_.size_ = buf->lb_.size_;
-
-    tb.cb_.buf_ = buf->cb_.buf_;
-    tb.cb_.curr_ = buf->cb_.curr_;
-    tb.cb_.cend_ = buf->cb_.cend_;
-    tb.cb_.size_ = buf->cb_.size_;
-
-    tb.x_ = buf->x_;
-	ypos = lb_curr(&tb.lb_);
-    lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
-    vdp_cursor_tab(40, 0);
-    tb_home(&tb);
-
+    itr_state(buf);
     return lnext;
 }
 
 static line lprev() {
-    line l = {NULL, 0};
+    if (ypos == 0) {
+        line l = {NULL, 0};
+        return  l;
+    }
+
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(&tb, &sz);
+    --ypos;
+
+    tb_up(&tb);
+    line l = {suffix, sz};
+
     return l;
 }
 
 line_itr tb_pline(text_buffer* buf) {
-    tb.lb_.buf_ = buf->lb_.buf_;
-    tb.lb_.curr_ = buf->lb_.curr_;
-    tb.lb_.cend_ = buf->lb_.cend_;
-    tb.lb_.size_ = buf->lb_.size_;
-
-    tb.cb_.buf_ = buf->cb_.buf_;
-    tb.cb_.curr_ = buf->cb_.curr_;
-    tb.cb_.cend_ = buf->cb_.cend_;
-    tb.cb_.size_ = buf->cb_.size_;
-
-    tb.x_ = buf->x_;
-	ypos = lb_curr(&tb.lb_);
-    lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
-    tb_home(&tb);
-
+    itr_state(buf);
     return lprev;
 }
 

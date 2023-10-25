@@ -39,7 +39,7 @@ screen *scr_init(screen* scr, char cursor, char fg, char bg) {
     scr->fg_ = fg;
     scr->bg_ = bg;
     scr->topY_ = 1;
-    scr->bottomY_ = scr->rows_-1;
+    scr->bottomY_ = scr->rows_-2;
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();

@@ -44,14 +44,21 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
 }
 
 static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
-    scr_clear_suffix(scr);
-    line_itr next = tb_nline(buf);
-    uint8_t ypos = scr->currY_+1;
-    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-        vdp_cursor_tab(10+ypos, 0);
-        scr_write_line(scr, ypos, l.b, l.sz);
+    if (scr->currY_ < scr->bottomY_-1) {
+        scr_clear_suffix(scr);
+        line_itr next = tb_nline(buf);
+        uint8_t ypos = scr->currY_+1;
+        for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
+            scr_write_line(scr, ypos, l.b, l.sz);
+        }
+        scr->currY_++;
+    } else {
+        line_itr prev = tb_pline(buf);
+        uint8_t ypos = scr->currY_;
+        for (line l = prev(); ypos >= scr->topY_; l = prev(), --ypos) {
+            scr_write_line(scr, ypos, l.b, l.sz);
+        }
     }
-    scr->currY_++;
     scr->currX_ = 0;
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_home(scr, ch, ch);
