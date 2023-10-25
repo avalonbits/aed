@@ -33,7 +33,7 @@ int lb_avai(line_buffer* lb) {
     return lb->cend_ - lb->curr_;
 }
 int lb_max(line_buffer* lb) {
-    return lb->cend_ - lb->buf_;
+    return lb->size_;
 }
 bool lb_last(line_buffer* lb) {
     return lb->cend_ == (lb->buf_ + lb->size_);
@@ -66,15 +66,15 @@ bool lb_up(line_buffer* lb) {
     if (ok) {
         lb->curr_--;
         lb->cend_--;
-        *lb->cend_-- = *lb->curr_;
+        *lb->cend_ = *lb->curr_;
     }
     return ok;
 }
 bool lb_down(line_buffer* lb) {
     bool ok = lb->cend_ < (lb->buf_+lb->size_);
     if (ok) {
-        *lb->curr_ = *lb->cend_;
         lb->curr_++;
+        *lb->curr_ = *lb->cend_;
         lb->cend_++;
     }
     return ok;
@@ -82,8 +82,10 @@ bool lb_down(line_buffer* lb) {
 bool lb_new(line_buffer* lb, uint8_t size) {
     bool ok = lb->curr_ < lb->cend_;
     if (ok) {
+        const uint8_t csz = *lb->curr_;
         *lb->curr_ = size;
         lb->curr_++;
+        *lb->curr_ = (csz - size);
     }
     return ok;
 }

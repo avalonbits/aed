@@ -43,15 +43,26 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
     scr_bksp(scr, suffix, sz);
 }
 
-static void scroll_lines(screen* scr, text_buffer* buf) {
+static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     scr_clear_suffix(scr);
+    line_itr next = tb_nline(buf);
+    uint8_t ypos = scr->currY_+1;
+    for (line l = next(); l.b != NULL && ypos < scr->rows_; l = next(), ++ypos) {
+        vdp_cursor_tab(10+ypos, 0);
+        scr_write_line(scr, ypos, l.b, l.sz);
+    }
+    scr->currY_++;
+    scr->currX_ = 0;
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_home(scr, ch, ch);
 }
 
 void cmd_newl(screen* scr, text_buffer* buf) {
+    uint8_t ch = tb_peek(buf);
     if (!tb_newline(buf)) {
         return;
     }
-    scroll_lines(scr, buf);
+    scroll_lines(scr, buf, ch);
 }
 
 void cmd_left(screen* scr, text_buffer* buf) {
