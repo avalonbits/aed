@@ -47,7 +47,7 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     scr_clear_suffix(scr);
     line_itr next = tb_nline(buf);
     uint8_t ypos = scr->currY_+1;
-    for (line l = next(); l.b != NULL && ypos < scr->rows_; l = next(), ++ypos) {
+    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
         vdp_cursor_tab(10+ypos, 0);
         scr_write_line(scr, ypos, l.b, l.sz);
     }
