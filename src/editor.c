@@ -49,20 +49,6 @@ void ed_run(editor* ed) {
     }
     scr_clear(scr);
     vdp_clear_screen();
-
-    printf("Buf contents:\r\n");
-    int sz = tb_used(buf);
-    for (int i = 0; i < sz; i++) {
-        outchar(tb_peek_at(buf, i));
-    }
-
-    printf("\r\n\r\n");
-
-    uint8_t lc[256];
-    int used = lb_copy(&buf->lb_, lc, 256);
-    for (int i = 0; i < used; i++) {
-        printf("%d ", lc[i]);
-    }
 }
 
 key_command ctrlCmds(key_command kc) {
