@@ -116,29 +116,29 @@ uint8_t tb_up(text_buffer* tb) {
         return 0;
     }
 
-    int back = tb->x_;
-    const int sz = lb_csize(&tb->lb_);
-    if (back >= sz) {
-        // Remove the \r\n count.
-        tb->x_ = sz-2;
-        back += 2;
-    } else {
-        back += (sz - back);
+    const int  sz = lb_csize(&tb->lb_);
+    const int maxX = sz - 2;
+    int back = sz + tb->x_;
+    if (maxX < tb->x_) {
+        tb->x_ = maxX;
     }
-    return cb_prev(&tb->cb_, back);
+
+    return cb_prev(&tb->cb_, back - tb->x_);
 }
 
 uint8_t tb_down(text_buffer* tb) {
-    int move = lb_csize(&tb->lb_);
+    int move = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_down(&tb->lb_)) {
         return 0;
     }
-    const int cend = lb_csize(&tb->lb_);
+    int cend = lb_csize(&tb->lb_);
+    if (!lb_last(&tb->lb_)) {
+        cend -= 2;
+    }
     if (tb->x_ > cend) {
-        move -= (tb->x_ - cend);
         tb->x_ = cend;
     }
-    return cb_next(&tb->cb_, move);
+    return cb_next(&tb->cb_, move + tb->x_);
 }
 
 uint8_t tb_home(text_buffer* tb) {

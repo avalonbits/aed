@@ -118,7 +118,7 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
 }
 
 void cmd_up(screen* scr, text_buffer* buf) {
-    if (tb_ypos(buf) == scr->topY_) {
+    if (tb_ypos(buf) <= scr->topY_) {
         return;
     }
     uint8_t from_ch = tb_peek(buf);
