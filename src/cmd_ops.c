@@ -118,7 +118,7 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
 }
 
 void cmd_up(screen* scr, text_buffer* buf) {
-    if (tb_ypos(buf) == 1) {
+    if (tb_ypos(buf) == scr->topY_) {
         return;
     }
     uint8_t from_ch = tb_peek(buf);
@@ -127,7 +127,15 @@ void cmd_up(screen* scr, text_buffer* buf) {
 }
 
 void cmd_down(screen* scr, text_buffer* buf) {
-    tb_down(buf);
+    if (scr->currY_ >= scr->bottomY_-1) {
+        return;
+    }
+    uint8_t from_ch = tb_peek(buf);
+    uint8_t to_ch = tb_down(buf);
+    if (to_ch == 0) {
+        return;
+    }
+    scr_down(scr, from_ch, to_ch, tb_xpos(buf)-1);
 }
 
 void cmd_home(screen* scr, text_buffer* buf) {

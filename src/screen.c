@@ -204,6 +204,14 @@ void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
     scr_show_cursor_ch(scr, to_ch);
 }
 
+void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
+    scr_hide_cursor_ch(scr, from_ch);
+    scr->currY_++;
+    scr->currX_ = currX;
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, to_ch);
+}
+
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz) {
     vdp_cursor_tab(ypos, 0);
     int i = 0;
