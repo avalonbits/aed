@@ -215,8 +215,12 @@ void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz) {
     vdp_cursor_tab(ypos, 0);
     int i = 0;
-    for (; i < sz && i < scr->cols_; i++) {
-        putch(buf[i]);
+    if (sz > 0) {
+        if (sz >= scr->cols_) {
+            sz = scr->cols_ - 1;
+        }
+        mos_puts(buf, sz, 0);
+        i = sz;
     }
     for (; i < scr->cols_; ++i) {
         putch(' ');
