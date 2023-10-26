@@ -83,12 +83,36 @@ uint8_t tb_next(text_buffer* tb) {
     return cb_next(&tb->cb_, 1);
 }
 
+static bool isstop(uint8_t ch) {
+    switch (ch) {
+        case '[':
+        case ']':
+        case '(':
+        case ')':
+        case '<':
+        case '>':
+        case ' ':
+        case '\t':
+        case ';':
+        case ':':
+        case '.':
+        case ',':
+        case '@':
+        case '!':
+        case '#':
+            return true;
+        default:
+            return false;
+    }
+    return false;
+}
+
 uint8_t tb_w_next(text_buffer* tb) {
     uint8_t ch = 0;
     do {
         ch = cb_next(&tb->cb_, 1);
         tb->x_++;
-    } while (!IS_EOL(ch) && ch != ' ' && ch != '\t');
+    } while (!IS_EOL(ch) && !isstop(ch));
 
     return ch;
 }
@@ -106,7 +130,7 @@ uint8_t tb_w_prev(text_buffer* tb) {
     do {
         ch = cb_prev(&tb->cb_, 1);
         tb->x_--;
-    } while (tb->x_ > 0 && ((!IS_EOL(ch) && ch != ' ' && ch != '\t')));
+    } while (tb->x_ > 0 && (!IS_EOL(ch) && !isstop(ch)));
 
     return ch;
 }
