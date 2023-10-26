@@ -128,6 +128,7 @@ void cmd_up(screen* scr, text_buffer* buf) {
 
 void cmd_down(screen* scr, text_buffer* buf) {
     if (scr->currY_ >= scr->bottomY_-1) {
+        // We should scroll the screen here, if available.
         return;
     }
     uint8_t from_ch = tb_peek(buf);
