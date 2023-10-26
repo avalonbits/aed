@@ -132,7 +132,7 @@ void cmd_down(screen* scr, text_buffer* buf) {
     }
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_down(buf);
-    if (to_ch == 0) {
+    if (scr->currY_ == tb_ypos(buf)) {
         return;
     }
     scr_down(scr, from_ch, to_ch, tb_xpos(buf)-1);

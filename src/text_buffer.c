@@ -33,11 +33,11 @@ int tb_used(text_buffer* tb) {
     return cb_used(&tb->cb_);
 }
 
-// This is a hack because llvm was failing with 3 ORed conditions.
-#define IS_EOL(x) (x <= 13 && x != 9)
+#define IS_EOL(x) (x == 0 || (x >= 10 && x <= 13))
 
 bool tb_eol(text_buffer* tb) {
-    return IS_EOL(cb_peek(&tb->cb_));
+    const uint8_t ch = cb_peek(&tb->cb_);
+    return IS_EOL(ch);
 }
 bool tb_bol(text_buffer* tb) {
     return tb->x_ == 0;
