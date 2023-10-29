@@ -29,6 +29,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* filename) {
             len = 255;
         }
         strncpy(fname, filename, len);
+        fname[len] = 0;
     } else {
         strcpy(fname, "aed.txt");
     }
