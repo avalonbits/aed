@@ -10,8 +10,8 @@ void cmd_noop(screen* scr, text_buffer* buf) {
     UN(scr);UN(buf);
 }
 
-void cmd_quit(screen* scr, text_buffer* buf) {
-    uint8_t fh = mos_fopen("aed.txt", FA_WRITE | FA_CREATE_ALWAYS);
+void cmd_save(const char* fname, text_buffer* buf) {
+    uint8_t fh = mos_fopen(fname, FA_WRITE | FA_CREATE_ALWAYS);
     if (fh == 0) {
         return;
     }
@@ -30,6 +30,10 @@ void cmd_quit(screen* scr, text_buffer* buf) {
     }
     mos_fclose(fh);
 
+}
+
+void cmd_quit(screen* scr, text_buffer* buf) {
+    cmd_save("aed.txt", buf);
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {
