@@ -22,7 +22,6 @@ void ed_destroy(editor* ed) {
     tb_destroy(&ed->buf_);
 }
 
-#define CMD_QUIT 0x00
 #define CMD_PUTC 0x01
 
 typedef struct _key_command {
@@ -41,10 +40,11 @@ void ed_run(editor* ed) {
         key_command kc = read_input();
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(scr, buf, kc.k);
-        } else if (kc.cmd == CMD_QUIT) {
-            break;
         } else {
             kc.cmd(scr, buf);
+            if (kc.cmd == cmd_quit) {
+                break;
+            }
         }
     }
     scr_clear(scr);
@@ -55,7 +55,7 @@ key_command ctrlCmds(key_command kc) {
     switch (kc.k.vkey) {
         case VK_q:
         case VK_Q:
-            kc.cmd = CMD_QUIT;
+            kc.cmd = cmd_quit;
             break;
         case VK_LEFT:
         case VK_KP_LEFT:

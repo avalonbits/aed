@@ -1,12 +1,35 @@
 #include "cmd_ops.h"
 
 #include <agon/vdp_vdu.h>
+#include <mos_api.h>
 #include <stdio.h>
 
 #define UN(x) (void)(x)
 
 void cmd_noop(screen* scr, text_buffer* buf) {
     UN(scr);UN(buf);
+}
+
+void cmd_quit(screen* scr, text_buffer* buf) {
+    uint8_t fh = mos_fopen("aed.txt", FA_WRITE | FA_CREATE_ALWAYS);
+    if (fh == 0) {
+        return;
+    }
+
+    uint8_t* prefix = NULL;
+    uint8_t* suffix = NULL;
+    int psz = 0;
+    int ssz = 0;
+    tb_content(buf, &prefix, &psz, &suffix, &ssz);
+
+    if (prefix != NULL && psz > 0) {
+        mos_fwrite(fh, prefix, psz);
+    }
+    if (suffix != NULL && ssz > 0) {
+        mos_fwrite(fh, suffix, ssz);
+    }
+    mos_fclose(fh);
+
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {
