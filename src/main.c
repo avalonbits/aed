@@ -2,10 +2,13 @@
 #include "editor.h"
 #include "screen.h"
 
-int main(void) {
+#include <stdio.h>
+
+int main(int argc, char** argv) {
     editor ed;
 
-    ed_init(&ed, 256, DEFAULT_CURSOR);
+    const char* fname = NULL;
+    ed_init(&ed, 256, DEFAULT_CURSOR, fname);
     ed_run(&ed);
 
     ed_destroy(&ed);

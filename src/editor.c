@@ -9,8 +9,8 @@
 #include "cmd_ops.h"
 #include "line_buffer.h"
 
-editor* ed_init(editor* ed, int mem_kb, uint8_t cursor) {
-    if (!tb_init(&ed->buf_, mem_kb, NULL)) {
+editor* ed_init(editor* ed, int mem_kb, uint8_t cursor, const char* fname) {
+    if (!tb_init(&ed->buf_, mem_kb, fname)) {
        return NULL;
     }
     scr_init(&ed->scr_, cursor, DEFAULT_FG, DEFAULT_BG);
