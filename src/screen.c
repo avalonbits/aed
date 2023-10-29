@@ -98,7 +98,8 @@ void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
     putch(ch);
     scr->currX_++;
     if (suffix != NULL && sz > 0) {
-        for (int i = 0; i < sz; i++) {
+        int max = scr->cols_ - scr->currX_;
+        for (int i = 0; i < sz && i < max; i++) {
             putch(suffix[i]);
         }
         vdp_cursor_tab(scr->currY_, scr->currX_);
