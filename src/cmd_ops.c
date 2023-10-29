@@ -33,7 +33,7 @@ void cmd_save(const char* fname, text_buffer* buf) {
 }
 
 void cmd_quit(screen* scr, text_buffer* buf) {
-    cmd_save("aed.txt", buf);
+    cmd_save(buf->fname_, buf);
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {

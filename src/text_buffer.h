@@ -8,9 +8,11 @@ typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
     int x_;
+
+    char* fname_;
 } text_buffer;
 
-text_buffer* tb_init(text_buffer* tb, int mem_kb);
+text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
 void tb_destroy(text_buffer* tb);
 
 // Info ops.

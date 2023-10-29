@@ -2,18 +2,37 @@
 
 #include <agon/vdp_vdu.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-text_buffer* tb_init(text_buffer* tb, int mem_kb) {
+text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* filename) {
+    char* fname = (char*) malloc(256 * sizeof(char));
+    if (fname == NULL) {
+        return NULL;
+    }
+
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
     if (!cb_init(&tb->cb_, char_count)) {
+        free(fname);
         return NULL;
     }
     if (!lb_init(&tb->lb_, line_count)) {
+        free(fname);
         cb_destroy(&tb->cb_);
         return NULL;
     }
     tb->x_ = 0;
+    if (filename != NULL) {
+        size_t len = strlen(filename);
+        if (len >= 255) {
+            len = 255;
+        }
+        strncpy(fname, filename, len);
+    } else {
+        strcpy(fname, "aed.txt");
+    }
+    tb->fname_ = fname;
     return tb;
 }
 
