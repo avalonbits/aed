@@ -261,8 +261,21 @@ uint8_t tb_peek_at(text_buffer* tb, int idx) {
     return cb_peek_at(&tb->cb_, idx);
 }
 
+uint8_t* tb_prefix(text_buffer* tb, int* sz) {
+    uint8_t* prefix = cb_prefix(tb, sz);
+    if (prefix == NULL) {
+        return NULL;
+    }
+    *sz = tb->x_;
+    return prefix;
+}
+
 uint8_t* tb_suffix(text_buffer* tb, int* sz) {
     uint8_t* suffix = cb_suffix(&tb->cb_, sz);
+    if (suffix == NULL) {
+        return NULL;
+    }
+
     *sz = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_last(&tb->lb_)) {
         *sz -= 2;
