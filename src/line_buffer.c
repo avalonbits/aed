@@ -5,7 +5,7 @@
 
 // Setup ops.
 line_buffer* lb_init(line_buffer* lb, int size) {
-    lb->buf_ = (uint8_t*) malloc(size * sizeof(uint8_t));
+    lb->buf_ = (int*) malloc(size * sizeof(int));
     if (lb->buf_ == NULL) {
         return NULL;
     }
@@ -79,7 +79,7 @@ bool lb_down(line_buffer* lb) {
     }
     return ok;
 }
-bool lb_new(line_buffer* lb, uint8_t size) {
+bool lb_new(line_buffer* lb, int size) {
     bool ok = lb->curr_ < lb->cend_;
     if (ok) {
         const uint8_t csz = *lb->curr_;
@@ -103,6 +103,5 @@ int lb_copy(line_buffer* lb, uint8_t* buf, int size) {
     }
 
     return used;
-
 }
 

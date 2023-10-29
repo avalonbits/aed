@@ -6,9 +6,9 @@
 
 typedef struct _line_buffer  {
     int size_;
-    uint8_t* buf_;
-    uint8_t* curr_;
-    uint8_t* cend_;
+    int* buf_;
+    int* curr_;
+    int* cend_;
 } line_buffer;
 
 // Setup ops.
@@ -29,7 +29,7 @@ int lb_csize(line_buffer* lb);
 // Cursor ops.
 bool lb_up(line_buffer* lb);
 bool lb_down(line_buffer* lb);
-bool lb_new(line_buffer* lb, uint8_t size);
+bool lb_new(line_buffer* lb, int size);
 
 int lb_copy(line_buffer* cb, uint8_t* buf, int size);
 
