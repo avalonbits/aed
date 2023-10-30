@@ -112,11 +112,11 @@ void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
 void scr_del(screen* scr, uint8_t* suffix, int sz) {
     if (sz > 0) {
         int i = 0;
-        const int x = scr->currX_;
-        for (; i < sz && (i+x) < scr->cols_; i++) {
+        const int limit = scr->cols_ - scr->currX_;
+        for (; i < sz && i < limit; i++) {
             putch(suffix[i]);
         }
-        if ((i+x) < scr->cols_) {
+        if (i < limit) {
             putch(' ');
         }
         vdp_cursor_tab(scr->currY_, scr->currX_);
@@ -135,12 +135,12 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 
     if (suffix != NULL && sz > 0) {
-        const int x = scr->currX_;
+        const int limit = scr->cols_ - scr->currX_;
         int i = 0;
-        for (; i < sz && (i+x) < scr->cols_; i++) {
+        for (; i < sz && i < limit; i++) {
             putch(suffix[i]);
         }
-        if ((i+x) < scr->cols_) {
+        if (i < limit) {
             putch(' ');
         }
         vdp_cursor_tab(scr->currY_, scr->currX_);
