@@ -286,6 +286,7 @@ uint8_t* tb_prefix(text_buffer* tb, int* sz) {
     if (prefix == NULL) {
         return NULL;
     }
+    prefix = prefix + *sz - tb->x_;
     *sz = tb->x_;
     return prefix;
 }
