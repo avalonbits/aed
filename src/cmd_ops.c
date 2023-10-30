@@ -47,11 +47,11 @@ void cmd_del(screen* scr, text_buffer* buf) {
     if (tb_eol(buf)) {
         return;
     }
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
     if (!tb_del(buf)) {
         return;
     }
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
     scr_del(scr, suffix, sz);
 }
 
@@ -62,7 +62,6 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
 
     int sz = 0;
     uint8_t* suffix = tb_suffix(buf, &sz);
-    scr_erase(scr, sz);
 
     if (!tb_bksp(buf)) {
         return;

@@ -110,13 +110,17 @@ void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
 }
 
 void scr_del(screen* scr, uint8_t* suffix, int sz) {
-    scr_erase(scr, sz);
-    if (sz > 1) {
-        for (int i = 1; i < sz; i++) {
+    if (sz > 0) {
+        int i = 0;
+        const int x = scr->currX_;
+        for (; i < sz && (i+x) < scr->cols_; i++) {
             putch(suffix[i]);
         }
+        if ((i+x) < scr->cols_) {
+            putch(' ');
+        }
         vdp_cursor_tab(scr->currY_, scr->currX_);
-        scr_show_cursor_ch(scr, suffix[1]);
+        scr_show_cursor_ch(scr, suffix[0]);
     } else {
         scr_show_cursor(scr);
     }
@@ -126,13 +130,18 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     if (scr->currX_ == 0) {
         return;
     }
-    scr_erase(scr, sz);
     scr->currX_--;
     scr_hide_cursor(scr);
-    vdp_cursor_left();
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+
     if (suffix != NULL && sz > 0) {
-        for (int i = 0; i < sz; i++) {
+        const int x = scr->currX_;
+        int i = 0;
+        for (; i < sz && (i+x) < scr->cols_; i++) {
             putch(suffix[i]);
+        }
+        if ((i+x) < scr->cols_) {
+            putch(' ');
         }
         vdp_cursor_tab(scr->currY_, scr->currX_);
         scr_show_cursor_ch(scr, suffix[0]);
