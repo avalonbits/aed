@@ -38,9 +38,12 @@ void cmd_quit(screen* scr, text_buffer* buf) {
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {
 	tb_put(buf, k.key);
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
-    scr_putc(scr, k.key, suffix, sz);
+
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(buf, &psz);
+    int ssz = 0;
+    uint8_t* suffix = tb_suffix(buf, &ssz);
+    scr_putc(scr, k.key, prefix, psz, suffix, ssz);
 }
 
 void cmd_del(screen* scr, text_buffer* buf) {

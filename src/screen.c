@@ -93,19 +93,31 @@ static void scr_hide_cursor(screen* scr) {
     scr_hide_cursor_ch(scr, scr->cursor_);
 }
 
-void scr_putc(screen* scr, uint8_t ch, uint8_t* suffix, int sz) {
+void scr_putc(screen* scr, uint8_t ch, uint8_t* prefix, int psz, uint8_t* suffix, int ssz) {
     scr_hide_cursor(scr);
-    putch(ch);
-    scr->currX_++;
-    if (suffix != NULL && sz > 0) {
-        int max = scr->cols_ - scr->currX_;
-        for (int i = 0; i < sz && i < max; i++) {
-            putch(suffix[i]);
+    if (scr->currX_ < scr->cols_-1) {
+        putch(ch);
+        scr->currX_++;
+        if (suffix != NULL && ssz > 0) {
+            int max = scr->cols_ - scr->currX_;
+            for (int i = 0; i < ssz && i < max; i++) {
+                putch(suffix[i]);
+            }
+            vdp_cursor_tab(scr->currY_, scr->currX_);
+            scr_show_cursor_ch(scr, suffix[0]);
+        } else {
+            scr_show_cursor(scr);
         }
-        vdp_cursor_tab(scr->currY_, scr->currX_);
-        scr_show_cursor_ch(scr, suffix[0]);
     } else {
-        scr_show_cursor(scr);
+        int pad = psz - scr->cols_+1;
+        scr_write_line(scr, scr->currY_, prefix+pad, psz-pad-1);
+        vdp_cursor_tab(scr->currY_, scr->currX_-1);
+        putch(ch);
+        if (ssz > 0) {
+            scr_show_cursor_ch(scr, suffix[0]);
+        } else {
+            scr_show_cursor(scr);
+        }
     }
 }
 
