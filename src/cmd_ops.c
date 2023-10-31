@@ -87,7 +87,7 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch, uint8_t* pre
     }
     scr->currX_ = 0;
     vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_home(scr, ch, ch);
+    scr_home(scr, ch, ch, NULL, 0);
 }
 
 void cmd_newl(screen* scr, text_buffer* buf) {
@@ -97,8 +97,6 @@ void cmd_newl(screen* scr, text_buffer* buf) {
     if (!tb_newline(buf)) {
         return;
     }
-    vdp_cursor_tab(30, 0);
-    printf("%d" , sz);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scroll_lines(scr, buf, ch, prefix, sz);
 }
@@ -184,7 +182,9 @@ void cmd_home(screen* scr, text_buffer* buf) {
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_home(buf);
     if (to_ch != 0) {
-        scr_home(scr, from_ch, tb_peek(buf));
+        int sz = 0;
+        uint8_t* suffix = tb_suffix(buf, &sz);
+        scr_home(scr, from_ch, tb_peek(buf), suffix, sz);
     }
 }
 
@@ -194,6 +194,8 @@ void cmd_end(screen* scr, text_buffer* buf) {
     uint8_t to_ch = tb_end(buf);
     const uint8_t deltaX = tb_xpos(buf) - from_x;
     if (deltaX > 0) {
-        scr_end(scr, from_ch, to_ch, deltaX);
+        int sz = 0;
+        uint8_t* suffix = tb_prefix(buf, &sz);
+        scr_end(scr, from_ch, to_ch, deltaX, suffix, sz);
     }
 }

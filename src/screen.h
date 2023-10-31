@@ -34,8 +34,8 @@ void scr_clear_suffix(screen* scr);
 void scr_newl(screen* scr, uint8_t* suffix, int sz);
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz);
 void scr_right(screen* scr, uint8_t from_ch, uint8_t to_c, uint8_t deltaX, uint8_t* prefix, int sz);
-void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch);
-void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX);
+void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* prefix, int sz);
+void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz);
 void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
 void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
 

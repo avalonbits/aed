@@ -207,16 +207,26 @@ void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch) {
+void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* suffix, int sz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currX_ = 0;
+    if (sz > 0) {
+        scr_write_line(scr, scr->currY_, suffix, sz);
+    }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
+void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currX_ += deltaX;
+    if (sz > 0) {
+        int pad = 0;
+        if (sz >= scr->cols_) {
+            pad = sz - scr->cols_;
+        }
+        scr_write_line(scr, scr->currY_, suffix+pad, sz);
+    }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, to_ch);
 }
