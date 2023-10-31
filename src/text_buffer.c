@@ -282,11 +282,12 @@ uint8_t tb_peek_at(text_buffer* tb, int idx) {
 }
 
 uint8_t* tb_prefix(text_buffer* tb, int* sz) {
-    uint8_t* prefix = cb_prefix(&tb->cb_, sz);
+    int psz = 0;
+    uint8_t* prefix = cb_prefix(&tb->cb_, &psz);
     if (prefix == NULL) {
         return NULL;
     }
-    prefix = prefix + *sz - tb->x_;
+    prefix = prefix + (psz - tb->x_);
     *sz = tb->x_;
     return prefix;
 }

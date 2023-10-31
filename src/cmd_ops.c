@@ -69,9 +69,9 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
     scr_bksp(scr, suffix, sz);
 }
 
-static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
+static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch, uint8_t* prefix, int sz) {
+    scr_write_line(scr, scr->currY_, prefix, sz);
     if (scr->currY_ < scr->bottomY_-1) {
-        scr_clear_suffix(scr);
         line_itr next = tb_nline(buf);
         uint8_t ypos = scr->currY_+1;
         for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
@@ -92,10 +92,15 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
 
 void cmd_newl(screen* scr, text_buffer* buf) {
     uint8_t ch = tb_peek(buf);
+    int sz = 0;
+    uint8_t* prefix = tb_prefix(buf, &sz);
     if (!tb_newline(buf)) {
         return;
     }
-    scroll_lines(scr, buf, ch);
+    vdp_cursor_tab(30, 0);
+    printf("%d" , sz);
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scroll_lines(scr, buf, ch, prefix, sz);
 }
 
 void cmd_left(screen* scr, text_buffer* buf) {
@@ -104,7 +109,10 @@ void cmd_left(screen* scr, text_buffer* buf) {
     }
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_prev(buf);
-    scr_left(scr, from_ch, to_ch, 1);
+
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    scr_left(scr, from_ch, to_ch, 1, suffix, sz);
 }
 
 void cmd_w_left(screen* scr, text_buffer* buf) {
@@ -115,11 +123,11 @@ void cmd_w_left(screen* scr, text_buffer* buf) {
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_w_prev(buf);
     const uint8_t deltaX = from_x - tb_xpos(buf);
-    scr_left(scr, from_ch, to_ch, deltaX);
+    scr_left(scr, from_ch, to_ch, deltaX, NULL, 0);
 }
 
 void cmd_right(screen* scr, text_buffer* buf) {
-    if (tb_xpos(buf) >= scr->cols_ || tb_eol(buf)) {
+    if (tb_eol(buf)) {
         return;
     }
 
@@ -128,7 +136,10 @@ void cmd_right(screen* scr, text_buffer* buf) {
         return;
     }
     uint8_t to_ch = tb_next(buf);
-    scr_right(scr, from_ch, to_ch, 1);
+
+    int sz = 0;
+    uint8_t* prefix = tb_prefix(buf, &sz);
+    scr_right(scr, from_ch, to_ch, 1, prefix, sz);
 }
 
 void cmd_w_right(screen* scr, text_buffer* buf) {
@@ -140,7 +151,7 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_w_next(buf);
     const uint8_t deltaX = tb_xpos(buf) - from_x;
-    scr_right(scr, from_ch, to_ch, deltaX);
+    scr_right(scr, from_ch, to_ch, deltaX, NULL, 0);
 }
 
 void cmd_up(screen* scr, text_buffer* buf) {

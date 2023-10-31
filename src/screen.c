@@ -170,18 +170,38 @@ void scr_newl(screen* scr, uint8_t* suffix, int sz) {
     }
 }
 
-void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
-    if (scr->currX_ == 0) {
-        return;
+void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz) {
+    int x = scr->currX_ - deltaX;
+    if (x >= 0) {
+        scr->currX_ -= deltaX;
+    } else if (sz > 0) {
+        int max = scr->cols_ - scr->currX_;
+        vdp_cursor_tab(scr->currY_, 0);
+        for (int i = 0; i < max; i++) {
+            putch(suffix[i]);
+        }
+        vdp_cursor_tab(scr->currY_, scr->currX_);
+
     }
     scr_hide_cursor_ch(scr, from_ch);
-    scr->currX_ -= deltaX;
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX) {
-    scr->currX_ += deltaX;
+void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* prefix, int sz) {
+    int x = scr->currX_ + deltaX;
+    if (x < scr->cols_) {
+        scr->currX_ += deltaX;
+    } else if (sz > 0) {
+        int pad = sz - scr->cols_ + 1;
+
+        vdp_cursor_tab(scr->currY_, 0);
+        for (int i = 0; i < scr->cols_; i++) {
+            putch(prefix[i+pad]);
+        }
+        vdp_cursor_tab(scr->currY_, scr->currX_);
+
+    }
     scr_hide_cursor_ch(scr, from_ch);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, to_ch);
@@ -220,12 +240,8 @@ void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz) {
     vdp_cursor_tab(ypos, 0);
     int i = 0;
-    if (sz > 0) {
-        if (sz >= scr->cols_) {
-            sz = scr->cols_ - 1;
-        }
-        mos_puts(buf, sz, 0);
-        i = sz;
+    for (; i < sz && i < scr->cols_; i++) {
+        putch(buf[i]);
     }
     for (; i < scr->cols_; ++i) {
         putch(' ');
