@@ -238,7 +238,7 @@ void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_
     if (sz > 0) {
         int pad = 0;
         if (sz >= scr->cols_) {
-            pad = sz - scr->cols_;
+            pad = sz - scr->cols_+1;
         }
         scr_write_line(scr, scr->currY_, prefix+pad, sz-pad);
     }
