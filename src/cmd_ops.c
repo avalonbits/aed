@@ -88,7 +88,7 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
         }
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_home(scr, ch, ch, NULL, 0);
+    scr_show_cursor_ch(scr, ch);
 }
 
 void cmd_newl(screen* scr, text_buffer* buf) {
@@ -100,6 +100,7 @@ void cmd_newl(screen* scr, text_buffer* buf) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_write_line(scr, scr->currY_, prefix, sz);
+    scr->currX_ = 0;
     scroll_lines(scr, buf, ch);
 }
 
@@ -155,12 +156,18 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
 }
 
 void cmd_up(screen* scr, text_buffer* buf) {
-    if (tb_ypos(buf) <= scr->topY_) {
-        return;
-    }
+    int ypos = tb_ypos(buf);
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_up(buf);
-    scr_up(scr, from_ch, to_ch, tb_xpos(buf)-1);
+    if (ypos == tb_ypos(buf)) {
+        return;
+    }
+
+    if (scr->currY_ > scr->topY_) {
+        scr_up(scr, from_ch, to_ch, tb_xpos(buf)-1);
+    } else {
+        scroll_lines(scr, buf, to_ch);
+    }
 }
 
 void cmd_down(screen* scr, text_buffer* buf) {

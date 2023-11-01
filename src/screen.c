@@ -10,7 +10,7 @@ static void set_colours(uint8_t fg, uint8_t bg) {
     vdp_set_text_colour(bg+128);
 }
 
-static void scr_show_cursor_ch(screen* scr, uint8_t ch) {
+void scr_show_cursor_ch(screen* scr, uint8_t ch) {
     if (ch == 0 || ch == '\r' || ch == '\n') {
         ch = scr->cursor_;
     }

@@ -40,5 +40,6 @@ void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
 void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
 
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
+void scr_show_cursor_ch(screen* scr, uint8_t ch);
 void scr_erase(screen* scr, int sz);
 #endif  // _SCREEN_H_
