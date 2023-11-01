@@ -72,6 +72,17 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
     scr_bksp(scr, suffix, sz);
 }
 
+static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
+    line_itr next = tb_nline(buf);
+    uint8_t ypos = scr->currY_;
+    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
+        scr_write_line(scr, ypos, l.b, l.sz);
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, ch);
+}
+
+
 static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     if (scr->currY_ < scr->bottomY_-1) {
         line_itr next = tb_nline(buf);
@@ -166,7 +177,7 @@ void cmd_up(screen* scr, text_buffer* buf) {
     if (scr->currY_ > scr->topY_) {
         scr_up(scr, from_ch, to_ch, tb_xpos(buf)-1);
     } else {
-        scroll_lines(scr, buf, to_ch);
+        scroll_down_from_top(scr, buf, to_ch);
     }
 }
 
