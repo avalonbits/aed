@@ -158,11 +158,6 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void scr_clear_suffix(screen* scr) {
-    scr_hide_cursor(scr);
-    scr_erase(scr, MAX_COLS);
-}
-
 void scr_newl(screen* scr, uint8_t* suffix, int sz) {
     scr_hide_cursor(scr);
     scr_erase(scr, MAX_COLS);
