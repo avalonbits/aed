@@ -72,8 +72,7 @@ void cmd_bksp(screen* scr, text_buffer* buf) {
     scr_bksp(scr, suffix, sz);
 }
 
-static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch, uint8_t* prefix, int sz) {
-    scr_write_line(scr, scr->currY_, prefix, sz);
+static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     if (scr->currY_ < scr->bottomY_-1) {
         line_itr next = tb_nline(buf);
         uint8_t ypos = scr->currY_+1;
@@ -88,7 +87,6 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch, uint8_t* pre
             scr_write_line(scr, ypos, l.b, l.sz);
         }
     }
-    scr->currX_ = 0;
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_home(scr, ch, ch, NULL, 0);
 }
@@ -101,7 +99,8 @@ void cmd_newl(screen* scr, text_buffer* buf) {
         return;
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
-    scroll_lines(scr, buf, ch, prefix, sz);
+    scr_write_line(scr, scr->currY_, prefix, sz);
+    scroll_lines(scr, buf, ch);
 }
 
 void cmd_left(screen* scr, text_buffer* buf) {
@@ -165,16 +164,16 @@ void cmd_up(screen* scr, text_buffer* buf) {
 }
 
 void cmd_down(screen* scr, text_buffer* buf) {
-    if (scr->currY_ >= scr->bottomY_-1) {
-        // We should scroll the screen here, if available.
-        return;
-    }
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_down(buf);
     if (scr->currY_ == tb_ypos(buf)) {
         return;
     }
-    scr_down(scr, from_ch, to_ch, tb_xpos(buf)-1);
+    if (scr->currY_ >= scr->bottomY_-1) {
+        scroll_lines(scr, buf, to_ch);
+    } else {
+        scr_down(scr, from_ch, to_ch, tb_xpos(buf)-1);
+    }
 }
 
 void cmd_home(screen* scr, text_buffer* buf) {
