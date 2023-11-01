@@ -82,7 +82,6 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     scr_show_cursor_ch(scr, ch);
 }
 
-
 static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     if (scr->currY_ < scr->bottomY_-1) {
         line_itr next = tb_nline(buf);
