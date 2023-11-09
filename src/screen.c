@@ -1,6 +1,7 @@
 #include "screen.h"
 
 #include <agon/vdp_vdu.h>
+#include <string.h>
 #include <mos_api.h>
 #include <stdio.h>
 
@@ -60,7 +61,10 @@ void scr_footer(screen* scr, int x, int y) {
     vdp_cursor_tab(scr->bottomY_, 0);
     putch(' ');
     set_colours(scr->bg_, scr->fg_);
-    printf("                                                                 %5d,%-6d", y, x);
+    for (int i = 0; i < scr->cols_-13; i++) {
+        putch(' ');
+    }
+    printf("%4d,%-6d", y, x);
     set_colours(scr->fg_, scr->bg_);
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
@@ -70,11 +74,17 @@ void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
     set_colours(scr->fg_, scr->bg_);
-    printf("----------------------------");
+    const int len = strlen(title);
+    const int banner = (scr->cols_ - len)/2;
+    for (int i = 0; i < banner; i++) {
+        putch('-');
+    }
     set_colours(scr->bg_, scr->fg_);
     printf("%s",title);
     set_colours(scr->fg_, scr->bg_);
-    printf("----------------------------");
+    for (int i = 0; i < banner; i++)  {
+        putch('-');
+    }
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
     vdp_cursor_tab(scr->currY_, scr->currX_);
@@ -157,25 +167,6 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
         print_suffix(scr, suffix, sz);
     }
     scr_show_cursor_ch(scr, ch);
-}
-
-void scr_newl(screen* scr, uint8_t* suffix, int sz) {
-    scr_hide_cursor(scr);
-    scr_erase(scr, MAX_COLS);
-    // NOTE(icc): Handle scrolling.
-    scr->currX_ = 0;
-    scr->currY_++;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
-
-    if (sz > 0) {
-        for (int i = 0; i < sz; i++) {
-            outchar(suffix[i]);
-        }
-        vdp_cursor_tab(scr->currY_, scr->currX_);
-        scr_show_cursor_ch(scr, suffix[0]);
-    } else {
-        scr_show_cursor(scr);
-    }
 }
 
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz) {

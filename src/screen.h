@@ -33,7 +33,6 @@ void scr_footer(screen* scr, int x, int y);
 void scr_putc(screen* scr, uint8_t ch, uint8_t* prefix, int psz, uint8_t* suffix, int ssz);
 void scr_del(screen* scr, uint8_t* suffix, int sz);
 void scr_bksp(screen* scr, uint8_t* suffix, int sz);
-void scr_newl(screen* scr, uint8_t* suffix, int sz);
 
 // Navigation.
 void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz);
