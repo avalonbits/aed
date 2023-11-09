@@ -44,6 +44,8 @@ void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_
 
 // Screen management.
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
+void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz);
+
 void scr_show_cursor_ch(screen* scr, uint8_t ch);
 void scr_erase(screen* scr, int sz);
 

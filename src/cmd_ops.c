@@ -84,7 +84,7 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     line_itr next = tb_nline(buf);
     uint8_t ypos = scr->currY_;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-        scr_write_line(scr, ypos, l.b, l.sz);
+        scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
@@ -95,14 +95,14 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
         line_itr next = tb_nline(buf);
         uint8_t ypos = scr->currY_+1;
         for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-            scr_write_line(scr, ypos, l.b, l.sz);
+            scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
         }
         scr->currY_++;
     } else {
         line_itr prev = tb_pline(buf);
         uint8_t ypos = scr->currY_;
         for (line l = prev(); ypos >= scr->topY_; l = prev(), --ypos) {
-            scr_write_line(scr, ypos, l.b, l.sz);
+            scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
         }
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);

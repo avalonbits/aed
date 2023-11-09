@@ -239,10 +239,12 @@ static line lnext() {
 
     int sz = 0;
     uint8_t* suffix = tb_suffix(&tb, &sz);
-
     ++ypos;
-    line l = {suffix, sz};
+
     tb_down(&tb);
+    int osz = 0;
+    tb_suffix(&tb, &osz);
+    line l = {suffix, sz, osz};
 
     return l;
 }
@@ -263,7 +265,9 @@ static line lprev() {
     --ypos;
 
     tb_up(&tb);
-    line l = {suffix, sz};
+    int osz = 0;
+    tb_suffix(&tb, &osz);
+    line l = {suffix, sz, osz};
 
     return l;
 }

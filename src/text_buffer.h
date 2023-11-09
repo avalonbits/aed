@@ -52,6 +52,7 @@ void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, i
 typedef struct _line {
     uint8_t* b;
     int sz;
+    int osz;
 } line;
 typedef line(*line_itr)();
 

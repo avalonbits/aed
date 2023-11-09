@@ -250,17 +250,20 @@ void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
 }
 
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz) {
+    scr_overwrite_line(scr, ypos, buf, sz, scr->cols_);
+}
+
+void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz) {
     vdp_cursor_tab(ypos, 0);
     int i = 0;
     for (; i < sz && i < scr->cols_; i++) {
         putch(buf[i]);
     }
-    for (; i < scr->cols_; ++i) {
+    for (; i < psz && i < scr->cols_; ++i) {
         putch(' ');
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
-
 
 void scr_erase(screen* scr, int sz) {
     sz = sz + scr->currX_;
