@@ -37,8 +37,16 @@ void cmd_quit(screen* scr, text_buffer* buf) {
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {
-	tb_put(buf, k.key);
+    if (k.key == '\t') {
+        // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
+        k.key = ' ';
+        for (uint8_t i = 0; i < scr->tab_size_; i++) {
+            cmd_putc(scr, buf, k);
+        }
+        return;
+    }
 
+    tb_put(buf, k.key);
     int psz = 0;
     uint8_t* prefix = tb_prefix(buf, &psz);
     int ssz = 0;

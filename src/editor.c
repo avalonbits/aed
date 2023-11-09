@@ -125,7 +125,7 @@ key_command read_input() {
         return ctrlCmds(kc);
     }
 
-    if (kc.k.key != 0x7F && kc.k.key >= 32) {
+    if (kc.k.key == '\t' || (kc.k.key != 0x7F && kc.k.key >= 32)) {
         kc.cmd = CMD_PUTC;
     } else {
         return editCmds(kc);
