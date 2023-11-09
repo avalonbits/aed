@@ -174,6 +174,9 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
 }
 
 void cmd_up(screen* scr, text_buffer* buf) {
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(buf, &psz);
+
     int ypos = tb_ypos(buf);
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_up(buf);
@@ -181,10 +184,19 @@ void cmd_up(screen* scr, text_buffer* buf) {
         return;
     }
 
-    if (scr->currY_ > scr->topY_) {
-        scr_up(scr, from_ch, to_ch, tb_xpos(buf)-1);
-    } else {
+    if (scr->currY_ <= scr->topY_) {
         scroll_down_from_top(scr, buf, to_ch);
+    } else {
+        if (scr->currX_ >= scr->cols_-1) {
+            scr_write_line(scr, scr->currY_, prefix, psz);
+            if (tb_xpos(buf) >= scr->cols_) {
+                psz = 0;
+                prefix = tb_prefix(buf, &psz);
+                int pad = (tb_xpos(buf)-1) - scr->currX_;
+                scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
+            }
+        }
+        scr_up(scr, from_ch, to_ch, scr->currX_);
     }
 }
 
