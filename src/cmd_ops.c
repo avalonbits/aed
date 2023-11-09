@@ -189,6 +189,9 @@ void cmd_up(screen* scr, text_buffer* buf) {
 }
 
 void cmd_down(screen* scr, text_buffer* buf) {
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(buf, &psz);
+
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_down(buf);
     if (scr->currY_ == tb_ypos(buf)) {
@@ -197,7 +200,16 @@ void cmd_down(screen* scr, text_buffer* buf) {
     if (scr->currY_ >= scr->bottomY_-1) {
         scroll_lines(scr, buf, to_ch);
     } else {
-        scr_down(scr, from_ch, to_ch, tb_xpos(buf)-1);
+        if (scr->currX_ >= scr->cols_-1) {
+            scr_write_line(scr, scr->currY_, prefix, psz);
+            if (tb_xpos(buf) >= scr->cols_) {
+                psz = 0;
+                prefix = tb_prefix(buf, &psz);
+                int pad = (tb_xpos(buf)-1) - scr->currX_;
+                scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
+            }
+        }
+        scr_down(scr, from_ch, to_ch, scr->currX_);
     }
 }
 
