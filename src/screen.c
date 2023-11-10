@@ -5,7 +5,7 @@
 #include <mos_api.h>
 #include <stdio.h>
 
-#define MAX_COLS 256
+#define MAX_COLS 255
 static void set_colours(uint8_t fg, uint8_t bg) {
     vdp_set_text_colour(fg);
     vdp_set_text_colour(bg+128);
