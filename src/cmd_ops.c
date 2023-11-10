@@ -123,6 +123,12 @@ void cmd_newl(screen* scr, text_buffer* buf) {
     scroll_lines(scr, buf, ch);
 }
 
+void cmd_del_line(screen* scr, text_buffer* buf) {
+    if (!tb_del_line(buf)) {
+        return;
+    }
+}
+
 void cmd_left(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
         if (tb_ypos(buf) > 1) {

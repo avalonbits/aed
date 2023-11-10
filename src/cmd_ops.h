@@ -18,6 +18,7 @@ void cmd_putc(screen* scr, text_buffer* buf, key k);
 void cmd_del(screen* scr, text_buffer* buf);
 void cmd_bksp(screen* scr, text_buffer* buf);
 void cmd_newl(screen* scr, text_buffer* buf);
+void cmd_del_line(screen* scr, text_buffer* buf);
 void cmd_left(screen* scr, text_buffer* buf);
 void cmd_w_left(screen* scr, text_buffer* buf);
 void cmd_w_right(screen* scr, text_buffer* buf);

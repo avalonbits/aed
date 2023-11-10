@@ -97,6 +97,32 @@ bool tb_newline(text_buffer* tb) {
     return ok;
 }
 
+bool tb_del_line(text_buffer* tb) {
+    if (lb_avai(&tb->lb_) == lb_max(&tb->lb_) && lb_csize(&tb->lb_) == 0) {
+        return false;
+    }
+
+    int x = tb->x_;
+    tb_home(tb);
+    while (lb_csize(&tb->lb_) > 0) {
+        tb_del(tb);
+    }
+    // If this is not the last line, then we need to move the cursor to before the newline.
+    cb_bksp(&tb->cb_);
+    cb_bksp(&tb->cb_);
+    lb_remove(&tb->lb_);
+
+    int max = lb_csize(&tb->lb_);
+    if (max < 2) {
+        x = max;
+    } else if (x > max - 2) {
+        x = max - 2;
+    }
+    tb->x_ = x;
+    cb_next(&tb->cb_, x);
+    return true;
+}
+
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb) {
     tb->x_++;

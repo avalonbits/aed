@@ -90,6 +90,26 @@ bool lb_new(line_buffer* lb, int size) {
     return ok;
 }
 
+bool lb_remove(line_buffer* lb) {
+    if (!lb_last(lb)) {
+        *lb->curr_ = *lb->cend_;
+        lb->cend_++;
+        return true;
+    }
+
+    if (lb->curr_ > lb->buf_) {
+        lb->curr_--;
+        (*lb-curr_) -= 2;
+        return true;
+    }
+
+    if (*lb->curr_ > 0) {
+        lb->curr_ = 0;
+        return true;
+    }
+    return false;
+}
+
 int lb_copy(line_buffer* lb, uint8_t* buf, int size) {
     const int prefix = lb->curr_ - lb->buf_+1;
     int used;

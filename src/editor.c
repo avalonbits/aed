@@ -66,6 +66,10 @@ key_command ctrlCmds(key_command kc) {
         case VK_KP_RIGHT:
             kc.cmd = cmd_w_right;
             break;
+        case VK_DELETE:
+        case VK_KP_DELETE:
+            kc.cmd = cmd_del_line;
+            break;
         default:
             kc.cmd = cmd_noop;
             break;

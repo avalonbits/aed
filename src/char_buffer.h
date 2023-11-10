@@ -20,7 +20,7 @@ int cb_size(char_buffer* cb);
 int cb_available(char_buffer* cb);
 int cb_used(char_buffer* cb);
 
-// Characterr ops.
+// Character ops.
 void cb_put(char_buffer* cb, uint8_t ch);
 bool cb_del(char_buffer* cb);
 bool cb_bksp(char_buffer* cb);
