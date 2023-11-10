@@ -31,14 +31,18 @@ static void scr_show_cursor(screen* scr) {
     scr_show_cursor_ch(scr, scr->cursor_);
 }
 
-screen *scr_init(screen* scr, char cursor, char fg, char bg) {
+static void get_active_colours(screen* scr) {
+    scr->fg_ = 15;
+    scr->bg_ = 0;
+}
+
+screen *scr_init(screen* scr, char cursor) {
     vdp_vdu_init();
     vdp_cursor_enable(false);
     scr->rows_ = getsysvar_scrRows();
     scr->cols_ = getsysvar_scrCols();
     scr->cursor_ = cursor;
-    scr->fg_ = fg;
-    scr->bg_ = bg;
+    get_active_colours(scr);
     scr->topY_ = 1;
     scr->bottomY_ = scr->rows_-2;
     scr->tab_size_ = 4;

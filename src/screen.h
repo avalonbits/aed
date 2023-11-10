@@ -19,12 +19,8 @@ typedef struct _screen {
     char bg_;
 } screen;
 
-#define DEFAULT_CURSOR 32
-#define DEFAULT_FG 15
-#define DEFAULT_BG 0
-
 // Setup.
-screen* scr_init(screen* scr, char cursor, char fg, char bg);
+screen* scr_init(screen* scr, char cursor);
 void scr_destroy(screen* scr);
 void scr_clear(screen* scr);
 void scr_footer(screen* scr, int x, int y);

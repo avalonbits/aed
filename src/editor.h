@@ -11,7 +11,7 @@ typedef struct _editor {
     text_buffer buf_;
 } editor;
 
-editor* ed_init(editor* ed, int mem_kb, uint8_t cursor, const char* fname);
+editor* ed_init(editor* ed, int mem_kb, const char* fname);
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);
