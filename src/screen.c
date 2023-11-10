@@ -35,6 +35,7 @@ static void get_active_colours(screen* scr) {
     scr->bg_ = 0;
     scr->fg_ = 15;
     set_colours(scr->fg_, scr->bg_);
+    vdp_clear_screen();
 }
 
 screen *scr_init(screen* scr, char cursor) {

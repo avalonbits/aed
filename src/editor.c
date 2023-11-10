@@ -49,7 +49,6 @@ void ed_run(editor* ed) {
             }
         }
     }
-    scr_clear(scr);
     vdp_clear_screen();
 }
 
