@@ -178,6 +178,7 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8
     if (x >= 0) {
         scr->currX_ -= deltaX;
     } else if (sz > 0) {
+        scr->currX_ = 0;
         int max = scr->cols_ - scr->currX_;
         vdp_cursor_tab(scr->currY_, 0);
         for (int i = 0; i < max; i++) {
@@ -194,8 +195,9 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8
 void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* prefix, int sz) {
     int x = scr->currX_ + deltaX;
     if (x < scr->cols_) {
-        scr->currX_ += deltaX;
+        scr->currX_ = x;
     } else if (sz > 0) {
+        scr->currX_ = scr->cols_-1;
         int pad = sz - scr->cols_ + 1;
 
         vdp_cursor_tab(scr->currY_, 0);

@@ -141,13 +141,20 @@ void cmd_left(screen* scr, text_buffer* buf) {
 
 void cmd_w_left(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
+        if (tb_ypos(buf) > 1) {
+            cmd_up(scr, buf);
+            cmd_end(scr, buf);
+        }
         return;
     }
     int from_x = tb_xpos(buf);
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_w_prev(buf);
     const uint8_t deltaX = from_x - tb_xpos(buf);
-    scr_left(scr, from_ch, to_ch, deltaX, NULL, 0);
+
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    scr_left(scr, from_ch, to_ch, deltaX, suffix, sz);
 }
 
 void cmd_right(screen* scr, text_buffer* buf) {
@@ -172,7 +179,12 @@ void cmd_right(screen* scr, text_buffer* buf) {
 }
 
 void cmd_w_right(screen* scr, text_buffer* buf) {
-    if (tb_xpos(buf) >= scr->cols_ || tb_eol(buf)) {
+    if (tb_eol(buf)) {
+        int ypos = tb_ypos(buf);
+        cmd_down(scr, buf);
+        if (ypos != tb_ypos(buf)) {
+            cmd_home(scr, buf);
+        }
         return;
     }
 
@@ -180,7 +192,10 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_w_next(buf);
     const uint8_t deltaX = tb_xpos(buf) - from_x;
-    scr_right(scr, from_ch, to_ch, deltaX, NULL, 0);
+
+    int sz = 0;
+    uint8_t* prefix = tb_prefix(buf, &sz);
+    scr_right(scr, from_ch, to_ch, deltaX, prefix, sz);
 }
 
 void cmd_up(screen* scr, text_buffer* buf) {
@@ -206,7 +221,11 @@ void cmd_up(screen* scr, text_buffer* buf) {
                 scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
             }
         }
-        scr_up(scr, from_ch, to_ch, scr->currX_);
+        int xpos = tb_xpos(buf)-1;
+        if (xpos > scr->cols_-1) {
+            xpos = scr->cols_-1;
+        }
+        scr_up(scr, from_ch, to_ch, xpos);
     }
 }
 
@@ -231,7 +250,11 @@ void cmd_down(screen* scr, text_buffer* buf) {
                 scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
             }
         }
-        scr_down(scr, from_ch, to_ch, scr->currX_);
+        int xpos = tb_xpos(buf)-1;
+        if (xpos > scr->cols_-1) {
+            xpos = scr->cols_-1;
+        }
+        scr_down(scr, from_ch, to_ch, xpos);
     }
 }
 
