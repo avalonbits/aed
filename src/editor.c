@@ -22,7 +22,7 @@ void ed_destroy(editor* ed) {
     tb_destroy(&ed->buf_);
 }
 
-#define CMD_PUTC 0x01
+#define CMD_PUTC (cmd_op) 0x01
 
 typedef struct _key_command {
     cmd_op cmd;

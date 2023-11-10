@@ -233,7 +233,7 @@ static void itr_state(text_buffer* buf) {
 
 static line lnext() {
 	if (ypos > lused) {
-        line l = {NULL, 0};
+        line l = {NULL, 0, 0};
         return l;
     }
 
@@ -256,7 +256,7 @@ line_itr tb_nline(text_buffer* buf) {
 
 static line lprev() {
     if (ypos == 0) {
-        line l = {NULL, 0};
+        line l = {NULL, 0, 0};
         return  l;
     }
 

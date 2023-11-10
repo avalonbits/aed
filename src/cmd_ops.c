@@ -23,16 +23,17 @@ void cmd_save(const char* fname, text_buffer* buf) {
     tb_content(buf, &prefix, &psz, &suffix, &ssz);
 
     if (prefix != NULL && psz > 0) {
-        mos_fwrite(fh, prefix, psz);
+        mos_fwrite(fh, (char*) prefix, psz);
     }
     if (suffix != NULL && ssz > 0) {
-        mos_fwrite(fh, suffix, ssz);
+        mos_fwrite(fh, (char*) suffix, ssz);
     }
     mos_fclose(fh);
 
 }
 
 void cmd_quit(screen* scr, text_buffer* buf) {
+    UN(scr);
     cmd_save(buf->fname_, buf);
 }
 
