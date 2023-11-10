@@ -125,6 +125,10 @@ void cmd_newl(screen* scr, text_buffer* buf) {
 
 void cmd_left(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
+        if (tb_ypos(buf) > 1) {
+            cmd_up(scr, buf);
+            cmd_end(scr, buf);
+        }
         return;
     }
     uint8_t from_ch = tb_peek(buf);
@@ -148,6 +152,11 @@ void cmd_w_left(screen* scr, text_buffer* buf) {
 
 void cmd_right(screen* scr, text_buffer* buf) {
     if (tb_eol(buf)) {
+        int ypos = tb_ypos(buf);
+        cmd_down(scr, buf);
+        if (ypos != tb_ypos(buf)) {
+            cmd_home(scr, buf);
+        }
         return;
     }
 
