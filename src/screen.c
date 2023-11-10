@@ -32,17 +32,17 @@ static void scr_show_cursor(screen* scr) {
 }
 
 static void get_active_colours(screen* scr) {
-    scr->fg_ = 15;
     scr->bg_ = 0;
+    scr->fg_ = 15;
+    set_colours(scr->fg_, scr->bg_);
 }
 
 screen *scr_init(screen* scr, char cursor) {
-    vdp_vdu_init();
     vdp_cursor_enable(false);
+    get_active_colours(scr);
     scr->rows_ = getsysvar_scrRows();
     scr->cols_ = getsysvar_scrCols();
     scr->cursor_ = cursor;
-    get_active_colours(scr);
     scr->topY_ = 1;
     scr->bottomY_ = scr->rows_-2;
     scr->tab_size_ = 4;
@@ -77,7 +77,6 @@ const char* title = "AED: Another Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
-    set_colours(scr->fg_, scr->bg_);
     const int len = strlen(title);
     const int banner = (scr->cols_ - len)/2;
     for (int i = 0; i < banner; i++) {
