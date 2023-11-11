@@ -90,16 +90,10 @@ bool lb_new(line_buffer* lb, int size) {
     return ok;
 }
 
-bool lb_remove(line_buffer* lb) {
+bool lb_del(line_buffer* lb) {
     if (!lb_last(lb)) {
         *lb->curr_ = *lb->cend_;
         lb->cend_++;
-        return true;
-    }
-
-    if (lb->curr_ > lb->buf_) {
-        lb->curr_--;
-        (*lb-curr_) -= 2;
         return true;
     }
 

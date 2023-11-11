@@ -57,6 +57,9 @@ void cmd_putc(screen* scr, text_buffer* buf, key k) {
 
 void cmd_del(screen* scr, text_buffer* buf) {
     if (tb_eol(buf)) {
+        if (tb_bol(buf)) {
+            cmd_del_line(scr, buf);
+        }
         return;
     }
     if (!tb_del(buf)) {
@@ -86,6 +89,24 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     uint8_t ypos = scr->currY_;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
         scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
+    }
+    if (ypos < scr->bottomY_) {
+        scr_write_line(scr, ypos, NULL, 0);
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, ch);
+}
+
+static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
+    line_itr next = tb_nline(buf);
+    uint8_t ypos = scr->currY_;
+    int osz = 0;
+    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
+        scr_overwrite_line(scr, ypos, l.b, l.sz, osz);
+        osz = l.sz;
+    }
+    if (ypos < scr->bottomY_) {
+        scr_overwrite_line(scr, ypos, NULL, 0, osz);
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
@@ -127,6 +148,8 @@ void cmd_del_line(screen* scr, text_buffer* buf) {
     if (!tb_del_line(buf)) {
         return;
     }
+    uint8_t ch = tb_peek(buf);
+    scroll_up_from_top(scr, buf, ch);
 }
 
 void cmd_left(screen* scr, text_buffer* buf) {
