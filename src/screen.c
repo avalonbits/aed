@@ -32,8 +32,20 @@ static void scr_show_cursor(screen* scr) {
 }
 
 static void get_active_colours(screen* scr) {
-    scr->bg_ = 0;
-    scr->fg_ = 15;
+    char getcol[11] = {23, 0, 0xC0, 0, 23, 0,  0x84, 4, 0, 4, 0};
+    waitvblank();
+    vdp_clear_screen();
+    VDP_PUTS(getcol);
+    waitvblank();
+
+    uint8_t bg = getsysvar_scrpixelIndex();
+    putch('*');
+    waitvblank();
+    VDP_PUTS(getcol);
+    waitvblank();
+
+    scr->bg_ = bg;
+    scr->fg_ = getsysvar_scrpixelIndex();
     set_colours(scr->fg_, scr->bg_);
     vdp_clear_screen();
 }
