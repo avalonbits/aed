@@ -10,6 +10,7 @@ typedef struct _text_buffer {
     int x_;
 
     char* fname_;
+    uint8_t fh_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
@@ -48,6 +49,7 @@ uint8_t tb_peek_at(text_buffer* tb, int idx);
 uint8_t* tb_suffix(text_buffer* tb, int* sz);
 uint8_t* tb_prefix(text_buffer* tb, int* sz);
 
+bool tb_load(text_buffer* buf, const char* fname);
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz);
 
 // Line read

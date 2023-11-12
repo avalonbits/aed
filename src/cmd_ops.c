@@ -3,6 +3,7 @@
 #include <agon/vdp_vdu.h>
 #include <mos_api.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define UN(x) (void)(x)
 
@@ -34,6 +35,9 @@ void cmd_save(const char* fname, text_buffer* buf) {
 
 void cmd_quit(screen* scr, text_buffer* buf) {
     UN(scr);
+    if (buf->fname_[0] == 0) {
+        return;
+    }
     cmd_save(buf->fname_, buf);
 }
 

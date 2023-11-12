@@ -5,35 +5,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* filename) {
-    char* fname = (char*) malloc(256 * sizeof(char));
-    if (fname == NULL) {
-        return NULL;
-    }
-
+text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
     if (!cb_init(&tb->cb_, char_count)) {
-        free(fname);
         return NULL;
     }
     if (!lb_init(&tb->lb_, line_count)) {
-        free(fname);
         cb_destroy(&tb->cb_);
         return NULL;
     }
     tb->x_ = 0;
-    if (filename != NULL) {
-        size_t len = strlen(filename);
-        if (len >= 255) {
-            len = 255;
-        }
-        strncpy(fname, filename, len);
-        fname[len] = 0;
-    } else {
-        strcpy(fname, "aed.txt");
-    }
-    tb->fname_ = fname;
+    tb->fh_ = 0;
+
+    if (fname != NULL && !tb_load(tb, fname)) {
+        lb_destroy(&tb->lb_);
+        cb_destroy(&tb->cb_);
+        return NULL;
+    };
     return tb;
 }
 
@@ -345,3 +334,18 @@ void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, i
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
+bool tb_load(text_buffer* tb, const char* fname) {
+    if (fname == NULL) {
+        return false;
+    }
+
+    tb->fname_ = (char*) malloc(256 * sizeof(char));
+    if (tb->fname_ == NULL) {
+        return false;
+    }
+
+    int fsz = strlen(fname);
+    strncpy(tb->fname_, fname, fsz);
+    tb->fname_[fsz] = 0;
+    return true;
+}
