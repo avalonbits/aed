@@ -79,6 +79,24 @@ static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     if (ypos < scr->bottomY_) {
         scr_overwrite_line(scr, ypos, NULL, 0, osz);
     }
+
+    vdp_cursor_tab(scr->currY_, 0);
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(buf, &psz);
+    int i = 0;
+    int pad = buf->x_ - scr->currX_;
+    if (pad < 0) {
+        pad = 0;
+    }
+    for (; i < scr->currX_; i++) {
+        putch(prefix[i+pad]);
+    }
+
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
+        putch(suffix[j]);
+    }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
 }
