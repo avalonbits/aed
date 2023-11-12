@@ -31,34 +31,33 @@ static void scr_show_cursor(screen* scr) {
     scr_show_cursor_ch(scr, scr->cursor_);
 }
 
+static uint8_t getColorForCh(uint8_t ch) {
+    static char getcol[11] = {23, 0, 0xC0, 0, 23, 0,  0x84, 4, 0, 4, 0};
+
+    vdp_cursor_home();
+    putch(ch);
+    mos_sysvars()[sysvar_vdp_pflags] = 0;
+    VDP_PUTS(getcol);
+    while((mos_sysvars()[sysvar_vdp_pflags] & 0x04) == 0) ;
+
+    return getsysvar_scrpixelIndex();
+}
+
 static void get_active_colours(screen* scr) {
-    char getcol[11] = {23, 0, 0xC0, 0, 23, 0,  0x84, 4, 0, 4, 0};
-    waitvblank();
-    vdp_clear_screen();
-    VDP_PUTS(getcol);
-    waitvblank();
-
-    uint8_t bg = getsysvar_scrpixelIndex();
-    putch('*');
-    waitvblank();
-    VDP_PUTS(getcol);
-    waitvblank();
-
-    scr->bg_ = bg;
-    scr->fg_ = getsysvar_scrpixelIndex();
+    scr->fg_ = getColorForCh('*');
+    scr->bg_ = getColorForCh(' ');
     set_colours(scr->fg_, scr->bg_);
-    vdp_clear_screen();
 }
 
 screen *scr_init(screen* scr, char cursor) {
     vdp_cursor_enable(false);
-    get_active_colours(scr);
     scr->rows_ = getsysvar_scrRows();
     scr->cols_ = getsysvar_scrCols();
     scr->cursor_ = cursor;
     scr->topY_ = 1;
     scr->bottomY_ = scr->rows_-2;
     scr->tab_size_ = 4;
+    get_active_colours(scr);
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
