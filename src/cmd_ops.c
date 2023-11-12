@@ -55,35 +55,6 @@ void cmd_putc(screen* scr, text_buffer* buf, key k) {
     scr_putc(scr, k.key, prefix, psz, suffix, ssz);
 }
 
-void cmd_del(screen* scr, text_buffer* buf) {
-    if (tb_eol(buf)) {
-        if (tb_bol(buf)) {
-            cmd_del_line(scr, buf);
-        }
-        return;
-    }
-    if (!tb_del(buf)) {
-        return;
-    }
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
-    scr_del(scr, suffix, sz);
-}
-
-void cmd_bksp(screen* scr, text_buffer* buf) {
-    if (tb_bol(buf)) {
-        return;
-    }
-
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
-
-    if (!tb_bksp(buf)) {
-        return;
-    }
-    scr_bksp(scr, suffix, sz);
-}
-
 static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     line_itr next = tb_nline(buf);
     uint8_t ypos = scr->currY_;
@@ -129,6 +100,45 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
+}
+
+static void cmd_del_merge(screen* scr, text_buffer* buf) {
+    if (!tb_del_merge(buf)) {
+        return;
+    }
+    uint8_t ch = tb_peek(buf);
+    scroll_up_from_top(scr, buf, ch);
+}
+
+void cmd_del(screen* scr, text_buffer* buf) {
+    if (tb_eol(buf)) {
+        if (tb_bol(buf)) {
+            cmd_del_line(scr, buf);
+        } else {
+            cmd_del_merge(scr, buf);
+        }
+        return;
+    }
+    if (!tb_del(buf)) {
+        return;
+    }
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    scr_del(scr, suffix, sz);
+}
+
+void cmd_bksp(screen* scr, text_buffer* buf) {
+    if (tb_bol(buf)) {
+        return;
+    }
+
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+
+    if (!tb_bksp(buf)) {
+        return;
+    }
+    scr_bksp(scr, suffix, sz);
 }
 
 void cmd_newl(screen* scr, text_buffer* buf) {

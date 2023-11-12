@@ -102,7 +102,6 @@ bool tb_del_line(text_buffer* tb) {
         return false;
     }
 
-    int x = tb->x_;
     tb_home(tb);
     while (lb_csize(&tb->lb_) > 0) {
         tb_del(tb);
@@ -113,6 +112,21 @@ bool tb_del_line(text_buffer* tb) {
     tb->x_ = 0;
     return true;
 }
+
+bool tb_del_merge(text_buffer* tb) {
+    if (lb_last(&tb->lb_) || !tb_eol(tb)) {
+       return false;
+    }
+
+    // This function is only called when we are the end of the line.
+    // If we are not the last, then we have a \r\n sequence.
+    tb_del(tb);
+    tb_del(tb);
+    lb_merge_next(&tb->lb_);
+
+    return true;
+}
+
 
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb) {

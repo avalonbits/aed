@@ -104,6 +104,16 @@ bool lb_del(line_buffer* lb) {
     return false;
 }
 
+bool lb_merge_next(line_buffer* lb) {
+    if (lb_last(lb)) {
+        return false;
+    }
+
+    (*lb->curr_) += *lb->cend_;
+    lb->cend_++;
+    return true;
+}
+
 int lb_copy(line_buffer* lb, uint8_t* buf, int size) {
     const int prefix = lb->curr_ - lb->buf_+1;
     int used;
