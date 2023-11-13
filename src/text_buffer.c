@@ -37,7 +37,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->x_ = 0;
     tb->fname_[0] = 0;
 
-    if (fname != NULL && !tb_load(tb, fname)) {
+    if (!tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
         cb_destroy(&tb->cb_);
         return NULL;
@@ -380,7 +380,7 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
 
 bool tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
-        return false;
+        fname = "aed.txt";
     }
 
     int fsz = strlen(fname);
