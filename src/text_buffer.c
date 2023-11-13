@@ -359,21 +359,73 @@ void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, i
 static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
-    tb->cb_.cend_ -= sz;
-    mos_fread(fh, (char*)tb->cb_.cend_, sz);
-    printf("%d %d %d", tb_size(tb), tb_available(tb), tb_used(tb));
+    char_buffer* cb = &tb->cb_;
+    cb->cend_ -= sz;
+    mos_fread(fh, (char*)cb->cend_, sz);
 
-    // Now I need to update lb_ line buffer with the correct values.
+    //  Now I need to update lb_ line buffer with the correct values.
+    //  There might be cases where the line endings are not \r\n so we correct for them.
+    bool saw_r = false;
+    bool saw_n = false;
+    int added = 0;
     for (int i = 0; i < (int)sz; i++) {
         lb_cinc(&tb->lb_);
-        if (tb->cb_.cend_[i] == '\n') {
+        const uint8_t ch = cb_peek(cb);
+
+        if (saw_r) {
+            if (ch != '\n') {
+                cb_put(cb, '\n');
+                added++;
+            }
             lb_new(&tb->lb_, lb_csize(&tb->lb_));
+            if (ch != '\n') {
+                lb_cinc(&tb->lb_);
+            }
+            saw_r = false;
+            saw_n = false;
+        } else if  (saw_n) {
+            if (!saw_r) {
+                cb_prev(cb, 1);
+                cb_put(cb, '\r');
+                cb_next(cb, 1);
+                added++;
+            }
+            lb_new(&tb->lb_, lb_csize(&tb->lb_));
+            if (!saw_r) {
+                lb_cinc(&tb->lb_);
+            }
+            saw_r = false;
+            saw_n = false;
+        } else if (ch == '\r') {
+            saw_r = true;
+        } else if  (ch == '\n') {
+            saw_n = true;
         }
+        cb_next(cb, 1);
     }
+    const uint8_t ch = cb_peek(cb);
+    if (saw_r) {
+        if (ch != '\n') {
+            lb_cinc(&tb->lb_);
+            cb_put(cb, '\n');
+            added++;
+        }
+        lb_new(&tb->lb_, lb_csize(&tb->lb_));
+    } else if  (saw_n) {
+        if (!saw_r) {
+            lb_cinc(&tb->lb_);
+            cb_prev(cb, 1);
+            cb_put(cb, '\r');
+            cb_next(cb, 1);
+            added++;
+        }
+        lb_new(&tb->lb_, lb_csize(&tb->lb_));
+    }
+
+    cb_prev(cb, sz+added);
 
     // Now move the line buffer back to the first line.
     while (lb_up(&tb->lb_)) ;
-    tb_home(tb);
     return true;
 }
 
