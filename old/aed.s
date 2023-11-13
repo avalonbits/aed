@@ -1,3 +1,19 @@
+; Copyright (C) 2023  Igor Cananea <icc@avalonbits.com>
+; Author: Igor Cananea <icc@avalonbits.com>
+;
+; This program is free software: you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation, either version 3 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License
+; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 	.assume ADL = 1
 	.org $A0000
 
@@ -384,7 +400,7 @@ _s_scur:
 	; Now print the cursor.
 	rst.lil 10h
 
-	
+
 	; First reverse fg/bg.
 	; Because printing the cursor moves it on vdp, we need to bring it
 	; back.
@@ -449,7 +465,7 @@ _s_putc:
 	ld a, (_s_curx)
 	inc a
 	ld (_s_curx), a
-	
+
 	; Increment eos if we haven't filled the line.
 	ld a, (_s_maxw)
 	ld b, a
@@ -486,7 +502,7 @@ _s_pview:
 	; - Cursor at EOL:
    	;   * Shift everyone to the left to create a space. No tail work.
         ; - Cursor somewhere in line:
-	;   * Move everyone after the cursor to the right, removing char if 
+	;   * Move everyone after the cursor to the right, removing char if
 	;     needed.
 
 	; So first, let's figure out where we are.
@@ -596,7 +612,7 @@ _s_pview:
 	; Move the cursor back to _s_curx,_s_cury
 	call _s_cback
 
-	
+
 @done:
 	pop hl
 	pop bc
@@ -617,7 +633,7 @@ _s_bkspace:
 
 	; Remove cursor from screen
 	call _replace_cur
-	
+
 	; Move cursor to the left.
 	dec a
 	ld (_s_curx), a
@@ -819,7 +835,7 @@ tb_putc:
 	; We can't store if there is no more space. For now, just return.
 	jr Z, @done
 
-	
+
 	; First we add the char to the text buffer.
 	ld de, (_ccur)
 	ld (de), a
