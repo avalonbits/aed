@@ -16,6 +16,9 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
        return NULL;
     }
     scr_init(&ed->scr_, DEFAULT_CURSOR);
+    if (tb_used(&ed->buf_) > 0) {
+        cmd_show(&ed->scr_, &ed->buf_);
+    }
     return ed;
 }
 

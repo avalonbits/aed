@@ -37,7 +37,7 @@ static bool save_file(text_buffer* buf) {
     return true;
 }
 
-void cmd_save(const char* fname, text_buffer* buf) {
+void cmd_save(text_buffer* buf) {
     save_file(buf);
 }
 
@@ -68,7 +68,7 @@ void cmd_putc(screen* scr, text_buffer* buf, key k) {
 }
 
 static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
-    line_itr next = tb_nline(buf);
+    line_itr next = tb_nline(buf, tb_ypos(buf));
     uint8_t ypos = scr->currY_;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
         scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
@@ -81,7 +81,7 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
 }
 
 static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
-    line_itr next = tb_nline(buf);
+    line_itr next = tb_nline(buf, tb_ypos(buf));
     uint8_t ypos = scr->currY_;
     int osz = 0;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
@@ -115,7 +115,7 @@ static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
 
 static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     if (scr->currY_ < scr->bottomY_-1) {
-        line_itr next = tb_nline(buf);
+        line_itr next = tb_nline(buf, tb_ypos(buf));
         uint8_t ypos = scr->currY_+1;
         for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
             scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
@@ -130,6 +130,11 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
+}
+
+void cmd_show(screen* scr, text_buffer* buf) {
+    uint8_t to_ch = tb_peek(buf);
+    scroll_down_from_top(scr, buf, to_ch);
 }
 
 static void cmd_del_merge(screen* scr, text_buffer* buf) {

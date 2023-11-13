@@ -61,6 +61,6 @@ typedef struct _line {
 typedef line(*line_itr)();
 
 line_itr tb_pline(text_buffer* buf);
-line_itr tb_nline(text_buffer* buf);
+line_itr tb_nline(text_buffer* buf, int from_l);
 
 #endif // _TEXT_BUFFER_H_

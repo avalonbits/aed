@@ -235,7 +235,7 @@ static text_buffer tb;
 static int ypos;
 static int lused;
 
-static void itr_state(text_buffer* buf) {
+static void itr_state(text_buffer* buf, int from_l) {
     tb.lb_.buf_ = buf->lb_.buf_;
     tb.lb_.curr_ = buf->lb_.curr_;
     tb.lb_.cend_ = buf->lb_.cend_;
@@ -250,6 +250,9 @@ static void itr_state(text_buffer* buf) {
 	ypos = lb_curr(&tb.lb_);
     lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
     tb_home(&tb);
+    if (ypos != from_l) {
+        // do someting
+    }
 }
 
 static line lnext() {
@@ -270,8 +273,8 @@ static line lnext() {
     return l;
 }
 
-line_itr tb_nline(text_buffer* buf) {
-    itr_state(buf);
+line_itr tb_nline(text_buffer* buf, int from_l) {
+    itr_state(buf, from_l-1);
     return lnext;
 }
 
@@ -294,7 +297,7 @@ static line lprev() {
 }
 
 line_itr tb_pline(text_buffer* buf) {
-    itr_state(buf);
+    itr_state(buf, tb_ypos(buf));
     return lprev;
 }
 
@@ -335,7 +338,24 @@ void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, i
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
-static bool tb_read(uint8_t fh, uint32_t sz) {
+static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
+    // In order to read the file to the text buffer, we move cend_ sz postions and then
+    // pass it + sz as the buffer to read.
+    tb->cb_.cend_ -= sz;
+    mos_fread(fh, (char*)tb->cb_.cend_, sz);
+    printf("%d %d %d", tb_size(tb), tb_available(tb), tb_used(tb));
+
+    // Now I need to update lb_ line buffer with the correct values.
+    for (int i = 0; i < (int)sz; i++) {
+        lb_cinc(&tb->lb_);
+        if (tb->cb_.cend_[i] == '\n') {
+            lb_new(&tb->lb_, lb_csize(&tb->lb_));
+        }
+    }
+
+    // Now move the line buffer back to the first line.
+    while (lb_up(&tb->lb_)) ;
+    tb_home(tb);
     return true;
 }
 
@@ -361,8 +381,8 @@ bool tb_load(text_buffer* tb, const char* fname) {
     }
 
     bool ok = true;
-    uint32_t sz = fil->obj.objsize;
-    if (sz > 0 && !tb_read(fh, sz)) {
+    int sz = (int) fil->obj.objsize;
+    if (sz > 0 && !tb_read(fh, tb, sz)) {
         ok = false;
     }
     mos_fclose(fh);
