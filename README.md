@@ -45,7 +45,9 @@ The following features will be implemented before releasing v1.0 of the editor:
 
 ## Roadmap after v1.0
 - [ ] Copy-cut-paste.
+- [ ] Find.
 - [ ] Undo / Redo.
+- [ ] Native tabs / tab-size / tab-to-space.
 - [ ] Syntax highlighting for BBCBasic and assembly files.
 - [ ] Unlimted file size support.
 - [ ] Console8 mouse support (need to get one).
