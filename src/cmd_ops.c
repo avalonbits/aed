@@ -11,10 +11,14 @@ void cmd_noop(screen* scr, text_buffer* buf) {
     UN(scr);UN(buf);
 }
 
-void cmd_save(const char* fname, text_buffer* buf) {
-    uint8_t fh = mos_fopen(fname, FA_WRITE | FA_CREATE_ALWAYS);
+static bool save_file(text_buffer* buf) {
+    if (!tb_valid_file(buf)) {
+        return false;
+    }
+
+    uint8_t fh = mos_fopen(buf->fname_, FA_WRITE | FA_CREATE_ALWAYS);
     if (fh == 0) {
-        return;
+        return false;;
     }
 
     uint8_t* prefix = NULL;
@@ -30,15 +34,19 @@ void cmd_save(const char* fname, text_buffer* buf) {
         mos_fwrite(fh, (char*) suffix, ssz);
     }
     mos_fclose(fh);
-
+    return true;
 }
 
-void cmd_quit(screen* scr, text_buffer* buf) {
+void cmd_save(const char* fname, text_buffer* buf) {
+    save_file(buf);
+}
+
+bool cmd_quit(screen* scr, text_buffer* buf) {
     UN(scr);
-    if (buf->fname_[0] == 0) {
-        return;
+    if (!tb_valid_file(buf)) {
+        return true;
     }
-    cmd_save(buf->fname_, buf);
+    return save_file(buf);
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {

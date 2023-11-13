@@ -25,6 +25,7 @@ void ed_destroy(editor* ed) {
 }
 
 #define CMD_PUTC (cmd_op) 0x01
+#define CMD_QUIT (cmd_op) 0x02
 
 typedef struct _key_command {
     cmd_op cmd;
@@ -42,11 +43,10 @@ void ed_run(editor* ed) {
         key_command kc = read_input();
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(scr, buf, kc.k);
+        } else if (kc.cmd == CMD_QUIT && cmd_quit(scr, buf)) {
+            break;
         } else {
             kc.cmd(scr, buf);
-            if (kc.cmd == cmd_quit) {
-                break;
-            }
         }
     }
     vdp_clear_screen();
@@ -56,7 +56,7 @@ key_command ctrlCmds(key_command kc) {
     switch (kc.k.vkey) {
         case VK_q:
         case VK_Q:
-            kc.cmd = cmd_quit;
+            kc.cmd = CMD_QUIT;
             break;
         case VK_LEFT:
         case VK_KP_LEFT:

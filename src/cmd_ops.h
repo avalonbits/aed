@@ -12,8 +12,9 @@ typedef struct _key {
 
 typedef void(*cmd_op)(screen*, text_buffer*);
 
+bool cmd_quit(screen* scr, text_buffer* buf);
+
 void cmd_noop(screen* scr, text_buffer* buf);
-void cmd_quit(screen* scr, text_buffer* buf);
 void cmd_putc(screen* scr, text_buffer* buf, key k);
 void cmd_del(screen* scr, text_buffer* buf);
 void cmd_bksp(screen* scr, text_buffer* buf);

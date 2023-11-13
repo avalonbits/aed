@@ -11,7 +11,9 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         fname = argv[1];
     }
-    ed_init(&ed, 256, fname);
+    if (!ed_init(&ed, 256, fname)) {
+        return 1;
+    }
     ed_run(&ed);
 
     ed_destroy(&ed);

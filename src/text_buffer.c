@@ -1,6 +1,7 @@
 #include "text_buffer.h"
 
 #include <agon/vdp_vdu.h>
+#include <mos_api.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +17,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
         return NULL;
     }
     tb->x_ = 0;
-    tb->fh_ = 0;
+    tb->fname_[0] = 0;
 
     if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
@@ -334,18 +335,40 @@ void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, i
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
+static bool tb_read(uint8_t fh, uint32_t sz) {
+    return true;
+}
+
+
 bool tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
-        return false;
-    }
-
-    tb->fname_ = (char*) malloc(256 * sizeof(char));
-    if (tb->fname_ == NULL) {
         return false;
     }
 
     int fsz = strlen(fname);
     strncpy(tb->fname_, fname, fsz);
     tb->fname_[fsz] = 0;
-    return true;
+
+    uint8_t fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_NEW);
+    if (fh == 0) {
+        tb->fname_[0] = 0;
+        return false;
+    }
+    FIL* fil = mos_getfil(fh);
+    if (fil == NULL) {
+        mos_fclose(fh);
+        return false;
+    }
+
+    bool ok = true;
+    uint32_t sz = fil->obj.objsize;
+    if (sz > 0 && !tb_read(fh, sz)) {
+        ok = false;
+    }
+    mos_fclose(fh);
+    return ok;
+}
+
+bool tb_valid_file(text_buffer* tb) {
+    return tb->fname_[0] != 0;
 }
