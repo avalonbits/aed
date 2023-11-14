@@ -49,19 +49,47 @@ static void scr_show_cursor(screen* scr) {
     scr_show_cursor_ch(scr, scr->cursor_);
 }
 
-static uint8_t getColorForCh(uint8_t ch) {
-    static char getcol[11] = {23, 0, 0xC0, 0, 23, 0,  0x84, 4, 0, 4, 0};
+static void vdp_puts(char* str, uint8_t sz) {
+    volatile uint8_t* sysvar = mos_sysvars();
+    sysvar[sysvar_vdp_pflags] = 0;
+    mos_puts(str, sz, 0);
+
+    for (;;) {
+        waitvblank();
+        sysvar = mos_sysvars();
+        if ((sysvar[sysvar_vdp_pflags] & 0x04) != 0) {
+            break;
+        }
+    }
+}
+
+static volatile uint8_t getColorForCh(uint8_t ch) {
+    static char getcol[7] = {23, 0, 0x84, 4, 0, 4, 0};
 
     vdp_cursor_tab(0,0);
     putch(ch);
-    mos_sysvars()[sysvar_vdp_pflags] = 0;
-    VDP_PUTS(getcol);
-    while((mos_sysvars()[sysvar_vdp_pflags] & 0x04) == 0) ;
 
-    return getsysvar_scrpixelIndex();
+    volatile uint8_t idx = 0;
+    for (int i = 0; i < 1; i++) {
+        waitvblank();
+        volatile uint8_t* sysvar = (volatile uint8_t*) mos_sysvars();
+        idx = sysvar[sysvar_scrpixelIndex];
+    }
+
+    vdp_puts(getcol, sizeof(getcol));
+    for (int i = 0; i < 1; i++) {
+        waitvblank();
+        volatile uint8_t* sysvar = (volatile uint8_t*) mos_sysvars();
+        idx = sysvar[sysvar_scrpixelIndex];
+    }
+
+    return idx;
 }
 
 static void get_active_colours(screen* scr) {
+    static char logic[4] = {23, 0, 0xC0, 0};
+    VDP_PUTS(logic);
+
     scr->fg_ = getColorForCh('*');
     scr->bg_ = getColorForCh(' ');
     set_colours(scr->fg_, scr->bg_);
