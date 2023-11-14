@@ -366,13 +366,13 @@ void cmd_home(screen* scr, text_buffer* buf) {
 }
 
 void cmd_end(screen* scr, text_buffer* buf) {
-    const uint8_t from_x = tb_xpos(buf);
+    const int from_x = tb_xpos(buf);
     uint8_t from_ch = tb_peek(buf);
     uint8_t to_ch = tb_end(buf);
-    const uint8_t deltaX = tb_xpos(buf) - from_x;
+    const int deltaX = tb_xpos(buf) - from_x;
     if (deltaX > 0) {
         int sz = 0;
-        uint8_t* suffix = tb_prefix(buf, &sz);
-        scr_end(scr, from_ch, to_ch, deltaX, suffix, sz);
+        uint8_t* prefix = tb_prefix(buf, &sz);
+        scr_end(scr, from_ch, to_ch, deltaX, prefix, sz);
     }
 }

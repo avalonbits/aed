@@ -54,7 +54,7 @@ void scr_right(screen* scr, uint8_t from_ch, uint8_t to_c, uint8_t deltaX, uint8
 void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
 void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX);
 void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* prefix, int sz);
-void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz);
+void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, int deltaX, uint8_t* suffix, int sz);
 
 // Screen management.
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
