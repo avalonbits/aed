@@ -101,7 +101,7 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
 static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     line_itr next = tb_nline(buf, tb_ypos(buf));
     uint8_t ypos = scr->currY_;
-    int osz = 0;
+    int osz = 255;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
         scr_overwrite_line(scr, ypos, l.b, l.sz, osz);
         osz = l.sz;
@@ -211,6 +211,7 @@ void cmd_del_line(screen* scr, text_buffer* buf) {
     if (!tb_del_line(buf)) {
         return;
     }
+    scr->currX_ = 0;
     uint8_t ch = tb_peek(buf);
     scroll_up_from_top(scr, buf, ch);
 }
