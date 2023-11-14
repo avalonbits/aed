@@ -128,6 +128,21 @@ bool lb_merge_next(line_buffer* lb) {
     return true;
 }
 
+int lb_merge_prev(line_buffer* lb) {
+    if (lb->curr_ == lb->buf_) {
+        return -1;
+    }
+
+    int curr = *lb->curr_;
+    lb->curr_--;
+    (*lb->curr_) -= 2;
+    int next = *lb->curr_;
+    (*lb->curr_) += curr;
+
+    return next;
+}
+
+
 int lb_copy(line_buffer* lb, uint8_t* buf, int size) {
     const int prefix = lb->curr_ - lb->buf_+1;
     int used;

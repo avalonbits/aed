@@ -133,6 +133,17 @@ bool tb_del_merge(text_buffer* tb) {
     return true;
 }
 
+bool tb_bksp_merge(text_buffer* tb) {
+    if (!tb_bol(tb) || tb_ypos(tb) == 1) {
+        return false;
+    }
+    cb_bksp(&tb->cb_);
+    cb_bksp(&tb->cb_);
+
+    tb->x_ = lb_merge_prev(&tb->lb_);
+    return true;
+}
+
 
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb) {

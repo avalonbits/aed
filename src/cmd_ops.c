@@ -96,6 +96,27 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
+
+    vdp_cursor_tab(scr->currY_, 0);
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(buf, &psz);
+    int i = 0;
+    int pad = buf->x_ - scr->currX_;
+    if (pad < 0) {
+        pad = 0;
+    }
+    for (; i < scr->currX_; i++) {
+        putch(prefix[i+pad]);
+    }
+
+    int sz = 0;
+    uint8_t* suffix = tb_suffix(buf, &sz);
+    for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
+        putch(suffix[j]);
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, ch);
+
 }
 
 static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
@@ -180,8 +201,27 @@ void cmd_del(screen* scr, text_buffer* buf) {
     scr_del(scr, suffix, sz);
 }
 
+static void cmd_bksp_merge(screen* scr, text_buffer* buf) {
+    if (!tb_bksp_merge(buf)) {
+        return;
+    }
+    uint8_t ch = tb_peek(buf);
+    if (scr->currY_ > scr->topY_) {
+        scr->currY_--;
+    }
+    if (buf->x_ > scr->cols_-1) {
+        scr->currX_ = scr->cols_-1;
+    } else {
+        scr->currX_ = buf->x_;
+    }
+    scroll_down_from_top(scr, buf, ch);
+}
+
 void cmd_bksp(screen* scr, text_buffer* buf) {
     if (tb_bol(buf)) {
+        if (tb_ypos(buf) > 1) {
+            cmd_bksp_merge(scr, buf);
+        }
         return;
     }
 

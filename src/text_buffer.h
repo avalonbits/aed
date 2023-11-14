@@ -47,6 +47,7 @@ bool tb_bksp(text_buffer* tb);
 bool tb_newline(text_buffer* tb);
 bool tb_del_line(text_buffer* tb);
 bool tb_del_merge(text_buffer* tb);
+bool tb_bksp_merge(text_buffer* tb);
 
 // Cursor ops.
 uint8_t tb_next(text_buffer* tb);
