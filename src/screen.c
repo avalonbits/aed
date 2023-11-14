@@ -52,7 +52,7 @@ static void scr_show_cursor(screen* scr) {
 static uint8_t getColorForCh(uint8_t ch) {
     static char getcol[11] = {23, 0, 0xC0, 0, 23, 0,  0x84, 4, 0, 4, 0};
 
-    vdp_cursor_home();
+    vdp_cursor_tab(0,0);
     putch(ch);
     mos_sysvars()[sysvar_vdp_pflags] = 0;
     VDP_PUTS(getcol);
