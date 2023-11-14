@@ -324,7 +324,7 @@ void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz
     for (; i < sz && i < scr->cols_; i++) {
         putch(buf[i]);
     }
-    for (; i < psz && i < scr->cols_; ++i) {
+    for (; i < psz && i < scr->cols_; i++) {
         putch(' ');
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);

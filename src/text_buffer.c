@@ -366,7 +366,7 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
     bool saw_r = false;
     bool saw_n = false;
     int added = 0;
-    for (int i = 0; i < (int)sz; i++) {
+    for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
         const uint8_t ch = cb_peek(cb);
 
