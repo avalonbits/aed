@@ -89,6 +89,8 @@ key_command ctrlCmds(key_command kc) {
             break;
         case VK_DELETE:
         case VK_KP_DELETE:
+        case VK_d:
+        case VK_D:
             kc.cmd = cmd_del_line;
             break;
         default:

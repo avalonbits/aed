@@ -116,8 +116,6 @@ bool tb_del_line(text_buffer* tb) {
     }
     lb_del(&tb->lb_);
 
-
-    tb->x_ = 0;
     return true;
 }
 
