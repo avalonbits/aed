@@ -59,15 +59,11 @@ bool lb_last(line_buffer* lb) {
 
 // Line ops.
 bool lb_cinc(line_buffer* lb) {
-    uint8_t cur = *lb->curr_;
-    if (cur < 0xFF) {
-        (*lb->curr_) = cur + 1;
-        return true;
-    }
-    return false;
+    *lb->curr_ = *lb->curr_ + 1;
+    return true;
 }
 bool lb_cdec(line_buffer* lb) {
-    uint8_t cur = *lb->curr_;
+    int cur = *lb->curr_;
     if (cur > 0) {
         (*lb->curr_) = cur - 1;
         return true;
@@ -100,7 +96,7 @@ bool lb_down(line_buffer* lb) {
 bool lb_new(line_buffer* lb, int size) {
     bool ok = lb->curr_ < lb->cend_;
     if (ok) {
-        const uint8_t csz = *lb->curr_;
+        const int csz = *lb->curr_;
         *lb->curr_ = size;
         lb->curr_++;
         *lb->curr_ = (csz - size);
