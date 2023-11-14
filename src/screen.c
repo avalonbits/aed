@@ -279,11 +279,13 @@ void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* suffix, int 
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* prefix, int sz) {
+void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, int deltaX, uint8_t* prefix, int sz) {
     scr_hide_cursor_ch(scr, from_ch);
-    scr->currX_ += deltaX;
-    if (scr->currX_ >= scr->cols_) {
+    int x = (scr->currX_) + deltaX;
+    if (x >= scr->cols_) {
         scr->currX_ = scr->cols_-1;
+    } else {
+        scr->currX_ = x;
     }
     if (sz > 0) {
         int pad = 0;
