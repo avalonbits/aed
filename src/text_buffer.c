@@ -432,17 +432,22 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
 
 bool tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
-        fname = "aed.txt";
+        fname = "/aed.txt";
     }
 
     int fsz = strlen(fname);
     strncpy(tb->fname_, fname, fsz);
     tb->fname_[fsz] = 0;
 
-    uint8_t fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_NEW);
+    uint8_t fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
     if (fh == 0) {
-        tb->fname_[0] = 0;
-        return false;
+        // Try to create the file.
+        fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
+        if (fh == 0) {
+            printf("invalid file");
+            tb->fname_[0] = 0;
+            return false;
+        }
     }
     FIL* fil = mos_getfil(fh);
     if (fil == NULL) {
@@ -452,10 +457,11 @@ bool tb_load(text_buffer* tb, const char* fname) {
 
     bool ok = true;
     int sz = (int) fil->obj.objsize;
-    if (sz > 0 && !tb_read(fh, tb, sz)) {
-        ok = false;
+    if (sz > 0) {
+       ok = tb_read(fh, tb, sz);
     }
     mos_fclose(fh);
+
     return ok;
 }
 
