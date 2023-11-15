@@ -47,7 +47,6 @@ void ed_destroy(editor* ed) {
 
 #define CMD_PUTC (cmd_op) 0x01
 #define CMD_QUIT (cmd_op) 0x02
-
 typedef struct _key_command {
     cmd_op cmd;
     key k;
@@ -66,7 +65,7 @@ void ed_run(editor* ed) {
             cmd_putc(scr, buf, kc.k);
         } else if (kc.cmd == CMD_QUIT && cmd_quit(scr, buf)) {
             break;
-        } else {
+        } else if (kc.cmd != NULL) {
             kc.cmd(scr, buf);
         }
     }
@@ -94,7 +93,7 @@ key_command ctrlCmds(key_command kc) {
             kc.cmd = cmd_del_line;
             break;
         default:
-            kc.cmd = cmd_noop;
+            kc.cmd = NULL;;
             break;
     }
     return kc;
@@ -144,7 +143,7 @@ key_command editCmds(key_command kc) {
 }
 
 key_command read_input() {
-    key_command kc = {cmd_noop, {'\0', VK_NONE}};
+    key_command kc = {NULL, {'\0', VK_NONE}};
     kc.k.key = getch();
     kc.k.vkey = getsysvar_vkeycode();
 

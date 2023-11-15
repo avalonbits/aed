@@ -25,10 +25,6 @@
 
 #define UN(x) (void)(x)
 
-void cmd_noop(screen* scr, text_buffer* buf) {
-    UN(scr);UN(buf);
-}
-
 static bool save_file(text_buffer* buf) {
     if (!tb_valid_file(buf)) {
         return false;
@@ -71,7 +67,8 @@ void cmd_putc(screen* scr, text_buffer* buf, key k) {
     if (k.key == '\t') {
         // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
         k.key = ' ';
-        for (uint8_t i = 0; i < scr->tab_size_; i++) {
+        const uint8_t spaces = scr->tab_size_ - ((tb_xpos(buf)-1) % scr->tab_size_);
+        for (uint8_t i = 0; i < spaces; i++) {
             cmd_putc(scr, buf, k);
         }
         return;
@@ -85,18 +82,7 @@ void cmd_putc(screen* scr, text_buffer* buf, key k) {
     scr_putc(scr, k.key, prefix, psz, suffix, ssz);
 }
 
-static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
-    line_itr next = tb_nline(buf, tb_ypos(buf));
-    uint8_t ypos = scr->currY_;
-    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-        scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
-    }
-    if (ypos < scr->bottomY_) {
-        scr_write_line(scr, ypos, NULL, 0);
-    }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_show_cursor_ch(scr, ch);
-
+static void scr_write_padded(screen* scr, text_buffer* buf) {
     vdp_cursor_tab(scr->currY_, 0);
     int psz = 0;
     uint8_t* prefix = tb_prefix(buf, &psz);
@@ -114,43 +100,39 @@ static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
     for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
         putch(suffix[j]);
     }
+}
+
+
+static void scroll_from_top(screen* scr, text_buffer* buf, uint8_t ch, const bool osz_is_last) {
+    line_itr next = tb_nline(buf, tb_ypos(buf));
+    uint8_t ypos = scr->currY_;
+    int osz = 255;
+    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
+        if (!osz_is_last) {
+            osz = l.osz;
+        }
+        scr_overwrite_line(scr, ypos, l.b, l.sz, osz);
+        if (osz_is_last) {
+            osz = l.sz;
+        }
+    }
+    if (ypos < scr->bottomY_) {
+        scr_write_line(scr, ypos, NULL, 0);
+    }
+    scr_write_padded(scr, buf);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
 
 }
 
 static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
-    line_itr next = tb_nline(buf, tb_ypos(buf));
-    uint8_t ypos = scr->currY_;
-    int osz = 255;
-    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-        scr_overwrite_line(scr, ypos, l.b, l.sz, osz);
-        osz = l.sz;
-    }
-    if (ypos < scr->bottomY_) {
-        scr_overwrite_line(scr, ypos, NULL, 0, osz);
-    }
-
-    vdp_cursor_tab(scr->currY_, 0);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(buf, &psz);
-    int i = 0;
-    int pad = buf->x_ - scr->currX_;
-    if (pad < 0) {
-        pad = 0;
-    }
-    for (; i < scr->currX_; i++) {
-        putch(prefix[i+pad]);
-    }
-
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
-    for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
-        putch(suffix[j]);
-    }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_show_cursor_ch(scr, ch);
+    scroll_from_top(scr, buf, ch, false);
 }
+
+static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
+    scroll_from_top(scr, buf, ch, true);
+}
+
 
 static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     if (scr->currY_ < scr->bottomY_-1) {
@@ -172,7 +154,7 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
 }
 
 void cmd_show(screen* scr, text_buffer* buf) {
-    uint8_t to_ch = tb_peek(buf);
+    const uint8_t to_ch = tb_peek(buf);
     scroll_down_from_top(scr, buf, to_ch);
 }
 
@@ -180,8 +162,8 @@ static void cmd_del_merge(screen* scr, text_buffer* buf) {
     if (!tb_del_merge(buf)) {
         return;
     }
-    uint8_t ch = tb_peek(buf);
-    scroll_up_from_top(scr, buf, ch);
+    const uint8_t ch = tb_peek(buf);
+    scroll_down_from_top(scr, buf, ch);
 }
 
 void cmd_del(screen* scr, text_buffer* buf) {
@@ -253,7 +235,7 @@ void cmd_del_line(screen* scr, text_buffer* buf) {
     }
     scr->currX_ = 0;
     uint8_t ch = tb_peek(buf);
-    scroll_up_from_top(scr, buf, ch);
+    scroll_down_from_top(scr, buf, ch);
 }
 
 void cmd_left(screen* scr, text_buffer* buf) {
@@ -280,9 +262,9 @@ void cmd_w_left(screen* scr, text_buffer* buf) {
         }
         return;
     }
-    int from_x = tb_xpos(buf);
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_w_prev(buf);
+    const int from_x = tb_xpos(buf);
+    const uint8_t from_ch = tb_peek(buf);
+    const uint8_t to_ch = tb_w_prev(buf);
     const uint8_t deltaX = from_x - tb_xpos(buf);
 
     int sz = 0;
@@ -304,8 +286,8 @@ void cmd_right(screen* scr, text_buffer* buf) {
     if (from_ch == 0 ) {
         return;
     }
-    uint8_t to_ch = tb_next(buf);
 
+    const uint8_t to_ch = tb_next(buf);
     int sz = 0;
     uint8_t* prefix = tb_prefix(buf, &sz);
     scr_right(scr, from_ch, to_ch, 1, prefix, sz);
@@ -321,9 +303,9 @@ void cmd_w_right(screen* scr, text_buffer* buf) {
         return;
     }
 
-    int from_x = tb_xpos(buf);
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_w_next(buf);
+    const int from_x = tb_xpos(buf);
+    const uint8_t from_ch = tb_peek(buf);
+    const uint8_t to_ch = tb_w_next(buf);
     const uint8_t deltaX = tb_xpos(buf) - from_x;
 
     int sz = 0;
@@ -343,23 +325,25 @@ void cmd_up(screen* scr, text_buffer* buf) {
     }
 
     if (scr->currY_ <= scr->topY_) {
-        scroll_down_from_top(scr, buf, to_ch);
-    } else {
-        if (scr->currX_ >= scr->cols_-1) {
-            scr_write_line(scr, scr->currY_, prefix, psz);
-            if (tb_xpos(buf) >= scr->cols_) {
-                psz = 0;
-                prefix = tb_prefix(buf, &psz);
-                int pad = (tb_xpos(buf)-1) - scr->currX_;
-                scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
-            }
-        }
-        int xpos = tb_xpos(buf)-1;
-        if (xpos > scr->cols_-1) {
-            xpos = scr->cols_-1;
-        }
-        scr_up(scr, from_ch, to_ch, xpos);
+        scroll_up_from_top(scr, buf, to_ch);
+        return;
     }
+
+    if (scr->currX_ >= scr->cols_-1) {
+        scr_write_line(scr, scr->currY_, prefix, psz);
+        if (tb_xpos(buf) >= scr->cols_) {
+            psz = 0;
+            prefix = tb_prefix(buf, &psz);
+            int pad = (tb_xpos(buf)-1) - scr->currX_;
+            scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
+        }
+    }
+
+    int xpos = tb_xpos(buf)-1;
+    if (xpos > scr->cols_-1) {
+        xpos = scr->cols_-1;
+    }
+    scr_up(scr, from_ch, to_ch, xpos);
 }
 
 void cmd_down(screen* scr, text_buffer* buf) {
@@ -373,22 +357,23 @@ void cmd_down(screen* scr, text_buffer* buf) {
     }
     if (scr->currY_ >= scr->bottomY_-1) {
         scroll_lines(scr, buf, to_ch);
-    } else {
-        if (scr->currX_ >= scr->cols_-1) {
-            scr_write_line(scr, scr->currY_, prefix, psz);
-            if (tb_xpos(buf) >= scr->cols_) {
-                psz = 0;
-                prefix = tb_prefix(buf, &psz);
-                int pad = (tb_xpos(buf)-1) - scr->currX_;
-                scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
-            }
-        }
-        int xpos = tb_xpos(buf)-1;
-        if (xpos > scr->cols_-1) {
-            xpos = scr->cols_-1;
-        }
-        scr_down(scr, from_ch, to_ch, xpos);
+        return;
     }
+    if (scr->currX_ >= scr->cols_-1) {
+        scr_write_line(scr, scr->currY_, prefix, psz);
+        if (tb_xpos(buf) >= scr->cols_) {
+            psz = 0;
+            prefix = tb_prefix(buf, &psz);
+            int pad = (tb_xpos(buf)-1) - scr->currX_;
+            scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
+        }
+    }
+
+    int xpos = tb_xpos(buf)-1;
+    if (xpos > scr->cols_-1) {
+        xpos = scr->cols_-1;
+    }
+    scr_down(scr, from_ch, to_ch, xpos);
 }
 
 void cmd_home(screen* scr, text_buffer* buf) {
