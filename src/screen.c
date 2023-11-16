@@ -23,6 +23,8 @@
 #include <mos_api.h>
 #include <stdio.h>
 
+#include "conv.h"
+
 #define MAX_COLS 255
 static void set_colours(uint8_t fg, uint8_t bg) {
     vdp_set_text_colour(fg);
@@ -119,14 +121,32 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
-void scr_footer(screen* scr, int x, int y) {
+void scr_footer(screen* scr, const char* fname, int x, int y) {
+    static char digits[16];
     vdp_cursor_tab(scr->bottomY_, 0);
     putch(' ');
     set_colours(scr->bg_, scr->fg_);
     for (int i = 0; i < scr->cols_-13; i++) {
         putch(' ');
     }
-    printf("%4d,%-6d", y, x);
+
+    i2s(y, digits, 16);
+    int dsz = strlen(digits);
+    uint8_t max = strlen(digits) < 4 ? 4 - strlen(digits) : 4;
+    for (int i = 0; i < max; i++) {
+        putch(' ');
+    }
+    mos_puts(digits, dsz, 0);
+    putch(',');
+
+    i2s(x, digits, 16);
+    dsz = strlen(digits);
+    max = strlen(digits) < 6 ? 6 - strlen(digits) : 6;
+    mos_puts(digits, dsz, 0);
+    for (int i = 0; i < max; i++) {
+        putch(' ');
+    }
+
     set_colours(scr->fg_, scr->bg_);
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
@@ -141,7 +161,7 @@ void scr_clear(screen* scr) {
         putch('-');
     }
     set_colours(scr->bg_, scr->fg_);
-    printf("%s",title);
+    mos_puts(title, strlen(title), 0);
     set_colours(scr->fg_, scr->bg_);
     for (int i = 0; i < banner; i++)  {
         putch('-');

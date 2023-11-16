@@ -37,7 +37,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->x_ = 0;
     tb->fname_[0] = 0;
 
-    if (!tb_load(tb, fname)) {
+    if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
         cb_destroy(&tb->cb_);
         return NULL;
@@ -69,6 +69,13 @@ bool tb_eol(text_buffer* tb) {
 }
 bool tb_bol(text_buffer* tb) {
     return tb->x_ == 0;
+}
+
+const char* tb_fname(text_buffer* tb) {
+    if (tb->fname_[0] == 0) {
+        return NULL;
+    }
+    return tb->fname_;
 }
 
 // Character ops.
@@ -441,7 +448,7 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
 
 bool tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
-        fname = "/aed.txt";
+        return false;
     }
 
     int fsz = strlen(fname);
@@ -453,7 +460,8 @@ bool tb_load(text_buffer* tb, const char* fname) {
         // Try to create the file.
         fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
         if (fh == 0) {
-            printf("invalid file");
+            const char* msg = "invalid file";
+            mos_puts(msg, strlen(msg), 0);
             tb->fname_[0] = 0;
             return false;
         }
