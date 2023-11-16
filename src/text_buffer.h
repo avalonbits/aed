@@ -39,6 +39,7 @@ int tb_available(text_buffer* tb);
 int tb_used(text_buffer* tb);
 bool tb_eol(text_buffer* tb);
 bool tb_bol(text_buffer* tb);
+const char* tb_fname(text_buffer* tb);
 
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch);

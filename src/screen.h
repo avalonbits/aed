@@ -41,7 +41,7 @@ typedef struct _screen {
 screen* scr_init(screen* scr, char cursor);
 void scr_destroy(screen* scr);
 void scr_clear(screen* scr);
-void scr_footer(screen* scr, int x, int y);
+void scr_footer(screen* scr, const char* fname, int x, int y);
 
 // Input.
 void scr_putc(screen* scr, uint8_t ch, uint8_t* prefix, int psz, uint8_t* suffix, int ssz);

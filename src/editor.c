@@ -59,7 +59,7 @@ void ed_run(editor* ed) {
     text_buffer* buf = &ed->buf_;
 
     for (;;) {
-        scr_footer(scr, tb_xpos(buf), tb_ypos(buf));
+        scr_footer(scr, tb_fname(buf), tb_xpos(buf), tb_ypos(buf));
         key_command kc = read_input();
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(scr, buf, kc.k);
