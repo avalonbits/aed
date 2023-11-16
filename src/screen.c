@@ -122,14 +122,24 @@ void scr_destroy(screen* scr) {
 }
 
 void scr_footer(screen* scr, const char* fname, int x, int y) {
-    static char digits[16];
+    static const char* no_file = "**NO FILE**";
+    if (fname == NULL) {
+        fname = no_file;
+    }
+    const int fnsz = strlen(fname);
+    int psz = 13 + fnsz + 2;
+
     vdp_cursor_tab(scr->bottomY_, 0);
     putch(' ');
     set_colours(scr->bg_, scr->fg_);
-    for (int i = 0; i < scr->cols_-13; i++) {
+
+    mos_puts(fname, fnsz, 0);
+    mos_puts("  ", 2, 0);
+    for (int i = 0; i < scr->cols_-psz; i++) {
         putch(' ');
     }
 
+    static char digits[16];
     i2s(y, digits, 16);
     int dsz = strlen(digits);
     uint8_t max = strlen(digits) < 4 ? 4 - strlen(digits) : 4;
