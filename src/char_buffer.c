@@ -108,19 +108,12 @@ uint8_t cb_next(char_buffer* cb, int cnt) {
     return 0;
 }
 
-uint8_t cb_peek_at(char_buffer* cb, int idx) {
-    const int prefix = cb->curr_-cb->buf_;
-    if (idx < prefix) {
-        return *(cb->buf_+idx);
+uint8_t cb_peek(char_buffer* cb) {
+    const uint8_t* end = cb->buf_ + cb->size_;
+    if (cb->cend_ == end) {
+        return 0;
     }
-
-    idx -= prefix;
-    const int suffix = (cb->buf_+cb->size_) - cb->cend_;
-    if (idx < suffix) {
-        return *(cb->cend_+idx);
-    }
-
-    return 0;
+    return *cb->cend_;
 }
 
 uint8_t* cb_prefix(char_buffer* cb, int* sz) {
