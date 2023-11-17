@@ -92,6 +92,10 @@ key_command ctrlCmds(key_command kc) {
         case VK_D:
             kc.cmd = cmd_del_line;
             break;
+        case VK_S:
+        case VK_s:
+            kc.cmd = cmd_save;
+            break;
         default:
             kc.cmd = NULL;;
             break;
