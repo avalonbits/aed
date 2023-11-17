@@ -21,6 +21,7 @@
 
 #include "text_buffer.h"
 #include "screen.h"
+#include "user_input.h"
 #include "vkey.h"
 
 typedef struct _key {
@@ -31,8 +32,9 @@ typedef struct _key {
 typedef void(*cmd_op)(screen*, text_buffer*);
 
 void cmd_show(screen* scr, text_buffer* buf);
-bool cmd_quit(screen* scr, text_buffer* buf);
-void cmd_save(screen* scr, text_buffer* buf);
+bool cmd_quit(screen* scr, user_input* ui, text_buffer* buf);
+bool cmd_save(screen* scr, user_input* ui, text_buffer* buf);
+bool cmd_save_as(screen* scr, user_input* ui, text_buffer* buf);
 
 void cmd_putc(screen* scr, text_buffer* buf, key k);
 void cmd_del(screen* scr, text_buffer* buf);
