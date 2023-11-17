@@ -53,11 +53,8 @@ static bool save_file(text_buffer* buf) {
 }
 
 void cmd_save(screen* scr, text_buffer* buf) {
-    mos_puts("what", 4, 0);
     if (tb_changed(buf)) {
-        if (!save_file(buf)) {
-            mos_puts("FUCK", 4, 0);
-        }
+        save_file(buf);
     }
 }
 
