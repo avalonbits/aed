@@ -56,13 +56,13 @@ bool lb_last(line_buffer* lb) {
 
 // Line ops.
 bool lb_cinc(line_buffer* lb) {
-    *lb->curr_ += 1;
+    (*lb->curr_) += 1;
     return true;
 }
 bool lb_cdec(line_buffer* lb) {
     int cur = *lb->curr_;
     if (cur > 0) {
-        (*lb->curr_) = cur -1;
+        (*lb->curr_) = cur - 1;
         return true;
     }
     return false;

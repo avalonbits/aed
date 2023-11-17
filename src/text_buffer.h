@@ -67,7 +67,6 @@ int tb_ypos(text_buffer* tb);
 
 // Char read.
 uint8_t tb_peek(text_buffer* tb);
-uint8_t tb_peek_at(text_buffer* tb, int idx);
 uint8_t* tb_suffix(text_buffer* tb, int* sz);
 uint8_t* tb_prefix(text_buffer* tb, int* sz);
 
