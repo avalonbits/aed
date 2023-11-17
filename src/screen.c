@@ -122,7 +122,7 @@ void scr_destroy(screen* scr) {
 }
 
 void scr_footer(screen* scr, const char* fname, int x, int y) {
-    static const char* no_file = "**NO FILE**";
+    static const char* no_file = "[NO FILE]";
     if (fname == NULL) {
         fname = no_file;
     }

@@ -64,7 +64,7 @@ int tb_used(text_buffer* tb) {
 #define IS_EOL(x) (x == 0 || (x >= 10 && x <= 13))
 
 bool tb_eol(text_buffer* tb) {
-    const uint8_t ch = cb_peek(&tb->cb_);
+    const uint8_t ch = cb_peek_at(&tb->cb_, 0);
     return IS_EOL(ch);
 }
 bool tb_bol(text_buffer* tb) {
@@ -175,6 +175,8 @@ static bool isstop(uint8_t ch) {
         case '@':
         case '!':
         case '#':
+        case '\\':
+        case '/':
             return true;
         default:
             return false;
@@ -247,7 +249,7 @@ uint8_t tb_home(text_buffer* tb) {
 }
 
 uint8_t tb_end(text_buffer* tb) {
-    uint8_t ch = cb_peek(&tb->cb_);
+    uint8_t ch = cb_peek_at(&tb->cb_, 0);
     while (!IS_EOL(ch)) {
         ch = cb_next(&tb->cb_, 1);
         tb->x_++;
@@ -337,7 +339,7 @@ line_itr tb_pline(text_buffer* buf) {
 
 // Char read.
 uint8_t tb_peek(text_buffer* tb) {
-    return cb_peek(&tb->cb_);
+    return cb_peek_at(&tb->cb_, 0);
 }
 uint8_t tb_peek_at(text_buffer* tb, int idx) {
     return cb_peek_at(&tb->cb_, idx);
@@ -386,7 +388,7 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
     int added = 0;
     for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
-        const uint8_t ch = cb_peek(cb);
+        const uint8_t ch = cb_peek_at(cb, 0);
 
         if (saw_r) {
             if (ch != '\n') {
@@ -419,7 +421,7 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
         }
         cb_next(cb, 1);
     }
-    const uint8_t ch = cb_peek(cb);
+    const uint8_t ch = cb_peek_at(cb, 0);
     if (saw_r) {
         if (ch != '\n') {
             lb_cinc(&tb->lb_);

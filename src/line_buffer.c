@@ -18,6 +18,7 @@
 
 #include "line_buffer.h"
 
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -27,9 +28,8 @@ line_buffer* lb_init(line_buffer* lb, int size) {
     if (lb->buf_ == NULL) {
         return NULL;
     }
-    for (int i = 0; i < size; ++i) {
-        lb->buf_[i] = 0;
-    }
+
+    memset(lb->buf_, 0, size);
     lb->size_ = size;
     lb->curr_ = lb->buf_;
     lb->cend_ = lb->buf_ + size;
@@ -38,9 +38,6 @@ line_buffer* lb_init(line_buffer* lb, int size) {
 
 void lb_destroy(line_buffer* lb) {
     free(lb->buf_);
-    lb->buf_ = NULL;
-    lb->curr_ = NULL;
-    lb->cend_ = NULL;
 }
 
 // Info ops
@@ -59,13 +56,13 @@ bool lb_last(line_buffer* lb) {
 
 // Line ops.
 bool lb_cinc(line_buffer* lb) {
-    *lb->curr_ = *lb->curr_ + 1;
+    *lb->curr_ += 1;
     return true;
 }
 bool lb_cdec(line_buffer* lb) {
     int cur = *lb->curr_;
     if (cur > 0) {
-        (*lb->curr_) = cur - 1;
+        (*lb->curr_) = cur -1;
         return true;
     }
     return false;
@@ -133,28 +130,11 @@ int lb_merge_prev(line_buffer* lb) {
         return -1;
     }
 
-    int curr = *lb->curr_;
+    const int curr = *lb->curr_;
     lb->curr_--;
     (*lb->curr_) -= 2;
-    int next = *lb->curr_;
+    const int next = *lb->curr_;
     (*lb->curr_) += curr;
 
     return next;
 }
-
-
-int lb_copy(line_buffer* lb, uint8_t* buf, int size) {
-    const int prefix = lb->curr_ - lb->buf_+1;
-    int used;
-    for (used = 0; used < size && used < prefix; used++) {
-        buf[used] = lb->buf_[used];
-    }
-
-    const int suffix = (lb->buf_+lb->size_) - lb->cend_;
-    for (int i = 0; i < suffix && used < size; used++,i++) {
-        buf[used] = lb->cend_[i];
-    }
-
-    return used;
-}
-
