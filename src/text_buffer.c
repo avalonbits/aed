@@ -36,6 +36,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     }
     tb->x_ = 0;
     tb->fname_[0] = 0;
+    tb->dirty_ = false;
 
     if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
@@ -78,16 +79,26 @@ const char* tb_fname(text_buffer* tb) {
     return tb->fname_;
 }
 
+bool tb_changed(text_buffer* tb) {
+   return tb->dirty_;
+}
+
+void tb_saved(text_buffer* tb) {
+    tb->dirty_ = false;
+}
+
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch) {
     cb_put(&tb->cb_, ch);
     tb->x_++;
     lb_cinc(&tb->lb_);
+    tb->dirty_ = true;
 }
 
 bool tb_del(text_buffer* tb) {
     if (cb_del(&tb->cb_)) {
         lb_cdec(&tb->lb_);
+        tb->dirty_ = true;
         return true;
     }
     return false;
@@ -98,11 +109,13 @@ bool tb_bksp(text_buffer* tb) {
     if (ok) {
         tb->x_--;
         lb_cdec(&tb->lb_);
+        tb->dirty_ = true;
     }
     return ok;
 }
 
 bool tb_newline(text_buffer* tb) {
+    tb->dirty_ = true;
     tb_put(tb, '\r');
     tb_put(tb, '\n');
     const bool ok = lb_new(&tb->lb_, tb->x_);
@@ -122,6 +135,7 @@ bool tb_del_line(text_buffer* tb) {
         tb_del(tb);
     }
     lb_del(&tb->lb_);
+    tb->dirty_ = true;
 
     return true;
 }
@@ -136,6 +150,7 @@ bool tb_del_merge(text_buffer* tb) {
     tb_del(tb);
     tb_del(tb);
     lb_merge_next(&tb->lb_);
+    tb->dirty_ = true;
 
     return true;
 }
@@ -148,6 +163,7 @@ bool tb_bksp_merge(text_buffer* tb) {
     cb_bksp(&tb->cb_);
 
     tb->x_ = lb_merge_prev(&tb->lb_);
+    tb->dirty_ = true;
     return true;
 }
 
@@ -441,6 +457,7 @@ static bool tb_read(uint8_t fh, text_buffer* tb, int sz) {
     }
 
     cb_prev(cb, sz+added);
+    tb->dirty_ = added > 0;
 
     // Now move the line buffer back to the first line.
     while (lb_up(&tb->lb_)) ;
