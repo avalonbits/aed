@@ -48,9 +48,7 @@ uint8_t cb_next(char_buffer* cb, int cnt);
 uint8_t cb_prev(char_buffer* cb, int cnt);
 
 // Char read.
-uint8_t cb_peek(char_buffer* cb);
 uint8_t cb_peek_at(char_buffer* cb, int idx);
-int cb_copy(char_buffer* cb, uint8_t* buf, int size);
 uint8_t* cb_prefix(char_buffer* cb, int* sz);
 uint8_t* cb_suffix(char_buffer* cb, int* sz);
 
