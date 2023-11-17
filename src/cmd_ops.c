@@ -48,16 +48,25 @@ static bool save_file(text_buffer* buf) {
         mos_fwrite(fh, (char*) suffix, ssz);
     }
     mos_fclose(fh);
+    tb_saved(buf);
     return true;
 }
 
-void cmd_save(text_buffer* buf) {
-    save_file(buf);
+void cmd_save(screen* scr, text_buffer* buf) {
+    mos_puts("what", 4, 0);
+    if (tb_changed(buf)) {
+        if (!save_file(buf)) {
+            mos_puts("FUCK", 4, 0);
+        }
+    }
 }
 
 bool cmd_quit(screen* scr, text_buffer* buf) {
     UN(scr);
     if (!tb_valid_file(buf)) {
+        return true;
+    }
+    if (!tb_changed(buf)) {
         return true;
     }
     return save_file(buf);
