@@ -26,6 +26,7 @@ typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
     int x_;
+    bool dirty_;
 
     char fname_[256];
 } text_buffer;
@@ -40,6 +41,8 @@ int tb_used(text_buffer* tb);
 bool tb_eol(text_buffer* tb);
 bool tb_bol(text_buffer* tb);
 const char* tb_fname(text_buffer* tb);
+bool tb_changed(text_buffer* tb);
+void tb_saved(text_buffer* tb);
 
 // Character ops.
 void tb_put(text_buffer* tb, uint8_t ch);

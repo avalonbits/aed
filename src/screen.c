@@ -65,7 +65,7 @@ static void vdp_puts(char* str, uint8_t sz) {
     }
 }
 
-static volatile uint8_t getColorForCh(uint8_t ch) {
+static uint8_t getColorForCh(uint8_t ch) {
     static char getcol[7] = {23, 0, 0x84, 4, 0, 4, 0};
 
     vdp_cursor_tab(0,0);
@@ -121,7 +121,7 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
-void scr_footer(screen* scr, const char* fname, int x, int y) {
+void scr_footer(screen* scr, const char* fname, bool dirty, int x, int y) {
     static const char* no_file = "[NO FILE]";
     if (fname == NULL) {
         fname = no_file;
@@ -134,7 +134,12 @@ void scr_footer(screen* scr, const char* fname, int x, int y) {
     set_colours(scr->bg_, scr->fg_);
 
     mos_puts(fname, fnsz, 0);
-    mos_puts("  ", 2, 0);
+    if (dirty) {
+        putch('*');
+    } else {
+        putch(' ');
+    }
+    putch(' ');
     for (int i = 0; i < scr->cols_-psz; i++) {
         putch(' ');
     }
