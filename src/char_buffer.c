@@ -27,14 +27,17 @@ char_buffer* cb_init(char_buffer* cb, int size) {
     }
 
     cb->size_ = size;
-    cb->curr_ = cb->buf_;
-    cb->cend_ = cb->buf_+size;
-
+    cb_clear(cb);
     return cb;
 }
 
 void cb_destroy(char_buffer* cb) {
     free(cb->buf_);
+}
+
+void cb_clear(char_buffer* cb) {
+    cb->curr_ = cb->buf_;
+    cb->cend_ = cb->buf_ + cb->size_;
 }
 
 int cb_size(char_buffer* cb) {

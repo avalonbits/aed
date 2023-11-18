@@ -19,6 +19,7 @@
 #include "conv.h"
 
 #include <stdbool.h>
+
 static void reverse(uint8_t* buf, int sz) {
     int start = 0;
     int end = sz -1;
@@ -33,16 +34,10 @@ static void reverse(uint8_t* buf, int sz) {
 
 uint8_t* i2s(int num, uint8_t* buf, int sz) {
     const bool is_neg = num < 0;
-
-    if (sz < 2) {
-        return NULL;
-    }
     if (is_neg) {
-        if (sz < 3) {
-            return NULL;
-        }
         num = -num;
     }
+
     if (num == 0) {
         buf[0] = '0';
         buf[1] = '\0';

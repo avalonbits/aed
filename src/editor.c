@@ -25,7 +25,6 @@
 #include <stdio.h>
 
 #include "cmd_ops.h"
-#include "line_buffer.h"
 
 #define DEFAULT_CURSOR 32
 
@@ -34,6 +33,11 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
        return NULL;
     }
     scr_init(&ed->scr_, DEFAULT_CURSOR);
+    if (!ui_init(&ed->ui_, 256, ed->scr_.bottomY_, ed->scr_.cols_)) {
+       tb_destroy(&ed->buf_);
+      return NULL;
+    }
+
     if (tb_used(&ed->buf_) > 0) {
         cmd_show(&ed->scr_, &ed->buf_);
     }
@@ -41,12 +45,15 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
 }
 
 void ed_destroy(editor* ed) {
+    ui_destroy(&ed->ui_);
     scr_destroy(&ed->scr_);
     tb_destroy(&ed->buf_);
 }
 
-#define CMD_PUTC (cmd_op) 0x01
-#define CMD_QUIT (cmd_op) 0x02
+#define CMD_PUTC    (cmd_op) 0x01
+#define CMD_QUIT    (cmd_op) 0x02
+#define CMD_SAVE    (cmd_op) 0x03
+#define CMD_SAVE_AS (cmd_op) 0x04
 typedef struct _key_command {
     cmd_op cmd;
     key k;
@@ -63,8 +70,14 @@ void ed_run(editor* ed) {
         key_command kc = read_input();
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(scr, buf, kc.k);
-        } else if (kc.cmd == CMD_QUIT && cmd_quit(scr, buf)) {
-            break;
+        } else if (kc.cmd == CMD_QUIT) {
+            if (cmd_quit(scr, &ed->ui_,  buf)) {
+                break;
+            }
+        } else if (kc.cmd == CMD_SAVE) {
+            cmd_save(scr, &ed->ui_, buf);
+        } else if (kc.cmd == CMD_SAVE_AS) {
+            cmd_save_as(scr, &ed->ui_, buf);
         } else if (kc.cmd != NULL) {
             kc.cmd(scr, buf);
         }
@@ -72,7 +85,7 @@ void ed_run(editor* ed) {
     vdp_clear_screen();
 }
 
-key_command ctrlCmds(key_command kc) {
+key_command ctrlCmds(key_command kc, uint8_t mods) {
     switch (kc.k.vkey) {
         case VK_q:
         case VK_Q:
@@ -94,7 +107,11 @@ key_command ctrlCmds(key_command kc) {
             break;
         case VK_S:
         case VK_s:
-            kc.cmd = cmd_save;
+		    if (mods & MOD_ALT) {
+                kc.cmd = CMD_SAVE_AS;
+            } else {
+                kc.cmd = CMD_SAVE;
+            }
             break;
         default:
             kc.cmd = NULL;;
@@ -152,8 +169,8 @@ key_command read_input() {
     kc.k.vkey = getsysvar_vkeycode();
 
     const uint8_t mods = getsysvar_keymods();
-    if ((mods & MOD_CTRL)) {
-        return ctrlCmds(kc);
+    if (mods & MOD_CTRL) {
+        return ctrlCmds(kc, mods);
     }
 
     if (kc.k.key == '\t' || (kc.k.key != 0x7F && kc.k.key >= 32)) {

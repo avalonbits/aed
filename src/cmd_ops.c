@@ -22,8 +22,23 @@
 #include <mos_api.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define UN(x) (void)(x)
+
+static bool update_fname(screen* scr, user_input* ui, text_buffer* buf, const char* prefill) {
+    uint8_t* fname;
+    int sz;
+    RESPONSE res = ui_text(ui, scr, "File name: ", prefill, &fname, &sz);
+    if (res == CANCEL_OPT) {
+        return false;
+    } else if (res == YES_OPT) {
+        strncpy(buf->fname_, fname, sz);
+        buf->fname_[sz] = 0;
+        return true;
+    }
+    return false;
+}
 
 static bool save_file(text_buffer* buf) {
     if (!tb_valid_file(buf)) {
@@ -47,26 +62,50 @@ static bool save_file(text_buffer* buf) {
     if (suffix != NULL && ssz > 0) {
         mos_fwrite(fh, (char*) suffix, ssz);
     }
+
     mos_fclose(fh);
     tb_saved(buf);
+
     return true;
 }
 
-void cmd_save(screen* scr, text_buffer* buf) {
-    if (tb_changed(buf)) {
-        save_file(buf);
-    }
-}
-
-bool cmd_quit(screen* scr, text_buffer* buf) {
-    UN(scr);
-    if (!tb_valid_file(buf)) {
-        return true;
-    }
+bool cmd_save(screen* scr, user_input* ui, text_buffer* buf) {
     if (!tb_changed(buf)) {
         return true;
     }
+
+    if (!tb_valid_file(buf) && !update_fname(scr, ui, buf, NULL)) {
+        return false;
+    }
+
     return save_file(buf);
+}
+
+
+bool cmd_save_as(screen* scr, user_input* ui, text_buffer* buf) {
+    if (!update_fname(scr, ui, buf, buf->fname_)) {
+        return false;
+    }
+
+    return save_file(buf);
+}
+
+
+bool cmd_quit(screen* scr, user_input* ui, text_buffer* buf) {
+    UN(scr);
+    if (!tb_changed(buf)) {
+        return true;
+    }
+
+    RESPONSE res = ui_dialog(ui, scr, "Save before quit?");
+    if (res == NO_OPT) {
+        return true;
+    }
+    if (res == CANCEL_OPT) {
+        return false;
+    }
+
+    return cmd_save(scr, ui, buf);
 }
 
 void cmd_putc(screen* scr, text_buffer* buf, key k) {

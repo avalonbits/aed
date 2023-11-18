@@ -16,24 +16,36 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _EDITOR_H_
-#define _EDITOR_H_
+#ifndef _USER_INPUT_H_
+#define _USER_INPUT_H_
 
-#include <stdint.h>
-
+#include "char_buffer.h"
 #include "screen.h"
-#include "text_buffer.h"
-#include "user_input.h"
 
-typedef struct _editor {
-    screen scr_;
-    text_buffer buf_;
-    user_input ui_;
-} editor;
+typedef enum _response {
+    CANCEL_OPT = 0,
+    YES_OPT = 1,
+    NO_OPT = 2,
+} RESPONSE;
 
-editor* ed_init(editor* ed, int mem_kb, const char* fname);
-void ed_destroy(editor* ed);
 
-void ed_run(editor* ed);
+typedef struct _user_input {
+    char_buffer cb_;
+    char ypos_;
+    char cols_;
+} user_input;
 
-#endif  // _EDITOR_H_
+user_input* ui_init(user_input* ui, int size, char ypos, char cols);
+void ui_destroy(user_input* ui);
+
+RESPONSE ui_dialog(user_input* ui, screen* scr, const char* msg);
+RESPONSE ui_text(
+    user_input* ui,
+    screen* scr,
+    const char* title,
+    const char* prefill,
+    uint8_t** buf,
+    uint8_t* sz);
+
+
+#endif  // _USER_INPUT_H_

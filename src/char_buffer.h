@@ -32,6 +32,7 @@ typedef struct _char_buffer  {
 // Setup ops.
 char_buffer* cb_init(char_buffer* cb, int size);
 void cb_destroy(char_buffer* cb);
+void cb_clear(char_buffer* cb);
 
 // Info ops.
 int cb_size(char_buffer* cb);

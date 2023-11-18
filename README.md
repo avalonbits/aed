@@ -40,7 +40,7 @@ The following features will be implemented before releasing v1.0 of the editor:
 - [x] ~~BACKSPACE merges current line with previous when pressed at the beginning of the line.~~
 - [ ] Shortcuts to change foreground and background colors.
 - [ ] `PAGE-UP` and `PAGE-DOWN` support.
-- [ ] Shortcut for saving the current buffer without quiting.
+- [x] ~~Shortcut for saving the current buffer without quiting.~~
 - [ ] File selection while in the editor.
 
 ## Roadmap after v1.0
