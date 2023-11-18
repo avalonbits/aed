@@ -110,6 +110,9 @@ static void scr_write_padded(screen* scr, text_buffer* buf) {
 
 
 static void scroll_from_top(screen* scr, text_buffer* buf, uint8_t ch, const bool osz_is_last) {
+    vdp_cursor_tab(scr->currY_+1, 0);
+    scr_hide_cursor_ch(scr, ' ');
+    vdp_cursor_tab(scr->currY_, 0);
     line_itr next = tb_nline(buf, tb_ypos(buf));
     uint8_t ypos = scr->currY_;
     int osz = 255;

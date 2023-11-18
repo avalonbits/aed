@@ -62,6 +62,7 @@ void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
 void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz);
 
 void scr_show_cursor_ch(screen* scr, uint8_t ch);
+void scr_hide_cursor_ch(screen* scr, uint8_t ch);
 void scr_erase(screen* scr, int sz);
 
 #endif  // _SCREEN_H_

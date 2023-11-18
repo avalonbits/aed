@@ -186,7 +186,7 @@ void scr_clear(screen* scr) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
-static void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
+void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
     if (ch == 0 || ch == '\r' || ch == '\n') {
         ch = scr->cursor_;
     }
