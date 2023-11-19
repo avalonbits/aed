@@ -108,7 +108,6 @@ RESPONSE ui_text(
                 if (cb_used(cb) == 0) {
                     return CANCEL_OPT;
                 } else {
-                    while (cb_next(cb, 1) != 0);
                     *buf = cb_prefix(cb, sz);
                     return YES_OPT;
                 }

@@ -24,28 +24,35 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define UN(x) (void)(x)
+#include "editor.h"
+#include "text_buffer.h"
+#include "screen.h"
+#include "user_input.h"
 
-static bool update_fname(screen* scr, user_input* ui, text_buffer* buf, const char* prefill) {
+#define SCR(ed) screen* scr = &ed->scr_
+#define UI(ed) user_input* ui = &ed->ui_
+#define TB(ed) text_buffer* tb = &ed->buf_
+
+static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, const char* prefill) {
     uint8_t* fname;
-    int sz;
+    uint8_t sz;
     RESPONSE res = ui_text(ui, scr, "File name: ", prefill, &fname, &sz);
     if (res == CANCEL_OPT) {
         return false;
     } else if (res == YES_OPT) {
-        strncpy(buf->fname_, fname, sz);
-        buf->fname_[sz] = 0;
+        strncpy(tb->fname_, fname, sz);
+        tb->fname_[sz] = 0;
         return true;
     }
     return false;
 }
 
-static bool save_file(text_buffer* buf) {
-    if (!tb_valid_file(buf)) {
+static bool save_file(text_buffer* tb) {
+    if (!tb_valid_file(tb)) {
         return false;
     }
 
-    uint8_t fh = mos_fopen(buf->fname_, FA_WRITE | FA_CREATE_ALWAYS);
+    uint8_t fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
     if (fh == 0) {
         return false;;
     }
@@ -54,7 +61,7 @@ static bool save_file(text_buffer* buf) {
     uint8_t* suffix = NULL;
     int psz = 0;
     int ssz = 0;
-    tb_content(buf, &prefix, &psz, &suffix, &ssz);
+    tb_content(tb, &prefix, &psz, &suffix, &ssz);
 
     if (prefix != NULL && psz > 0) {
         mos_fwrite(fh, (char*) prefix, psz);
@@ -64,36 +71,45 @@ static bool save_file(text_buffer* buf) {
     }
 
     mos_fclose(fh);
-    tb_saved(buf);
+    tb_saved(tb);
 
     return true;
 }
 
-bool cmd_save(screen* scr, user_input* ui, text_buffer* buf) {
-    if (!tb_changed(buf)) {
+bool cmd_save(editor* ed) {
+    TB(ed);
+    SCR(ed);
+    UI(ed);
+
+    if (!tb_changed(tb)) {
         return true;
     }
 
-    if (!tb_valid_file(buf) && !update_fname(scr, ui, buf, NULL)) {
+    if (!tb_valid_file(tb) && !update_fname(scr, ui, tb, NULL)) {
         return false;
     }
 
-    return save_file(buf);
+    return save_file(tb);
 }
 
 
-bool cmd_save_as(screen* scr, user_input* ui, text_buffer* buf) {
-    if (!update_fname(scr, ui, buf, buf->fname_)) {
-        return false;
+void cmd_save_as(editor* ed) {
+    TB(ed);
+    SCR(ed);
+    UI(ed);
+
+    if (update_fname(scr, ui, tb, tb->fname_)) {
+        save_file(tb);
     }
-
-    return save_file(buf);
 }
 
 
-bool cmd_quit(screen* scr, user_input* ui, text_buffer* buf) {
-    UN(scr);
-    if (!tb_changed(buf)) {
+bool cmd_quit(editor* ed) {
+    TB(ed);
+    SCR(ed);
+    UI(ed);
+
+    if (!tb_changed(tb)) {
         return true;
     }
 
@@ -105,34 +121,40 @@ bool cmd_quit(screen* scr, user_input* ui, text_buffer* buf) {
         return false;
     }
 
-    return cmd_save(scr, ui, buf);
+    return cmd_save(ed);
 }
 
-void cmd_putc(screen* scr, text_buffer* buf, key k) {
+void cmd_putc(editor* ed, key k) {
+    TB(ed);
+    SCR(ed);
+
     if (k.key == '\t') {
         // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
         k.key = ' ';
-        const uint8_t spaces = scr->tab_size_ - ((tb_xpos(buf)-1) % scr->tab_size_);
+        const uint8_t spaces = scr->tab_size_ - ((tb_xpos(tb)-1) % scr->tab_size_);
         for (uint8_t i = 0; i < spaces; i++) {
-            cmd_putc(scr, buf, k);
+            cmd_putc(ed, k);
         }
         return;
     }
 
-    tb_put(buf, k.key);
+    tb_put(tb, k.key);
     int psz = 0;
-    uint8_t* prefix = tb_prefix(buf, &psz);
+    uint8_t* prefix = tb_prefix(tb, &psz);
     int ssz = 0;
-    uint8_t* suffix = tb_suffix(buf, &ssz);
+    uint8_t* suffix = tb_suffix(tb, &ssz);
     scr_putc(scr, k.key, prefix, psz, suffix, ssz);
 }
 
-static void scr_write_padded(screen* scr, text_buffer* buf) {
+static void scr_write_padded(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
     vdp_cursor_tab(scr->currY_, 0);
     int psz = 0;
-    uint8_t* prefix = tb_prefix(buf, &psz);
+    uint8_t* prefix = tb_prefix(tb, &psz);
     int i = 0;
-    int pad = buf->x_ - scr->currX_;
+    int pad = tb->x_ - scr->currX_;
     if (pad < 0) {
         pad = 0;
     }
@@ -141,18 +163,20 @@ static void scr_write_padded(screen* scr, text_buffer* buf) {
     }
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
+    uint8_t* suffix = tb_suffix(tb, &sz);
     for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
         putch(suffix[j]);
     }
 }
 
+static void scroll_from_top(editor* ed, uint8_t ch, const bool osz_is_last) {
+    TB(ed);
+    SCR(ed);
 
-static void scroll_from_top(screen* scr, text_buffer* buf, uint8_t ch, const bool osz_is_last) {
     vdp_cursor_tab(scr->currY_+1, 0);
     scr_hide_cursor_ch(scr, ch);
     vdp_cursor_tab(scr->currY_, 0);
-    line_itr next = tb_nline(buf, tb_ypos(buf));
+    line_itr next = tb_nline(tb, tb_ypos(tb));
     uint8_t ypos = scr->currY_;
     int osz = 255;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
@@ -167,31 +191,34 @@ static void scroll_from_top(screen* scr, text_buffer* buf, uint8_t ch, const boo
     if (ypos < scr->bottomY_) {
         scr_write_line(scr, ypos, NULL, 0);
     }
-    scr_write_padded(scr, buf);
+    scr_write_padded(ed);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
 
 }
 
-static void scroll_up_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
-    scroll_from_top(scr, buf, ch, false);
+static void scroll_up_from_top(editor* ed, uint8_t ch) {
+    scroll_from_top(ed, ch, false);
 }
 
-static void scroll_down_from_top(screen* scr, text_buffer* buf, uint8_t ch) {
-    scroll_from_top(scr, buf, ch, true);
+static void scroll_down_from_top(editor* ed, uint8_t ch) {
+    scroll_from_top(ed, ch, true);
 }
 
 
-static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
+static void scroll_lines(editor* ed, uint8_t ch) {
+    TB(ed);
+    SCR(ed);
+
     if (scr->currY_ < scr->bottomY_-1) {
-        line_itr next = tb_nline(buf, tb_ypos(buf));
+        line_itr next = tb_nline(tb, tb_ypos(tb));
         uint8_t ypos = scr->currY_+1;
         for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
             scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
         }
         scr->currY_++;
     } else {
-        line_itr prev = tb_pline(buf);
+        line_itr prev = tb_pline(tb);
         uint8_t ypos = scr->currY_;
         for (line l = prev(); ypos >= scr->topY_; l = prev(), --ypos) {
             scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
@@ -201,251 +228,295 @@ static void scroll_lines(screen* scr, text_buffer* buf, uint8_t ch) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void cmd_show(screen* scr, text_buffer* buf) {
-    const uint8_t to_ch = tb_peek(buf);
-    scroll_down_from_top(scr, buf, to_ch);
+void cmd_show(editor* ed) {
+    TB(ed);
+
+    const uint8_t to_ch = tb_peek(tb);
+    scroll_down_from_top(ed, to_ch);
 }
 
-static void cmd_del_merge(screen* scr, text_buffer* buf) {
-    if (!tb_del_merge(buf)) {
+static void cmd_del_merge(editor* ed) {
+    TB(ed);
+
+    if (!tb_del_merge(tb)) {
         return;
     }
-    const uint8_t ch = tb_peek(buf);
-    scroll_down_from_top(scr, buf, ch);
+    const uint8_t ch = tb_peek(tb);
+    scroll_down_from_top(ed, ch);
 }
 
-void cmd_del(screen* scr, text_buffer* buf) {
-    if (tb_eol(buf)) {
-        if (tb_bol(buf)) {
-            cmd_del_line(scr, buf);
+void cmd_del(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_eol(tb)) {
+        if (tb_bol(tb)) {
+            cmd_del_line(ed);
         } else {
-            cmd_del_merge(scr, buf);
+            cmd_del_merge(ed);
         }
         return;
     }
-    if (!tb_del(buf)) {
+    if (!tb_del(tb)) {
         return;
     }
     int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
+    uint8_t* suffix = tb_suffix(tb, &sz);
     scr_del(scr, suffix, sz);
 }
 
-static void cmd_bksp_merge(screen* scr, text_buffer* buf) {
-    if (!tb_bksp_merge(buf)) {
+static void cmd_bksp_merge(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (!tb_bksp_merge(tb)) {
         return;
     }
-    uint8_t ch = tb_peek(buf);
+    uint8_t ch = tb_peek(tb);
     if (scr->currY_ > scr->topY_) {
         scr->currY_--;
     }
-    if (buf->x_ > scr->cols_-1) {
+    if (tb->x_ > scr->cols_-1) {
         scr->currX_ = scr->cols_-1;
     } else {
-        scr->currX_ = buf->x_;
+        scr->currX_ = tb->x_;
     }
-    scroll_down_from_top(scr, buf, ch);
+    scroll_down_from_top(ed, ch);
 }
 
-void cmd_bksp(screen* scr, text_buffer* buf) {
-    if (tb_bol(buf)) {
-        if (tb_ypos(buf) > 1) {
-            cmd_bksp_merge(scr, buf);
+void cmd_bksp(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_bol(tb)) {
+        if (tb_ypos(tb) > 1) {
+            cmd_bksp_merge(ed);
         }
         return;
     }
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
+    uint8_t* suffix = tb_suffix(tb, &sz);
 
-    if (!tb_bksp(buf)) {
+    if (!tb_bksp(tb)) {
         return;
     }
     scr_bksp(scr, suffix, sz);
 }
 
-void cmd_newl(screen* scr, text_buffer* buf) {
-    uint8_t ch = tb_peek(buf);
+void cmd_newl(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    uint8_t ch = tb_peek(tb);
     int sz = 0;
-    uint8_t* prefix = tb_prefix(buf, &sz);
-    if (!tb_newline(buf)) {
+    uint8_t* prefix = tb_prefix(tb, &sz);
+    if (!tb_newline(tb)) {
         return;
     }
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_write_line(scr, scr->currY_, prefix, sz);
     scr->currX_ = 0;
-    scroll_lines(scr, buf, ch);
+    scroll_lines(ed, ch);
 }
 
-void cmd_del_line(screen* scr, text_buffer* buf) {
-    if (!tb_del_line(buf)) {
+void cmd_del_line(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (!tb_del_line(tb)) {
         return;
     }
     scr->currX_ = 0;
-    uint8_t ch = tb_peek(buf);
-    scroll_down_from_top(scr, buf, ch);
+    uint8_t ch = tb_peek(tb);
+    scroll_down_from_top(ed, ch);
 }
 
-void cmd_left(screen* scr, text_buffer* buf) {
-    if (tb_bol(buf)) {
-        if (tb_ypos(buf) > 1) {
-            cmd_up(scr, buf);
-            cmd_end(scr, buf);
+void cmd_left(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_bol(tb)) {
+        if (tb_ypos(tb) > 1) {
+            cmd_up(ed);
+            cmd_end(ed);
         }
         return;
     }
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_prev(buf);
+    uint8_t from_ch = tb_peek(tb);
+    uint8_t to_ch = tb_prev(tb);
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
+    uint8_t* suffix = tb_suffix(tb, &sz);
     scr_left(scr, from_ch, to_ch, 1, suffix, sz);
 }
 
-void cmd_w_left(screen* scr, text_buffer* buf) {
-    if (tb_bol(buf)) {
-        if (tb_ypos(buf) > 1) {
-            cmd_up(scr, buf);
-            cmd_end(scr, buf);
+void cmd_w_left(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_bol(tb)) {
+        if (tb_ypos(tb) > 1) {
+            cmd_up(ed);
+            cmd_end(ed);
         }
         return;
     }
-    const int from_x = tb_xpos(buf);
-    const uint8_t from_ch = tb_peek(buf);
-    const uint8_t to_ch = tb_w_prev(buf);
-    const uint8_t deltaX = from_x - tb_xpos(buf);
+
+    const int from_x = tb_xpos(tb);
+    const uint8_t from_ch = tb_peek(tb);
+    const uint8_t to_ch = tb_w_prev(tb);
+    const uint8_t deltaX = from_x - tb_xpos(tb);
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(buf, &sz);
+    uint8_t* suffix = tb_suffix(tb, &sz);
     scr_left(scr, from_ch, to_ch, deltaX, suffix, sz);
 }
 
-void cmd_right(screen* scr, text_buffer* buf) {
-    if (tb_eol(buf)) {
-        int ypos = tb_ypos(buf);
-        cmd_down(scr, buf);
-        if (ypos != tb_ypos(buf)) {
-            cmd_home(scr, buf);
+void cmd_right(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_eol(tb)) {
+        int ypos = tb_ypos(tb);
+        cmd_down(ed);
+        if (ypos != tb_ypos(tb)) {
+            cmd_home(ed);
         }
         return;
     }
 
-    uint8_t from_ch = tb_peek(buf);
+    uint8_t from_ch = tb_peek(tb);
     if (from_ch == 0 ) {
         return;
     }
 
-    const uint8_t to_ch = tb_next(buf);
+    const uint8_t to_ch = tb_next(tb);
     int sz = 0;
-    uint8_t* prefix = tb_prefix(buf, &sz);
+    uint8_t* prefix = tb_prefix(tb, &sz);
     scr_right(scr, from_ch, to_ch, 1, prefix, sz);
 }
 
-void cmd_w_right(screen* scr, text_buffer* buf) {
-    if (tb_eol(buf)) {
-        int ypos = tb_ypos(buf);
-        cmd_down(scr, buf);
-        if (ypos != tb_ypos(buf)) {
-            cmd_home(scr, buf);
+void cmd_w_right(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_eol(tb)) {
+        int ypos = tb_ypos(tb);
+        cmd_down(ed);
+        if (ypos != tb_ypos(tb)) {
+            cmd_home(ed);
         }
         return;
     }
 
-    const int from_x = tb_xpos(buf);
-    const uint8_t from_ch = tb_peek(buf);
-    const uint8_t to_ch = tb_w_next(buf);
-    const uint8_t deltaX = tb_xpos(buf) - from_x;
+    const int from_x = tb_xpos(tb);
+    const uint8_t from_ch = tb_peek(tb);
+    const uint8_t to_ch = tb_w_next(tb);
+    const uint8_t deltaX = tb_xpos(tb) - from_x;
 
     int sz = 0;
-    uint8_t* prefix = tb_prefix(buf, &sz);
+    uint8_t* prefix = tb_prefix(tb, &sz);
     scr_right(scr, from_ch, to_ch, deltaX, prefix, sz);
 }
 
-void cmd_up(screen* scr, text_buffer* buf) {
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(buf, &psz);
+void cmd_up(editor* ed) {
+    TB(ed);
+    SCR(ed);
 
-    int ypos = tb_ypos(buf);
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_up(buf);
-    if (ypos == tb_ypos(buf)) {
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(tb, &psz);
+
+    int ypos = tb_ypos(tb);
+    uint8_t from_ch = tb_peek(tb);
+    uint8_t to_ch = tb_up(tb);
+    if (ypos == tb_ypos(tb)) {
         return;
     }
 
     if (scr->currY_ <= scr->topY_) {
-        scroll_up_from_top(scr, buf, to_ch);
+        scroll_up_from_top(ed, to_ch);
         return;
     }
 
     if (scr->currX_ >= scr->cols_-1) {
         scr_write_line(scr, scr->currY_, prefix, psz);
-        if (tb_xpos(buf) >= scr->cols_) {
+        if (tb_xpos(tb) >= scr->cols_) {
             psz = 0;
-            prefix = tb_prefix(buf, &psz);
-            int pad = (tb_xpos(buf)-1) - scr->currX_;
+            prefix = tb_prefix(tb, &psz);
+            int pad = (tb_xpos(tb)-1) - scr->currX_;
             scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
         }
     }
 
-    int xpos = tb_xpos(buf)-1;
+    int xpos = tb_xpos(tb)-1;
     if (xpos > scr->cols_-1) {
         xpos = scr->cols_-1;
     }
     scr_up(scr, from_ch, to_ch, xpos);
 }
 
-void cmd_down(screen* scr, text_buffer* buf) {
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(buf, &psz);
+void cmd_down(editor* ed) {
+    TB(ed);
+    SCR(ed);
 
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_down(buf);
-    if (scr->currY_ == tb_ypos(buf)) {
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(tb, &psz);
+
+    uint8_t from_ch = tb_peek(tb);
+    uint8_t to_ch = tb_down(tb);
+    if (scr->currY_ == tb_ypos(tb)) {
         return;
     }
     if (scr->currY_ >= scr->bottomY_-1) {
-        scroll_lines(scr, buf, to_ch);
+        scroll_lines(ed, to_ch);
         return;
     }
     if (scr->currX_ >= scr->cols_-1) {
         scr_write_line(scr, scr->currY_, prefix, psz);
-        if (tb_xpos(buf) >= scr->cols_) {
+        if (tb_xpos(tb) >= scr->cols_) {
             psz = 0;
-            prefix = tb_prefix(buf, &psz);
-            int pad = (tb_xpos(buf)-1) - scr->currX_;
+            prefix = tb_prefix(tb, &psz);
+            int pad = (tb_xpos(tb)-1) - scr->currX_;
             scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
         }
     }
 
-    int xpos = tb_xpos(buf)-1;
+    int xpos = tb_xpos(tb)-1;
     if (xpos > scr->cols_-1) {
         xpos = scr->cols_-1;
     }
     scr_down(scr, from_ch, to_ch, xpos);
 }
 
-void cmd_home(screen* scr, text_buffer* buf) {
-    if (tb_bol(buf)) {
+void cmd_home(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    if (tb_bol(tb)) {
         return;
     }
 
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_home(buf);
+    uint8_t from_ch = tb_peek(tb);
+    uint8_t to_ch = tb_home(tb);
     if (to_ch != 0) {
         int sz = 0;
-        uint8_t* suffix = tb_suffix(buf, &sz);
-        scr_home(scr, from_ch, tb_peek(buf), suffix, sz);
+        uint8_t* suffix = tb_suffix(tb, &sz);
+        scr_home(scr, from_ch, tb_peek(tb), suffix, sz);
     }
 }
 
-void cmd_end(screen* scr, text_buffer* buf) {
-    const int from_x = tb_xpos(buf);
-    uint8_t from_ch = tb_peek(buf);
-    uint8_t to_ch = tb_end(buf);
-    const int deltaX = tb_xpos(buf) - from_x;
+void cmd_end(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    const int from_x = tb_xpos(tb);
+    uint8_t from_ch = tb_peek(tb);
+    uint8_t to_ch = tb_end(tb);
+    const int deltaX = tb_xpos(tb) - from_x;
     if (deltaX > 0) {
         int sz = 0;
-        uint8_t* prefix = tb_prefix(buf, &sz);
+        uint8_t* prefix = tb_prefix(tb, &sz);
         scr_end(scr, from_ch, to_ch, deltaX, prefix, sz);
     }
 }
