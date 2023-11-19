@@ -19,35 +19,37 @@
 #ifndef _CMD_OPS_H_
 #define _CMD_OPS_H_
 
-#include "text_buffer.h"
-#include "screen.h"
-#include "user_input.h"
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "vkey.h"
+
+typedef struct _editor editor;
 
 typedef struct _key {
     uint8_t key;
     VKey vkey;
 } key;
 
-typedef void(*cmd_op)(screen*, text_buffer*);
+typedef void(*cmd_op)(editor* ed);
 
-void cmd_show(screen* scr, text_buffer* buf);
-bool cmd_quit(screen* scr, user_input* ui, text_buffer* buf);
-bool cmd_save(screen* scr, user_input* ui, text_buffer* buf);
-bool cmd_save_as(screen* scr, user_input* ui, text_buffer* buf);
+void cmd_show(editor* ed);
+bool cmd_quit(editor* ed);
+bool cmd_save(editor* ed);
+void cmd_save_as(editor* ed);
 
-void cmd_putc(screen* scr, text_buffer* buf, key k);
-void cmd_del(screen* scr, text_buffer* buf);
-void cmd_bksp(screen* scr, text_buffer* buf);
-void cmd_newl(screen* scr, text_buffer* buf);
-void cmd_del_line(screen* scr, text_buffer* buf);
-void cmd_left(screen* scr, text_buffer* buf);
-void cmd_w_left(screen* scr, text_buffer* buf);
-void cmd_w_right(screen* scr, text_buffer* buf);
-void cmd_right(screen* scr, text_buffer* buf);
-void cmd_up(screen* scr, text_buffer* buf);
-void cmd_down(screen* scr, text_buffer* buf);
-void cmd_home(screen* scr, text_buffer* buf);
-void cmd_end(screen* scr, text_buffer* buf);
+void cmd_putc(editor* ed, key k);
+void cmd_del(editor* ed);
+void cmd_bksp(editor* ed);
+void cmd_newl(editor* ed);
+void cmd_del_line(editor* ed);
+void cmd_left(editor* ed);
+void cmd_w_left(editor* ed);
+void cmd_w_right(editor* ed);
+void cmd_right(editor* ed);
+void cmd_up(editor* ed);
+void cmd_down(editor* ed);
+void cmd_home(editor* ed);
+void cmd_end(editor* ed);
 
 #endif  // _CMD_OPS_H_
