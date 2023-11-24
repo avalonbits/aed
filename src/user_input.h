@@ -38,6 +38,7 @@ typedef struct _user_input {
 user_input* ui_init(user_input* ui, int size, char ypos, char cols);
 void ui_destroy(user_input* ui);
 
+RESPONSE ui_color_picker(user_input* ui, screen* scr);
 RESPONSE ui_dialog(user_input* ui, screen* scr, const char* msg);
 RESPONSE ui_text(
     user_input* ui,
@@ -46,6 +47,5 @@ RESPONSE ui_text(
     const char* prefill,
     uint8_t** buf,
     uint8_t* sz);
-
 
 #endif  // _USER_INPUT_H_

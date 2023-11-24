@@ -124,6 +124,13 @@ bool cmd_quit(editor* ed) {
     return cmd_save(ed);
 }
 
+void cmd_color_picker(editor* ed) {
+    SCR(ed);
+    UI(ed);
+
+    ui_color_picker(ui, scr);
+}
+
 void cmd_putc(editor* ed, key k) {
     TB(ed);
     SCR(ed);

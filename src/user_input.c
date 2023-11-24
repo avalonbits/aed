@@ -37,6 +37,68 @@ void ui_destroy(user_input* ui) {
     cb_destroy(&ui->cb_);
 }
 
+static const char col_select[39] = "Use UP/DOWN LEFT/RIGHT to select FG/BG";
+
+RESPONSE ui_color_picker(user_input* ui, screen* scr) {
+    uint8_t fg = scr->fg_;
+    uint8_t bg = scr->bg_;
+
+    const int pad =  (scr->cols_ - sizeof(col_select)) / 2;
+    do {
+        vdp_cursor_tab(ui->ypos_, 0);
+        set_colours(fg, bg);
+        for (int i = 0; i < pad; i++) {
+            putch(' ');
+        }
+        VDP_PUTS(col_select);
+        for (int i = 0; i <= pad; i++) {
+            putch(' ');
+        }
+
+        uint8_t key = getch();
+        VKey vkey = getsysvar_vkeycode();
+
+        switch (vkey) {
+            case VK_ESCAPE:
+                return CANCEL_OPT;
+            case VK_UP:
+            case VK_KP_UP:
+                fg = (fg + 1) % scr->colors_;
+                break;
+            case VK_DOWN:
+            case VK_KP_DOWN:
+                if (fg == 0) {
+                    fg = scr->colors_-1;
+                } else {
+                    fg = (fg - 1) % scr->colors_;
+                }
+                break;
+            case VK_LEFT:
+            case VK_KP_LEFT:
+                if (bg == 0) {
+                    bg = scr->colors_-1;
+                } else {
+                    bg = (bg - 1) % scr->colors_;
+                }
+                break;
+            case VK_RIGHT:
+            case VK_KP_RIGHT:
+                bg = (bg + 1) % scr->colors_;
+                break;
+            case VK_RETURN:
+            case VK_KP_ENTER:
+                scr->fg_ = fg;
+                scr->bg_ = bg;
+                return YES_OPT;
+            default:
+                break;
+        }
+
+    } while (true);
+
+    return CANCEL_OPT;
+}
+
 static const char options[13] = " [Y/N/ESC]: ";
 
 RESPONSE ui_dialog(user_input* ui, screen* scr, const char* msg) {

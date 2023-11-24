@@ -37,6 +37,7 @@ void cmd_show(editor* ed);
 bool cmd_quit(editor* ed);
 bool cmd_save(editor* ed);
 void cmd_save_as(editor* ed);
+void cmd_color_picker(editor* ed);
 
 void cmd_putc(editor* ed, key k);
 void cmd_del(editor* ed);
