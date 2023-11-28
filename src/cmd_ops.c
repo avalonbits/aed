@@ -33,6 +33,35 @@
 #define UI(ed) user_input* ui = &ed->ui_
 #define TB(ed) text_buffer* tb = &ed->buf_
 
+static void refresh_screen(screen* scr, text_buffer* tb) {
+    uint8_t currY = scr->currY_;
+    uint8_t currX = scr->currX_;
+    uint8_t ch = tb_peek(tb);
+
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_home(&cp);
+    while (tb_ypos(&cp) > 1 &&  scr->currY_ > scr->topY_) {
+        tb_up(&cp);
+        scr->currY_--;
+    }
+    scr_clear(scr);
+
+    scr->currX_ = 0;
+    do {
+        int ypos = scr->currY_;
+        int sz = 0;
+        uint8_t* suffix = tb_suffix(&cp, &sz);
+        scr_overwrite_line(scr, ypos, suffix, sz, sz);
+        scr->currY_++;
+    } while (tb_down(&cp) != 0 && scr->currY_ < scr->bottomY_);
+
+    vdp_cursor_tab(currY, currX);
+    scr->currY_ = currY;
+    scr->currX_ = currX;
+    scr_show_cursor_ch(scr, ch);
+}
+
 static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, const char* prefill) {
     uint8_t* fname;
     uint8_t sz;
@@ -128,7 +157,11 @@ void cmd_color_picker(editor* ed) {
     SCR(ed);
     UI(ed);
 
-    ui_color_picker(ui, scr);
+    RESPONSE ret = ui_color_picker(ui, scr);
+    if (ret == YES_OPT) {
+        TB(ed);
+        refresh_screen(scr, tb);
+    }
 }
 
 void cmd_putc(editor* ed, key k) {
