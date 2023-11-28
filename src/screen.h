@@ -25,6 +25,7 @@
 typedef struct _screen {
     uint8_t rows_;
     uint8_t cols_;
+    uint8_t colors_;
 
     uint8_t currX_;
     uint8_t currY_;
@@ -58,6 +59,7 @@ void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* prefix, int 
 void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, int deltaX, uint8_t* suffix, int sz);
 
 // Screen management.
+void set_colours(uint8_t fg, uint8_t bg);
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
 void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz);
 

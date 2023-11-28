@@ -26,7 +26,7 @@
 #include "conv.h"
 
 #define MAX_COLS 255
-static void set_colours(uint8_t fg, uint8_t bg) {
+void set_colours(uint8_t fg, uint8_t bg) {
     vdp_set_text_colour(fg);
     vdp_set_text_colour(bg+128);
 }
@@ -101,6 +101,7 @@ screen *scr_init(screen* scr, char cursor) {
     vdp_cursor_enable(false);
     scr->rows_ = getsysvar_scrRows();
     scr->cols_ = getsysvar_scrCols();
+    scr->colors_ = getsysvar_scrColours();
     scr->cursor_ = cursor;
     scr->topY_ = 1;
     scr->bottomY_ = scr->rows_-2;

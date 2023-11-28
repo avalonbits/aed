@@ -110,6 +110,12 @@ key_command ctrlCmds(key_command kc, uint8_t mods) {
                 kc.cmd = CMD_SAVE;
             }
             break;
+        case VK_C:
+        case VK_c:
+            if (mods & MOD_ALT) {
+                kc.cmd = cmd_color_picker;
+            }
+            break;
         default:
             kc.cmd = NULL;;
             break;
