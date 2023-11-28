@@ -26,6 +26,7 @@
 #include "conv.h"
 
 #define MAX_COLS 255
+
 void set_colours(uint8_t fg, uint8_t bg) {
     vdp_set_text_colour(fg);
     vdp_set_text_colour(bg+128);
@@ -171,6 +172,7 @@ const char* title = "AED: Another Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
+    vdp_cursor_tab(0,0);
     const int len = strlen(title);
     const int banner = (scr->cols_ - len)/2;
     for (int i = 0; i < banner; i++) {

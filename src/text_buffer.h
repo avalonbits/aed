@@ -73,6 +73,7 @@ uint8_t* tb_prefix(text_buffer* tb, int* sz);
 bool tb_load(text_buffer* tb, const char* fname);
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz);
 bool tb_valid_file(text_buffer* tb);
+void tb_copy(text_buffer* dst, text_buffer* src);
 
 // Line read
 typedef struct _line {

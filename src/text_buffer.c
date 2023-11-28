@@ -287,19 +287,26 @@ static text_buffer tb;
 static int ypos;
 static int lused;
 
+void tb_copy(text_buffer* dst, text_buffer* src) {
+    dst->lb_.buf_ = src->lb_.buf_;
+    dst->lb_.curr_ = src->lb_.curr_;
+    dst->lb_.cend_ = src->lb_.cend_;
+    dst->lb_.size_ = src->lb_.size_;
+
+    dst->cb_.buf_ = src->cb_.buf_;
+    dst->cb_.curr_ = src->cb_.curr_;
+    dst->cb_.cend_ = src->cb_.cend_;
+    dst->cb_.size_ = src->cb_.size_;
+
+    dst->x_ = src->x_;
+    dst->fname_[0] = 0;
+    dst->dirty_ = false;
+}
+
 static void itr_state(text_buffer* buf, int from_l) {
-    tb.lb_.buf_ = buf->lb_.buf_;
-    tb.lb_.curr_ = buf->lb_.curr_;
-    tb.lb_.cend_ = buf->lb_.cend_;
-    tb.lb_.size_ = buf->lb_.size_;
+    tb_copy(&tb, buf);
 
-    tb.cb_.buf_ = buf->cb_.buf_;
-    tb.cb_.curr_ = buf->cb_.curr_;
-    tb.cb_.cend_ = buf->cb_.cend_;
-    tb.cb_.size_ = buf->cb_.size_;
-
-    tb.x_ = buf->x_;
-	ypos = lb_curr(&tb.lb_);
+    ypos = lb_curr(&tb.lb_);
     lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
     tb_home(&tb);
     if (ypos != from_l) {
