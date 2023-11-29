@@ -52,5 +52,7 @@ void cmd_up(editor* ed);
 void cmd_down(editor* ed);
 void cmd_home(editor* ed);
 void cmd_end(editor* ed);
+void cmd_page_up(editor* ed);
+void cmd_page_down(editor* ed);
 
 #endif  // _CMD_OPS_H_
