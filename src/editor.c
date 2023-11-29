@@ -160,6 +160,12 @@ key_command editCmds(key_command kc) {
         case VK_KP_DOWN:
             kc.cmd = cmd_down;
             break;
+        case VK_PAGEUP:
+            kc.cmd = cmd_page_up;
+            break;
+        case VK_PAGEDOWN:
+            kc.cmd = cmd_page_down;
+            break;
         default:
             break;
     }

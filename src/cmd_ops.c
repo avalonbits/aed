@@ -36,7 +36,6 @@
 static void refresh_screen(screen* scr, text_buffer* tb) {
     uint8_t currY = scr->currY_;
     uint8_t currX = scr->currX_;
-    uint8_t ch = tb_peek(tb);
 
     text_buffer cp;
     tb_copy(&cp, tb);
@@ -59,7 +58,6 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
     vdp_cursor_tab(currY, currX);
     scr->currY_ = currY;
     scr->currX_ = currX;
-    scr_show_cursor_ch(scr, ch);
 }
 
 static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, const char* prefill) {
@@ -160,7 +158,9 @@ void cmd_color_picker(editor* ed) {
     RESPONSE ret = ui_color_picker(ui, scr);
     if (ret == YES_OPT) {
         TB(ed);
+        uint8_t ch = tb_peek(tb);
         refresh_screen(scr, tb);
+        scr_show_cursor_ch(scr, ch);
     }
 }
 
@@ -559,4 +559,38 @@ void cmd_end(editor* ed) {
         uint8_t* prefix = tb_prefix(tb, &sz);
         scr_end(scr, from_ch, to_ch, deltaX, prefix, sz);
     }
+}
+
+void cmd_page_up(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    const int curr = scr->currY_ - scr->topY_;
+    const int page = scr->bottomY_ - scr->topY_+1;
+    int remaining = tb_ypos(tb)-1 - curr;
+
+    for (int i = 0; i < page && remaining > 0; i++, remaining--) {
+        tb_up(tb);
+    }
+    uint8_t ch = tb_peek(tb);
+    scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, ch);
+}
+
+void cmd_page_down(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    const int curr = scr->bottomY_ - scr->currY_;
+    const int page = scr->bottomY_ - scr->topY_;
+    int remaining = tb_ymax(tb) - tb_ypos(tb) - curr + 1;
+
+    for (int i = 0; i < page && remaining > 0; i++, remaining--) {
+        tb_down(tb);
+    }
+    uint8_t ch = tb_peek(tb);
+    scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, ch);
 }

@@ -64,6 +64,7 @@ uint8_t tb_down(text_buffer* tb);
 uint8_t tb_end(text_buffer* tb);
 int tb_xpos(text_buffer* tb);
 int tb_ypos(text_buffer* tb);
+int tb_ymax(text_buffer* tb);
 
 // Char read.
 uint8_t tb_peek(text_buffer* tb);

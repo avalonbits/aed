@@ -282,6 +282,10 @@ int tb_ypos(text_buffer* tb) {
     return lb_curr(&tb->lb_)+1;
 }
 
+int tb_ymax(text_buffer* tb) {
+    return lb_max(&tb->lb_)  - lb_avai(&tb->lb_) +1;
+}
+
 // State for the line iterator
 static text_buffer tb;
 static int ypos;
