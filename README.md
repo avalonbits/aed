@@ -22,24 +22,34 @@ it will exit with the message `Quit`. If the file already exists, it will read i
 You can specify the file at startup by typing `aed file.name` and it will try to create it, exiting with `Quit` if it can't.
 If the file already exists, it will read it into the buffer and display it on the editor screen.
 
+# File operations
+`CTRL+S` will save the current text buffer to a file. If no file name was provided on startup, a prompt for the file name is shown.
+`CTRL+ALT+S` will always show a prompt for the file name before saving.
+
 # Navigation and shortcuts.
 You navigate using the `LEFT, RIGHT, UP, DOWN` arrow keys to move the cursor one character at a time. The cursor will wrap around lines if you
 try to move past the end or beginning. You can also use `CTRL+LEFT` and `CTRL+RIGHT` to navigate between white spaces (words) for
 faster movement.
+
+Use `PAGE_UP / PAGE_DOWN` to move a page of text at a time.
 
 `DELETE` and `BACKSPACE` keys work as expected, removing characters under the cursor (`DELETE`) and to the left of the cursor (`BACKSPACE`).
 If at the end of the line, `DELETE` will merge the next line with the current one.
 
 You can press `CTRL+D` or `CTRL+DELETE` to delete a whole line.
 
-Finally, `CTRL+Q` will save the buffer to the specified file on startup (or `/aed.txt` of none was specified) and exit the editor.
+`CTRL+Q` will save the buffer to the specified file on startup (or `/aed.txt` of none was specified) and exit the editor.
+If no file was specified on startup, it will prompt for a file name to save the text buffer.
+
+`CTRL+ALT+C` will show the colour picker at the bottom of the screen. Use `UP/DOWN` to select the foreground color and `LEFT/RIGHT` to
+select the background color. 
 
 # Road to v1.0
 The following features will be implemented before releasing v1.0 of the editor:
 
 - [x] ~~BACKSPACE merges current line with previous when pressed at the beginning of the line.~~
-- [ ] Shortcuts to change foreground and background colors.
-- [ ] `PAGE-UP` and `PAGE-DOWN` support.
+- [x] ~~Shortcut to change foreground and background colors.~~
+- [x] ~~`PAGE-UP` and `PAGE-DOWN` support.~~
 - [x] ~~Shortcut for saving the current buffer without quiting.~~
 - [ ] File selection while in the editor.
 
