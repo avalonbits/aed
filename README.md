@@ -52,10 +52,11 @@ The following features will be implemented before releasing v1.0 of the editor:
 - [x] ~~`PAGE-UP` and `PAGE-DOWN` support.~~
 - [x] ~~Shortcut for saving the current buffer without quiting.~~
 - [ ] File selection while in the editor.
-
-## Roadmap after v1.0
 - [ ] Copy-cut-paste.
 - [ ] Find.
+
+## Roadmap after v1.0
+
 - [ ] Undo / Redo.
 - [ ] Native tabs / tab-size / tab-to-space.
 - [ ] Syntax highlighting for BBCBasic and assembly files.
