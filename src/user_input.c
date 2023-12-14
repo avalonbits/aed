@@ -18,10 +18,10 @@
 
 #include "user_input.h"
 
+#include <agon/vdp_vdu.h>
+#include <mos_api.h>
 #include <string.h>
 
-#include "agon/vdp_vdu.h"
-#include "mos_api.h"
 #include "vkey.h"
 
 user_input* ui_init(user_input* ui, int size, char ypos, char cols) {
@@ -36,6 +36,69 @@ user_input* ui_init(user_input* ui, int size, char ypos, char cols) {
 void ui_destroy(user_input* ui) {
     cb_destroy(&ui->cb_);
 }
+
+
+static const char goto_line[11] = "Goto line: ";
+static int atoi(uint8_t* str, uint8_t sz) {
+    int v = 0;
+    int mul = 1;
+    for (uint8_t i = 1; i <= sz; i++) {
+        v += (str[sz-i] - '0') * mul;
+        mul *= 10;
+    }
+    return v;
+}
+
+RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
+    scr_write_line(scr, ui->ypos_, goto_line, sizeof(goto_line));
+    vdp_cursor_tab(ui->ypos_, sizeof(goto_line));
+    scr_show_cursor_ch(scr, scr->cursor_);
+
+    char_buffer* cb = &ui->cb_;
+    cb_clear(cb);
+
+    do {
+        uint8_t key = getch();
+        VKey vkey = getsysvar_vkeycode();
+
+        if (key >= '0' && key <= '9') {
+            cb_put(cb, key);
+            putch(key);
+            scr_show_cursor_ch(scr, cb_peek(cb));
+            continue;
+        }
+
+        switch (vkey) {
+            case VK_ESCAPE:
+                return CANCEL_OPT;
+            case VK_RETURN: {
+                int sz = 0;
+                uint8_t* buf = cb_prefix(cb, &sz);
+                if (sz <= 0) {
+                    return CANCEL_OPT;
+                }
+                *line = atoi(buf, (uint8_t) sz);
+                if (*line < 0) {
+                    return CANCEL_OPT;
+                }
+                return YES_OPT;
+            }
+            case VK_BACKSPACE:
+                scr_hide_cursor_ch(scr, cb_peek(cb));
+                if (cb_bksp(cb)) {
+                    vdp_cursor_left();
+                }
+                scr_show_cursor_ch(scr, cb_peek(cb));
+                break;
+            default:
+                break;
+
+        }
+    } while (true);
+
+    return CANCEL_OPT;
+}
+
 
 static const char col_select[39] = "Use UP/DOWN LEFT/RIGHT to select FG/BG";
 

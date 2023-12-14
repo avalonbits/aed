@@ -116,8 +116,12 @@ key_command ctrlCmds(key_command kc, uint8_t mods) {
                 kc.cmd = cmd_color_picker;
             }
             break;
+        case VK_G:
+        case VK_g:
+            kc.cmd = cmd_goto;
+            break;
         default:
-            kc.cmd = NULL;;
+            kc.cmd = NULL;
             break;
     }
     return kc;
