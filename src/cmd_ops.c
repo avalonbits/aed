@@ -594,3 +594,58 @@ void cmd_page_down(editor* ed) {
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, ch);
 }
+
+void cmd_goto(editor* ed) {
+    SCR(ed);
+    UI(ed);
+    TB(ed);
+
+    int line = 0;
+    RESPONSE goto_line = ui_goto(ui, scr, &line);
+    if (goto_line != YES_OPT) {
+        return;
+    }
+
+    const int ypos = tb_ypos(tb);
+    if (ypos == line) {
+        return;
+    }
+
+    int diff = 0;
+    scr_hide_cursor_ch(scr, tb_peek(tb));
+    if (line < ypos) {
+        for (; line < ypos; line++) {
+            diff--;
+            tb_up(tb);
+            if (tb_ypos(tb) == 1) {
+                break;
+            }
+        }
+    } else {
+        int curr = tb_ypos(tb);
+        for (; ypos < line; line--) {
+            tb_down(tb);
+            const int nyp = tb_ypos(tb);
+            if (nyp == curr) {
+                break;
+            }
+            curr = nyp;
+            diff++;
+        }
+    }
+
+    diff = ((int)scr->currY_) + diff;
+    if (diff < (int)scr->topY_) {
+        scr->currY_ = scr->topY_;
+    } else if (diff >= (int) scr->bottomY_) {
+        scr->currY_ = scr->bottomY_-1;
+    } else {
+        scr->currY_ = diff;
+    }
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+
+    scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
