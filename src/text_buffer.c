@@ -410,6 +410,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
     bool saw_r = false;
     bool saw_n = false;
     int xpos = 0;
+    int added = 0;
     for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
         const uint8_t ch = cb_peek(cb);
@@ -417,6 +418,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
         if (saw_r) {
             if (ch != '\n') {
                 cb_put(cb, '\n');
+                added++;
             }
             lb_new(&tb->lb_, lb_csize(&tb->lb_));
             if (ch != '\n') {
@@ -430,6 +432,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
                 cb_prev(cb, 1);
                 cb_put(cb, '\r');
                 cb_next(cb, 1);
+                added++;
             }
             lb_new(&tb->lb_, lb_csize(&tb->lb_));
             if (!saw_r) {
@@ -444,12 +447,17 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
             saw_n = true;
         } else if (ch == '\t') {
             cb_del(cb);
+            cb_put(cb, ' ');
+            cb_prev(cb, 1);
             const uint8_t spaces = tab_size - (xpos % tab_size);
-            for (uint8_t i = 0; i < spaces; i++) {
-                cb_put(cb, ' ');
+            if (spaces > 0) {
+                for (uint8_t i = 0; i < spaces; i++) {
+                    cb_put(cb, ' ');
+                    lb_cinc(&tb->lb_);
+                }
+                xpos += spaces;
+                added += spaces;
             }
-            xpos += spaces;
-            cb_prev(cb, spaces);
         }
         cb_next(cb, 1);
         xpos++;
@@ -471,7 +479,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
         lb_new(&tb->lb_, lb_csize(&tb->lb_));
     }
 
-    cb_prev(cb, sz);
+    cb_prev(cb, sz+added);
     tb->dirty_ = false;
 
     // Now move the line buffer back to the first line.
