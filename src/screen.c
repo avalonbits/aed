@@ -106,11 +106,11 @@ screen *scr_init(screen* scr, char cursor) {
     scr->cursor_ = cursor;
     scr->topY_ = 1;
     scr->bottomY_ = scr->rows_-2;
-    scr->tab_size_ = 4;
     get_active_colours(scr);
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
+    scr->tab_size_ = 4;
 
     return scr;
 }

@@ -29,9 +29,8 @@
 #define DEFAULT_CURSOR 32
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
-    scr_init(&ed->scr_, DEFAULT_CURSOR);
-
-    if (!tb_init(&ed->buf_, &ed->scr_.tab_size_, mem_kb, fname)) {
+    screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
+    if (!tb_init(&ed->buf_, scr->tab_size_, mem_kb, fname)) {
        return NULL;
     }
     if (!ui_init(&ed->ui_, 256, ed->scr_.bottomY_, ed->scr_.cols_)) {
