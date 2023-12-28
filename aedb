@@ -1,0 +1,5 @@
+#!/bin/bash
+make V=1 && \
+    \ls -l ~/fab-agon-emulator/sdcard/mos/aed.bin && \
+    cp bin/aed.bin ~/fab-agon-emulator/sdcard/mos && \
+    \ls -l ~/fab-agon-emulator/sdcard/mos/aed.bin
