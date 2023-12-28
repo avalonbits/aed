@@ -448,6 +448,9 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
             for (uint8_t i = 0; i < spaces; i++) {
                 cb_put(cb, ' ');
             }
+            for (uint8_t i = 0 ; i < spaces - 1; i++) {
+                lb_cinc(&tb->lb_);
+            }
             xpos += spaces;
             cb_prev(cb, spaces);
         }
