@@ -99,13 +99,16 @@ static void get_active_colours(screen* scr) {
 }
 
 screen *scr_init(screen* scr, char cursor) {
+    static char disable_cursor_wrap[4] = {23, 16, 1, 0};
+    VDP_PUTS(disable_cursor_wrap);
+
     vdp_cursor_enable(false);
     scr->rows_ = getsysvar_scrRows();
     scr->cols_ = getsysvar_scrCols();
     scr->colors_ = getsysvar_scrColours();
     scr->cursor_ = cursor;
     scr->topY_ = 1;
-    scr->bottomY_ = scr->rows_-2;
+    scr->bottomY_ = scr->rows_-1;
     get_active_colours(scr);
     scr_clear(scr);
     scr_show_cursor(scr);
@@ -116,6 +119,8 @@ screen *scr_init(screen* scr, char cursor) {
 }
 
 void scr_destroy(screen* scr) {
+    static char enable_cursor_wrap[4] = {23, 16, 1, 1};
+    VDP_PUTS(enable_cursor_wrap);
     vdp_cursor_enable(true);
     scr->currX_ = 0;
     scr->currY_ = 0;
@@ -129,10 +134,9 @@ void scr_footer(screen* scr, const char* fname, bool dirty, int x, int y) {
         fname = no_file;
     }
     const int fnsz = strlen(fname);
-    int psz = 13 + fnsz + 2;
+    int psz = 13 + fnsz ;
 
     vdp_cursor_tab(scr->bottomY_, 0);
-    putch(' ');
     set_colours(scr->bg_, scr->fg_);
 
     mos_puts(fname, fnsz, 0);
