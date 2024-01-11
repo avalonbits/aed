@@ -250,13 +250,23 @@ static void define_viewport(char left, char bottom, char right, char top) {
     VDP_PUTS(viewport);
 }
 
-static void scroll_up(screen* scr, uint8_t* line, int sz, uint8_t ch) {
-    static const char up[] = {23, 7, 0, 2, 8};
-    define_viewport(0, scr->bottomY_, scr->cols_, scr->topY_);
+static void scroll_down(screen* scr, uint8_t ypos, uint8_t* line, int sz, uint8_t ch) {
+    static const char down[] = {23, 7, 0, 2, 8};
+    define_viewport(0, scr->bottomY_, scr->cols_, ypos);
+    VDP_PUTS(down);
+    reset_viewport();
+    scr_write_line(scr, ypos, line, sz);
+    vdp_cursor_tab(ypos, scr->currX_);
+    scr_show_cursor_ch(scr, ch);
+}
+
+static void scroll_up(screen* scr, uint8_t ypos, uint8_t* line, int sz, uint8_t ch) {
+    static const char up[] = {23, 7, 0, 3, 8};
+    define_viewport(0, ypos, scr->cols_, scr->topY_);
     VDP_PUTS(up);
     reset_viewport();
-    scr_write_line(scr, scr->topY_, line, sz);
-    vdp_cursor_tab(scr->topY_, 0);
+    scr_write_line(scr, ypos, line, sz);
+    vdp_cursor_tab(ypos, scr->currX_);
     scr_show_cursor_ch(scr, ch);
 }
 
@@ -372,15 +382,23 @@ void cmd_newl(editor* ed) {
     SCR(ed);
 
     uint8_t ch = tb_peek(tb);
-    int sz = 0;
-    uint8_t* prefix = tb_prefix(tb, &sz);
+    int psz = 0;
+    uint8_t* prefix = tb_prefix(tb, &psz);
+    int ssz = 0;
+    uint8_t* suffix = tb_suffix(tb, &ssz);
+
     if (!tb_newline(tb)) {
         return;
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_write_line(scr, scr->currY_, prefix, sz);
+    scr_write_line(scr, scr->currY_, prefix, psz);
+
     scr->currX_ = 0;
-    scroll_lines(ed, ch);
+    if  (scr->currY_ < scr->bottomY_-1) {
+        scr->currY_++;
+        scroll_down(scr, scr->currY_, suffix, ssz, ch);
+    } else {
+        scroll_up(scr, scr->currY_, suffix, ssz, ch);
+    }
 }
 
 void cmd_del_line(editor* ed) {
@@ -506,7 +524,7 @@ void cmd_up(editor* ed) {
         to_ch = tb_peek(tb);
 
         uint8_t* suffix = tb_suffix(tb, &psz);
-        scroll_up(scr, suffix, psz, to_ch);
+        scroll_down(scr, scr->topY_, suffix, psz, to_ch);
         return;
     }
 
