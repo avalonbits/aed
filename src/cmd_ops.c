@@ -237,6 +237,29 @@ static void scroll_from_top(editor* ed, uint8_t ch, const bool osz_is_last) {
 
 }
 
+static inline void reset_viewport() {
+    putch(26);
+}
+
+static void define_viewport(char left, char bottom, char right, char top) {
+    static char viewport[5] = {28, 0, 0, 0, 0};
+    viewport[1] = left;
+    viewport[2] = bottom;
+    viewport[3] = right;
+    viewport[4] = top;
+    VDP_PUTS(viewport);
+}
+
+static void scroll_up(screen* scr, uint8_t* line, int sz, uint8_t ch) {
+    static const char up[] = {23, 7, 0, 2, 8};
+    define_viewport(0, scr->bottomY_, scr->cols_, scr->topY_);
+    VDP_PUTS(up);
+    reset_viewport();
+    scr_write_line(scr, scr->topY_, line, sz);
+    vdp_cursor_tab(scr->topY_, 0);
+    scr_show_cursor_ch(scr, ch);
+}
+
 static void scroll_up_from_top(editor* ed, uint8_t ch) {
     scroll_from_top(ed, ch, false);
 }
@@ -474,8 +497,16 @@ void cmd_up(editor* ed) {
         return;
     }
 
-    if (scr->currY_ <= scr->topY_) {
-        scroll_up_from_top(ed, to_ch);
+    if (scr->currY_ == scr->topY_) {
+        scr_hide_cursor_ch(scr, from_ch);
+        scr->currX_ = 0;
+        vdp_cursor_tab(scr->currY_, scr->currX_);
+
+        tb_home(tb);
+        to_ch = tb_peek(tb);
+
+        uint8_t* suffix = tb_suffix(tb, &psz);
+        scroll_up(scr, suffix, psz, to_ch);
         return;
     }
 
