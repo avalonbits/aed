@@ -179,11 +179,8 @@ void cmd_putc(editor* ed, key k) {
     }
 
     tb_put(tb, k.key);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
-    int ssz = 0;
-    uint8_t* suffix = tb_suffix(tb, &ssz);
-    scr_putc(scr, k.key, prefix, psz, suffix, ssz);
+    split_line ln = tb_curr_line(tb);
+    scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 static void scr_write_padded(editor* ed) {
@@ -191,21 +188,18 @@ static void scr_write_padded(editor* ed) {
     SCR(ed);
 
     vdp_cursor_tab(scr->currY_, 0);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
+    split_line ln = tb_curr_line(tb);
     int i = 0;
     int pad = tb->x_ - scr->currX_;
     if (pad < 0) {
         pad = 0;
     }
     for (; i < scr->currX_; i++) {
-        putch(prefix[i+pad]);
+        putch(ln.prefix_[i+pad]);
     }
 
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(tb, &sz);
-    for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
-        putch(suffix[j]);
+    for (int j = 0; j < ln.ssz_ && i < scr->cols_; i++, j++) {
+        putch(ln.suffix_[j]);
     }
 }
 
@@ -368,22 +362,19 @@ void cmd_newl(editor* ed) {
     SCR(ed);
 
     uint8_t ch = tb_peek(tb);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
-    int ssz = 0;
-    uint8_t* suffix = tb_suffix(tb, &ssz);
+    split_line ln = tb_curr_line(tb);
 
     if (!tb_newline(tb)) {
         return;
     }
-    scr_write_line(scr, scr->currY_, prefix, psz);
+    scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
     scr->currX_ = 0;
     if  (scr->currY_ < scr->bottomY_-1) {
         scr->currY_++;
-        scroll_down(scr, scr->currY_, suffix, ssz, ch);
+        scroll_down(scr, scr->currY_, ln.suffix_, ln.ssz_, ch);
     } else {
-        scroll_up(scr, scr->currY_, suffix, ssz, ch);
+        scroll_up(scr, scr->currY_, ln.suffix_, ln.ssz_, ch);
     }
 }
 

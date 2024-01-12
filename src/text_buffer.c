@@ -393,6 +393,14 @@ uint8_t* tb_suffix(text_buffer* tb, int* sz) {
     return suffix;
 }
 
+split_line tb_curr_line(text_buffer* tb) {
+    split_line ln;
+
+    ln.prefix_ = tb_prefix(tb, &ln.psz_);
+    ln.suffix_ = tb_suffix(tb, &ln.ssz_);
+    return ln;
+}
+
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz) {
     *prefix = cb_prefix(&tb->cb_, psz);
     *suffix = cb_suffix(&tb->cb_, ssz);
