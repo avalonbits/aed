@@ -209,7 +209,7 @@ static void scr_write_padded(editor* ed) {
     }
 }
 
-static void scroll_from_top(editor* ed, uint8_t ch, const bool osz_is_last) {
+static void scroll_from_top(editor* ed, uint8_t ch) {
     TB(ed);
     SCR(ed);
 
@@ -220,13 +220,8 @@ static void scroll_from_top(editor* ed, uint8_t ch, const bool osz_is_last) {
     uint8_t ypos = scr->currY_;
     int osz = 255;
     for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-        if (!osz_is_last) {
-            osz = l.osz;
-        }
         scr_overwrite_line(scr, ypos, l.b, l.sz, osz);
-        if (osz_is_last) {
-            osz = l.sz;
-        }
+        osz = l.sz;
     }
     if (ypos < scr->bottomY_) {
         scr_write_line(scr, ypos, NULL, 0);
@@ -270,15 +265,6 @@ static void scroll_up(screen* scr, uint8_t ypos, uint8_t* line, int sz, uint8_t 
     scr_show_cursor_ch(scr, ch);
 }
 
-static void scroll_up_from_top(editor* ed, uint8_t ch) {
-    scroll_from_top(ed, ch, false);
-}
-
-static void scroll_down_from_top(editor* ed, uint8_t ch) {
-    scroll_from_top(ed, ch, true);
-}
-
-
 static void scroll_lines(editor* ed, uint8_t ch) {
     TB(ed);
     SCR(ed);
@@ -305,7 +291,7 @@ void cmd_show(editor* ed) {
     TB(ed);
 
     const uint8_t to_ch = tb_peek(tb);
-    scroll_down_from_top(ed, to_ch);
+    scroll_from_top(ed, to_ch);
 }
 
 static void cmd_del_merge(editor* ed) {
@@ -315,7 +301,7 @@ static void cmd_del_merge(editor* ed) {
         return;
     }
     const uint8_t ch = tb_peek(tb);
-    scroll_down_from_top(ed, ch);
+    scroll_from_top(ed, ch);
 }
 
 void cmd_del(editor* ed) {
@@ -354,7 +340,7 @@ static void cmd_bksp_merge(editor* ed) {
     } else {
         scr->currX_ = tb->x_;
     }
-    scroll_down_from_top(ed, ch);
+    scroll_from_top(ed, ch);
 }
 
 void cmd_bksp(editor* ed) {
@@ -410,7 +396,7 @@ void cmd_del_line(editor* ed) {
     }
     scr->currX_ = 0;
     uint8_t ch = tb_peek(tb);
-    scroll_down_from_top(ed, ch);
+    scroll_from_top(ed, ch);
 }
 
 void cmd_left(editor* ed) {
