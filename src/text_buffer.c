@@ -401,6 +401,20 @@ split_line tb_curr_line(text_buffer* tb) {
     return ln;
 }
 
+split_line tb_line(text_buffer* tb, int line) {
+    const int curr = tb_ypos(tb);
+    text_buffer cb;
+    tb_copy(&cb, tb);
+
+    while (curr < line--) {
+        tb_down(&cb);
+    }
+    while (curr > line++) {
+        tb_up(&cb);
+    }
+    return tb_curr_line(&cb);
+}
+
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz) {
     *prefix = cb_prefix(&tb->cb_, psz);
     *suffix = cb_suffix(&tb->cb_, ssz);

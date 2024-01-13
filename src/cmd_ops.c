@@ -33,6 +33,25 @@
 #define UI(ed) user_input* ui = &ed->ui_
 #define TB(ed) text_buffer* tb = &ed->buf_
 
+static void fill_screen(screen* scr, text_buffer* tb) {
+    scr_clear_textarea(scr, scr->topY_, scr->bottomY_);
+
+    uint8_t tpos = tb_ypos(tb);
+    for (uint8_t ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
+        int sz = 0;
+        uint8_t* suffix = tb_suffix(tb, &sz);
+        scr_write_line(scr, ypos, suffix, sz);
+
+        tb_down(tb);
+        const int npos = tb_ypos(tb);
+        if (npos == tpos) {
+            break;
+        }
+        tpos = npos;
+    }
+}
+
+
 static void refresh_screen(screen* scr, text_buffer* tb) {
     uint8_t currY = scr->currY_;
     uint8_t currX = scr->currX_;
@@ -44,16 +63,7 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
         tb_up(&cp);
         scr->currY_--;
     }
-    scr_clear(scr);
-
-    scr->currX_ = 0;
-    do {
-        int ypos = scr->currY_;
-        int sz = 0;
-        uint8_t* suffix = tb_suffix(&cp, &sz);
-        scr_overwrite_line(scr, ypos, suffix, sz, sz);
-        scr->currY_++;
-    } while (tb_down(&cp) != 0 && scr->currY_ < scr->bottomY_);
+    fill_screen(scr, &cp);
 
     vdp_cursor_tab(currY, currX);
     scr->currY_ = currY;
@@ -159,6 +169,7 @@ void cmd_color_picker(editor* ed) {
     if (ret == YES_OPT) {
         TB(ed);
         uint8_t ch = tb_peek(tb);
+        scr_clear(scr);
         refresh_screen(scr, tb);
         scr_show_cursor_ch(scr, ch);
     }
@@ -223,7 +234,6 @@ static void scroll_from_top(editor* ed, uint8_t ch) {
     scr_write_padded(ed);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
-
 }
 
 static inline void reset_viewport() {
@@ -283,9 +293,15 @@ static void scroll_lines(editor* ed, uint8_t ch) {
 
 void cmd_show(editor* ed) {
     TB(ed);
+    SCR(ed);
+
+    text_buffer cb;
+    tb_copy(&cb, tb);
+    fill_screen(scr, &cb);
+    vdp_cursor_tab(scr->currY_, scr->currX_);
 
     const uint8_t to_ch = tb_peek(tb);
-    scroll_from_top(ed, to_ch);
+    scr_show_cursor_ch(scr, to_ch);
 }
 
 static void cmd_del_merge(editor* ed) {

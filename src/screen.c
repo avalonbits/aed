@@ -356,6 +356,21 @@ void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
     scr_show_cursor_ch(scr, to_ch);
 }
 
+static void define_viewport(screen* scr, char top, char bottom) {
+    static char viewport[5] = {28, 0, 0, 0, 0};
+    viewport[1] = 0;
+    viewport[2] = bottom;
+    viewport[3] = scr->cols_;
+    viewport[4] = top;
+    VDP_PUTS(viewport);
+}
+
+void scr_clear_textarea(screen* scr, uint8_t top, uint8_t bottom) {
+    define_viewport(scr, top, bottom);
+    vdp_clear_screen();
+    putch(26);  // Reset viewport.
+}
+
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz) {
     scr_overwrite_line(scr, ypos, buf, sz, scr->cols_);
 }
