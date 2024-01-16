@@ -358,7 +358,6 @@ void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
 
 static void define_viewport(screen* scr, char top, char bottom) {
     static char viewport[5] = {28, 0, 0, 0, 0};
-    viewport[1] = 0;
     viewport[2] = bottom;
     viewport[3] = scr->cols_;
     viewport[4] = top;
