@@ -9,7 +9,7 @@ Currently it is limited to reading and writing files up to 256KB long with up to
 The editor can work in any Agon supported resolution and will use whatever color scheme you've configured
 your Agon.
 
-`NOTE: Since release v0.13.0, VDP 1.04 or above is required.'
+`NOTE: Since release v0.13.0, VDP 1.04 or above is required.`
 
 # Installation
 
