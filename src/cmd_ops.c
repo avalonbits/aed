@@ -507,12 +507,12 @@ void cmd_down(editor* ed) {
     TB(ed);
     SCR(ed);
 
+    int ypos = tb_ypos(tb);
     int psz = 0;
     uint8_t* prefix = tb_prefix(tb, &psz);
-
     uint8_t from_ch = tb_peek(tb);
     uint8_t to_ch = tb_down(tb);
-    if (scr->currY_ == tb_ypos(tb)) {
+    if (ypos == tb_ypos(tb)) {
         return;
     }
     if (scr->currY_ >= scr->bottomY_-1) {
