@@ -78,22 +78,10 @@ typedef struct _split_line {
     uint8_t* suffix_;
 } split_line;
 split_line tb_curr_line(text_buffer* tb);
-split_line tb_line(text_buffer* tb, int line);
 
 bool tb_load(text_buffer* tb, uint8_t tab_size, const char* fname);
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
-
-// Line read
-typedef struct _line {
-    uint8_t* b;
-    int sz;
-    int osz;
-} line;
-typedef line(*line_itr)();
-
-line_itr tb_pline(text_buffer* buf);
-line_itr tb_nline(text_buffer* buf, int from_l);
 
 #endif // _TEXT_BUFFER_H_
