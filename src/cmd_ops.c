@@ -33,6 +33,25 @@
 #define UI(ed) user_input* ui = &ed->ui_
 #define TB(ed) text_buffer* tb = &ed->buf_
 
+static void fill_screen(screen* scr, text_buffer* tb) {
+    scr_clear_textarea(scr, scr->topY_, scr->bottomY_);
+
+    uint8_t tpos = tb_ypos(tb);
+    for (uint8_t ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
+        int sz = 0;
+        uint8_t* suffix = tb_suffix(tb, &sz);
+        scr_write_line(scr, ypos, suffix, sz);
+
+        tb_down(tb);
+        const int npos = tb_ypos(tb);
+        if (npos == tpos) {
+            break;
+        }
+        tpos = npos;
+    }
+}
+
+
 static void refresh_screen(screen* scr, text_buffer* tb) {
     uint8_t currY = scr->currY_;
     uint8_t currX = scr->currX_;
@@ -44,16 +63,7 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
         tb_up(&cp);
         scr->currY_--;
     }
-    scr_clear(scr);
-
-    scr->currX_ = 0;
-    do {
-        int ypos = scr->currY_;
-        int sz = 0;
-        uint8_t* suffix = tb_suffix(&cp, &sz);
-        scr_overwrite_line(scr, ypos, suffix, sz, sz);
-        scr->currY_++;
-    } while (tb_down(&cp) != 0 && scr->currY_ < scr->bottomY_);
+    fill_screen(scr, &cp);
 
     vdp_cursor_tab(currY, currX);
     scr->currY_ = currY;
@@ -159,6 +169,7 @@ void cmd_color_picker(editor* ed) {
     if (ret == YES_OPT) {
         TB(ed);
         uint8_t ch = tb_peek(tb);
+        scr_clear(scr);
         refresh_screen(scr, tb);
         scr_show_cursor_ch(scr, ch);
     }
@@ -179,62 +190,8 @@ void cmd_putc(editor* ed, key k) {
     }
 
     tb_put(tb, k.key);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
-    int ssz = 0;
-    uint8_t* suffix = tb_suffix(tb, &ssz);
-    scr_putc(scr, k.key, prefix, psz, suffix, ssz);
-}
-
-static void scr_write_padded(editor* ed) {
-    TB(ed);
-    SCR(ed);
-
-    vdp_cursor_tab(scr->currY_, 0);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
-    int i = 0;
-    int pad = tb->x_ - scr->currX_;
-    if (pad < 0) {
-        pad = 0;
-    }
-    for (; i < scr->currX_; i++) {
-        putch(prefix[i+pad]);
-    }
-
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(tb, &sz);
-    for (int j = 0; j < sz && i < scr->cols_; i++, j++) {
-        putch(suffix[j]);
-    }
-}
-
-static void scroll_from_top(editor* ed, uint8_t ch, const bool osz_is_last) {
-    TB(ed);
-    SCR(ed);
-
-    vdp_cursor_tab(scr->currY_+1, 0);
-    scr_hide_cursor_ch(scr, ch);
-    vdp_cursor_tab(scr->currY_, 0);
-    line_itr next = tb_nline(tb, tb_ypos(tb));
-    uint8_t ypos = scr->currY_;
-    int osz = 255;
-    for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-        if (!osz_is_last) {
-            osz = l.osz;
-        }
-        scr_overwrite_line(scr, ypos, l.b, l.sz, osz);
-        if (osz_is_last) {
-            osz = l.sz;
-        }
-    }
-    if (ypos < scr->bottomY_) {
-        scr_write_line(scr, ypos, NULL, 0);
-    }
-    scr_write_padded(ed);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
-    scr_show_cursor_ch(scr, ch);
-
+    split_line ln = tb_curr_line(tb);
+    scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 static inline void reset_viewport() {
@@ -250,72 +207,66 @@ static void define_viewport(char left, char bottom, char right, char top) {
     VDP_PUTS(viewport);
 }
 
-static void scroll_down(screen* scr, uint8_t ypos, uint8_t* line, int sz, uint8_t ch) {
+static void scroll_down(
+        screen* scr, uint8_t topY, uint8_t bottomY, uint8_t* line, int sz, uint8_t ch) {
     static const char down[] = {23, 7, 0, 2, 8};
-    define_viewport(0, scr->bottomY_, scr->cols_, ypos);
+    define_viewport(0, bottomY, scr->cols_, topY);
     VDP_PUTS(down);
     reset_viewport();
-    scr_write_line(scr, ypos, line, sz);
-    vdp_cursor_tab(ypos, scr->currX_);
-    scr_show_cursor_ch(scr, ch);
-}
-
-static void scroll_up(screen* scr, uint8_t ypos, uint8_t* line, int sz, uint8_t ch) {
-    static const char up[] = {23, 7, 0, 3, 8};
-    define_viewport(0, ypos, scr->cols_, scr->topY_);
-    VDP_PUTS(up);
-    reset_viewport();
-    scr_write_line(scr, ypos, line, sz);
-    vdp_cursor_tab(ypos, scr->currX_);
-    scr_show_cursor_ch(scr, ch);
-}
-
-static void scroll_up_from_top(editor* ed, uint8_t ch) {
-    scroll_from_top(ed, ch, false);
-}
-
-static void scroll_down_from_top(editor* ed, uint8_t ch) {
-    scroll_from_top(ed, ch, true);
-}
-
-
-static void scroll_lines(editor* ed, uint8_t ch) {
-    TB(ed);
-    SCR(ed);
-
-    if (scr->currY_ < scr->bottomY_-1) {
-        line_itr next = tb_nline(tb, tb_ypos(tb));
-        uint8_t ypos = scr->currY_+1;
-        for (line l = next(); l.b != NULL && ypos < scr->bottomY_; l = next(), ++ypos) {
-            scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
-        }
-        scr->currY_++;
-    } else {
-        line_itr prev = tb_pline(tb);
-        uint8_t ypos = scr->currY_;
-        for (line l = prev(); ypos >= scr->topY_; l = prev(), --ypos) {
-            scr_overwrite_line(scr, ypos, l.b, l.sz, l.osz);
-        }
-    }
+    scr_write_line(scr, scr->currY_, line, sz);
     vdp_cursor_tab(scr->currY_, scr->currX_);
     scr_show_cursor_ch(scr, ch);
 }
 
+static void scroll_up(
+        screen* scr, uint8_t topY, uint8_t bottomY, uint8_t* line, int sz, uint8_t ch) {
+    static const char up[] = {23, 7, 0, 3, 8};
+    define_viewport(0, bottomY, scr->cols_, topY);
+    VDP_PUTS(up);
+    reset_viewport();
+    scr_write_line(scr, scr->currY_, line, sz);
+    vdp_cursor_tab(scr->currY_, scr->currX_);
+    scr_show_cursor_ch(scr, ch);
+}
+
+static void region_up(screen* scr, text_buffer* tb, uint8_t ch) {
+    int sz = 0;
+    uint8_t* line = tb_suffix(tb, &sz);
+    scroll_up(scr, scr->currY_, scr->bottomY_-1, line, sz, ch);
+
+    int diff = scr->bottomY_ - scr->currY_ - 1;
+    while (diff-- > 0) {
+        tb_down(tb);
+    }
+    line = tb_suffix(tb, &sz);
+    scr_overwrite_line(scr, scr->bottomY_-1, line, sz, 255);
+}
+
 void cmd_show(editor* ed) {
     TB(ed);
+    SCR(ed);
+
+    text_buffer cb;
+    tb_copy(&cb, tb);
+    fill_screen(scr, &cb);
+    vdp_cursor_tab(scr->currY_, scr->currX_);
 
     const uint8_t to_ch = tb_peek(tb);
-    scroll_down_from_top(ed, to_ch);
+    scr_show_cursor_ch(scr, to_ch);
 }
 
 static void cmd_del_merge(editor* ed) {
     TB(ed);
-
     if (!tb_del_merge(tb)) {
         return;
     }
+    SCR(ed);
+
     const uint8_t ch = tb_peek(tb);
-    scroll_down_from_top(ed, ch);
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_home(&cp);
+    region_up(scr, &cp, ch);
 }
 
 void cmd_del(editor* ed) {
@@ -345,7 +296,6 @@ static void cmd_bksp_merge(editor* ed) {
     if (!tb_bksp_merge(tb)) {
         return;
     }
-    uint8_t ch = tb_peek(tb);
     if (scr->currY_ > scr->topY_) {
         scr->currY_--;
     }
@@ -354,7 +304,13 @@ static void cmd_bksp_merge(editor* ed) {
     } else {
         scr->currX_ = tb->x_;
     }
-    scroll_down_from_top(ed, ch);
+
+    uint8_t ch = tb_peek(tb);
+    text_buffer cp;
+
+    tb_copy(&cp, tb);
+    tb_home(&cp);
+    region_up(scr, &cp, ch);
 }
 
 void cmd_bksp(editor* ed) {
@@ -382,22 +338,19 @@ void cmd_newl(editor* ed) {
     SCR(ed);
 
     uint8_t ch = tb_peek(tb);
-    int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
-    int ssz = 0;
-    uint8_t* suffix = tb_suffix(tb, &ssz);
+    split_line ln = tb_curr_line(tb);
 
     if (!tb_newline(tb)) {
         return;
     }
-    scr_write_line(scr, scr->currY_, prefix, psz);
+    scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
     scr->currX_ = 0;
     if  (scr->currY_ < scr->bottomY_-1) {
         scr->currY_++;
-        scroll_down(scr, scr->currY_, suffix, ssz, ch);
+        scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     } else {
-        scroll_up(scr, scr->currY_, suffix, ssz, ch);
+        scroll_up(scr, scr->topY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     }
 }
 
@@ -409,8 +362,13 @@ void cmd_del_line(editor* ed) {
         return;
     }
     scr->currX_ = 0;
-    uint8_t ch = tb_peek(tb);
-    scroll_down_from_top(ed, ch);
+
+    const uint8_t ch = tb_peek(tb);
+    text_buffer cp;
+
+    tb_copy(&cp, tb);
+    tb_home(&cp);
+    region_up(scr, &cp, ch);
 }
 
 void cmd_left(editor* ed) {
@@ -524,7 +482,7 @@ void cmd_up(editor* ed) {
         to_ch = tb_peek(tb);
 
         uint8_t* suffix = tb_suffix(tb, &psz);
-        scroll_down(scr, scr->topY_, suffix, psz, to_ch);
+        scroll_down(scr, scr->topY_, scr->bottomY_-1, suffix, psz, to_ch);
         return;
     }
 
@@ -558,9 +516,22 @@ void cmd_down(editor* ed) {
         return;
     }
     if (scr->currY_ >= scr->bottomY_-1) {
-        scroll_lines(ed, to_ch);
+        scr_hide_cursor_ch(scr, from_ch);
+        scr->currX_ = tb_xpos(tb)-1;
+        if (scr->currX_ > scr->cols_-1) {
+            scr->currX_ = scr->cols_-1;
+        }
+
+        text_buffer cp;
+        tb_copy(&cp, tb);
+        tb_home(&cp);
+
+        int sz = 0;
+        uint8_t* line = tb_suffix(&cp, &sz);
+        scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
+
     if (scr->currX_ >= scr->cols_-1) {
         scr_write_line(scr, scr->currY_, prefix, psz);
         if (tb_xpos(tb) >= scr->cols_) {

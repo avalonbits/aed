@@ -307,63 +307,6 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->dirty_ = false;
 }
 
-static void itr_state(text_buffer* buf, int from_l) {
-    tb_copy(&tb, buf);
-
-    ypos = lb_curr(&tb.lb_);
-    lused = lb_max(&tb.lb_) - lb_avai(&tb.lb_);
-    tb_home(&tb);
-    if (ypos != from_l) {
-        // do someting
-    }
-}
-
-static line lnext() {
-	if (ypos > lused) {
-        line l = {NULL, 0, 0};
-        return l;
-    }
-
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(&tb, &sz);
-    ++ypos;
-
-    tb_down(&tb);
-    int osz = 0;
-    tb_suffix(&tb, &osz);
-    line l = {suffix, sz, osz};
-
-    return l;
-}
-
-line_itr tb_nline(text_buffer* buf, int from_l) {
-    itr_state(buf, from_l-1);
-    return lnext;
-}
-
-static line lprev() {
-    if (ypos == 0) {
-        line l = {NULL, 0, 0};
-        return  l;
-    }
-
-    int sz = 0;
-    uint8_t* suffix = tb_suffix(&tb, &sz);
-    --ypos;
-
-    tb_up(&tb);
-    int osz = 0;
-    tb_suffix(&tb, &osz);
-    line l = {suffix, sz, osz};
-
-    return l;
-}
-
-line_itr tb_pline(text_buffer* buf) {
-    itr_state(buf, tb_ypos(buf));
-    return lprev;
-}
-
 // Char read.
 uint8_t tb_peek(text_buffer* tb) {
     return cb_peek(&tb->cb_);
@@ -391,6 +334,14 @@ uint8_t* tb_suffix(text_buffer* tb, int* sz) {
         *sz -= 2;
     }
     return suffix;
+}
+
+split_line tb_curr_line(text_buffer* tb) {
+    split_line ln;
+
+    ln.prefix_ = tb_prefix(tb, &ln.psz_);
+    ln.suffix_ = tb_suffix(tb, &ln.ssz_);
+    return ln;
 }
 
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz) {

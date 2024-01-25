@@ -60,6 +60,7 @@ void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, int deltaX, uint8_t* s
 
 // Screen management.
 void set_colours(uint8_t fg, uint8_t bg);
+void scr_clear_textarea(screen* scr, uint8_t top, uint8_t bottom);
 void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz);
 void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz);
 

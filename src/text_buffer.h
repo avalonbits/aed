@@ -66,25 +66,22 @@ int tb_xpos(text_buffer* tb);
 int tb_ypos(text_buffer* tb);
 int tb_ymax(text_buffer* tb);
 
-// Char read.
+// Text read.
 uint8_t tb_peek(text_buffer* tb);
 uint8_t* tb_suffix(text_buffer* tb, int* sz);
 uint8_t* tb_prefix(text_buffer* tb, int* sz);
+
+typedef struct _split_line {
+    int psz_;
+    uint8_t* prefix_;
+    int ssz_;
+    uint8_t* suffix_;
+} split_line;
+split_line tb_curr_line(text_buffer* tb);
 
 bool tb_load(text_buffer* tb, uint8_t tab_size, const char* fname);
 void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
-
-// Line read
-typedef struct _line {
-    uint8_t* b;
-    int sz;
-    int osz;
-} line;
-typedef line(*line_itr)();
-
-line_itr tb_pline(text_buffer* buf);
-line_itr tb_nline(text_buffer* buf, int from_l);
 
 #endif // _TEXT_BUFFER_H_
