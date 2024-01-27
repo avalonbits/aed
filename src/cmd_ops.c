@@ -235,8 +235,14 @@ static void region_up(screen* scr, text_buffer* tb, uint8_t ch) {
     scroll_up(scr, scr->currY_, scr->bottomY_-1, line, sz, ch);
 
     int diff = scr->bottomY_ - scr->currY_ - 1;
+    int last = 0;
+    int curr = 0;
     while (diff-- > 0) {
-        tb_down(tb);
+        curr = tb_down(tb);
+        if (curr == last) {
+            scr_write_line(scr, scr->bottomY_-1, NULL, 0);
+            return;
+        }
     }
     line = tb_suffix(tb, &sz);
     scr_overwrite_line(scr, scr->bottomY_-1, line, sz, 255);
