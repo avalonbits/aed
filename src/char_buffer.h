@@ -24,9 +24,9 @@
 
 typedef struct _char_buffer  {
     int size_;
-    uint8_t* buf_;
-    uint8_t* curr_;
-    uint8_t* cend_;
+    char* buf_;
+    char* curr_;
+    char* cend_;
 } char_buffer;
 
 // Setup ops.
@@ -40,18 +40,18 @@ int cb_available(char_buffer* cb);
 int cb_used(char_buffer* cb);
 
 // Character ops.
-void cb_put(char_buffer* cb, uint8_t ch);
+void cb_put(char_buffer* cb, char ch);
 bool cb_del(char_buffer* cb);
 bool cb_bksp(char_buffer* cb);
 
 // Cursor ops.
-uint8_t cb_next(char_buffer* cb, int cnt);
-uint8_t cb_prev(char_buffer* cb, int cnt);
+char cb_next(char_buffer* cb, int cnt);
+char cb_prev(char_buffer* cb, int cnt);
 
 // Char read.
-uint8_t cb_peek(char_buffer* cb);
-uint8_t* cb_prefix(char_buffer* cb, int* sz);
-uint8_t* cb_suffix(char_buffer* cb, int* sz);
+char cb_peek(char_buffer* cb);
+char* cb_prefix(char_buffer* cb, int* sz);
+char* cb_suffix(char_buffer* cb, int* sz);
 
 
 #endif  // _CHAR_BUFFER_H_

@@ -21,7 +21,7 @@
 #include <stdlib.h>
 
 char_buffer* cb_init(char_buffer* cb, int size) {
-    cb->buf_ = (uint8_t*) malloc(sizeof(uint8_t) * size);
+    cb->buf_ = (char*) malloc(sizeof(char) * size);
     if (cb->buf_ == NULL) {
         return NULL;
     }
@@ -49,7 +49,7 @@ int cb_available(char_buffer* cb) {
 }
 
 int cb_used(char_buffer* cb) {
-    uint8_t* end = cb->buf_ + cb->size_;
+    char* end = cb->buf_ + cb->size_;
     int total = 0;
 
     total += (cb->curr_ - cb->buf_);
@@ -57,13 +57,13 @@ int cb_used(char_buffer* cb) {
     return total;
 }
 
-void cb_put(char_buffer* cb, uint8_t ch) {
+void cb_put(char_buffer* cb, char ch) {
     *cb->curr_ = ch;
     cb->curr_++;
 }
 
 bool cb_del(char_buffer* cb) {
-    const uint8_t* end = cb->buf_+cb->size_;
+    const char* end = cb->buf_+cb->size_;
     const bool ok = cb->cend_ < end;
     if (ok) {
         cb->cend_++;
@@ -79,7 +79,7 @@ bool cb_bksp(char_buffer* cb) {
     return bk;
 }
 
-uint8_t cb_prev(char_buffer* cb, int cnt) {
+char cb_prev(char_buffer* cb, int cnt) {
     const bool pr = cb->curr_ > cb->buf_;
     if (!pr) {
         return 0;
@@ -93,8 +93,8 @@ uint8_t cb_prev(char_buffer* cb, int cnt) {
     return *cb->cend_;
 }
 
-uint8_t cb_next(char_buffer* cb, int cnt) {
-    const uint8_t* end = cb->buf_+cb->size_;
+char cb_next(char_buffer* cb, int cnt) {
+    const char* end = cb->buf_+cb->size_;
     if (cb->cend_ >= end) {
         return 0;
     }
@@ -111,15 +111,15 @@ uint8_t cb_next(char_buffer* cb, int cnt) {
     return 0;
 }
 
-uint8_t cb_peek(char_buffer* cb) {
-    const uint8_t* end = cb->buf_ + cb->size_;
+char cb_peek(char_buffer* cb) {
+    const char* end = cb->buf_ + cb->size_;
     if (cb->cend_ == end) {
         return 0;
     }
     return *cb->cend_;
 }
 
-uint8_t* cb_prefix(char_buffer* cb, int* sz) {
+char* cb_prefix(char_buffer* cb, int* sz) {
     *sz = (cb->curr_ - cb->buf_);
     if (*sz == 0) {
         return NULL;
@@ -127,8 +127,8 @@ uint8_t* cb_prefix(char_buffer* cb, int* sz) {
     return  cb->buf_;
 }
 
-uint8_t* cb_suffix(char_buffer* cb, int* sz) {
-    const uint8_t* end = cb->buf_ + cb->size_;
+char* cb_suffix(char_buffer* cb, int* sz) {
+    const char* end = cb->buf_ + cb->size_;
     *sz = end - cb->cend_;
     if (*sz == 0) {
         return NULL;

@@ -82,7 +82,7 @@ void ed_run(editor* ed) {
     vdp_clear_screen();
 }
 
-key_command ctrlCmds(key_command kc, uint8_t mods) {
+key_command ctrlCmds(key_command kc, char mods) {
     switch (kc.k.vkey) {
         case VK_q:
         case VK_Q:
@@ -181,7 +181,7 @@ key_command read_input() {
     kc.k.key = getch();
     kc.k.vkey = getsysvar_vkeycode();
 
-    const uint8_t mods = getsysvar_keymods();
+    const char mods = getsysvar_keymods();
     if (mods & MOD_CTRL) {
         return ctrlCmds(kc, mods);
     }

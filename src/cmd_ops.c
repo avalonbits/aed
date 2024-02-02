@@ -36,10 +36,10 @@
 static void fill_screen(screen* scr, text_buffer* tb) {
     scr_clear_textarea(scr, scr->topY_, scr->bottomY_);
 
-    uint8_t tpos = tb_ypos(tb);
-    for (uint8_t ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
+    char tpos = tb_ypos(tb);
+    for (char ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
         int sz = 0;
-        uint8_t* suffix = tb_suffix(tb, &sz);
+        char* suffix = tb_suffix(tb, &sz);
         scr_write_line(scr, ypos, suffix, sz);
 
         tb_down(tb);
@@ -53,8 +53,8 @@ static void fill_screen(screen* scr, text_buffer* tb) {
 
 
 static void refresh_screen(screen* scr, text_buffer* tb) {
-    uint8_t currY = scr->currY_;
-    uint8_t currX = scr->currX_;
+    char currY = scr->currY_;
+    char currX = scr->currX_;
 
     text_buffer cp;
     tb_copy(&cp, tb);
@@ -70,15 +70,15 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
     scr->currX_ = currX;
 }
 
-static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, const char* prefill) {
-    uint8_t* fname;
-    uint8_t sz;
+static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, char* prefill) {
+    char* fname;
+    int sz;
     RESPONSE res = ui_text(ui, scr, "File name: ", prefill, &fname, &sz);
     if (res == CANCEL_OPT) {
         return false;
     } else if (res == YES_OPT) {
         strncpy(tb->fname_, fname, sz);
-        tb->fname_[sz] = 0;
+        tb->fname_[(int)sz] = 0;
         return true;
     }
     return false;
@@ -89,13 +89,13 @@ static bool save_file(text_buffer* tb) {
         return false;
     }
 
-    uint8_t fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
+    char fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
     if (fh == 0) {
         return false;;
     }
 
-    uint8_t* prefix = NULL;
-    uint8_t* suffix = NULL;
+    char* prefix = NULL;
+    char* suffix = NULL;
     int psz = 0;
     int ssz = 0;
     tb_content(tb, &prefix, &psz, &suffix, &ssz);
@@ -168,7 +168,7 @@ void cmd_color_picker(editor* ed) {
     RESPONSE ret = ui_color_picker(ui, scr);
     if (ret == YES_OPT) {
         TB(ed);
-        uint8_t ch = tb_peek(tb);
+        char ch = tb_peek(tb);
         scr_clear(scr);
         refresh_screen(scr, tb);
         scr_show_cursor_ch(scr, ch);
@@ -182,8 +182,8 @@ void cmd_putc(editor* ed, key k) {
     if (k.key == '\t') {
         // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
         k.key = ' ';
-        const uint8_t spaces = scr->tab_size_ - ((tb_xpos(tb)-1) % scr->tab_size_);
-        for (uint8_t i = 0; i < spaces; i++) {
+        const char spaces = scr->tab_size_ - ((tb_xpos(tb)-1) % scr->tab_size_);
+        for (char i = 0; i < spaces; i++) {
             cmd_putc(ed, k);
         }
         return;
@@ -208,7 +208,7 @@ static void define_viewport(char left, char bottom, char right, char top) {
 }
 
 static void scroll_down(
-        screen* scr, uint8_t topY, uint8_t bottomY, uint8_t* line, int sz, uint8_t ch) {
+        screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
     static const char down[] = {23, 7, 0, 2, 8};
     define_viewport(0, bottomY, scr->cols_, topY);
     VDP_PUTS(down);
@@ -219,7 +219,7 @@ static void scroll_down(
 }
 
 static void scroll_up(
-        screen* scr, uint8_t topY, uint8_t bottomY, uint8_t* line, int sz, uint8_t ch) {
+        screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
     static const char up[] = {23, 7, 0, 3, 8};
     define_viewport(0, bottomY, scr->cols_, topY);
     VDP_PUTS(up);
@@ -229,9 +229,9 @@ static void scroll_up(
     scr_show_cursor_ch(scr, ch);
 }
 
-static void region_up(screen* scr, text_buffer* tb, uint8_t ch) {
+static void region_up(screen* scr, text_buffer* tb, char ch) {
     int sz = 0;
-    uint8_t* line = tb_suffix(tb, &sz);
+    char* line = tb_suffix(tb, &sz);
     scroll_up(scr, scr->currY_, scr->bottomY_-1, line, sz, ch);
 
     int diff = scr->bottomY_ - scr->currY_ - 1;
@@ -257,7 +257,7 @@ void cmd_show(editor* ed) {
     fill_screen(scr, &cb);
     vdp_cursor_tab(scr->currY_, scr->currX_);
 
-    const uint8_t to_ch = tb_peek(tb);
+    const char to_ch = tb_peek(tb);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -268,7 +268,7 @@ static void cmd_del_merge(editor* ed) {
     }
     SCR(ed);
 
-    const uint8_t ch = tb_peek(tb);
+    const char ch = tb_peek(tb);
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
@@ -291,7 +291,7 @@ void cmd_del(editor* ed) {
         return;
     }
     int sz = 0;
-    uint8_t* suffix = tb_suffix(tb, &sz);
+    char* suffix = tb_suffix(tb, &sz);
     scr_del(scr, suffix, sz);
 }
 
@@ -311,7 +311,7 @@ static void cmd_bksp_merge(editor* ed) {
         scr->currX_ = tb->x_;
     }
 
-    uint8_t ch = tb_peek(tb);
+    char ch = tb_peek(tb);
     text_buffer cp;
 
     tb_copy(&cp, tb);
@@ -331,7 +331,7 @@ void cmd_bksp(editor* ed) {
     }
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(tb, &sz);
+    char* suffix = tb_suffix(tb, &sz);
 
     if (!tb_bksp(tb)) {
         return;
@@ -343,7 +343,7 @@ void cmd_newl(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    uint8_t ch = tb_peek(tb);
+    char ch = tb_peek(tb);
     split_line ln = tb_curr_line(tb);
 
     if (!tb_newline(tb)) {
@@ -369,7 +369,7 @@ void cmd_del_line(editor* ed) {
     }
     scr->currX_ = 0;
 
-    const uint8_t ch = tb_peek(tb);
+    const char ch = tb_peek(tb);
     text_buffer cp;
 
     tb_copy(&cp, tb);
@@ -388,11 +388,11 @@ void cmd_left(editor* ed) {
         }
         return;
     }
-    uint8_t from_ch = tb_peek(tb);
-    uint8_t to_ch = tb_prev(tb);
+    char from_ch = tb_peek(tb);
+    char to_ch = tb_prev(tb);
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(tb, &sz);
+    char* suffix = tb_suffix(tb, &sz);
     scr_left(scr, from_ch, to_ch, 1, suffix, sz);
 }
 
@@ -409,12 +409,12 @@ void cmd_w_left(editor* ed) {
     }
 
     const int from_x = tb_xpos(tb);
-    const uint8_t from_ch = tb_peek(tb);
-    const uint8_t to_ch = tb_w_prev(tb);
-    const uint8_t deltaX = from_x - tb_xpos(tb);
+    const char from_ch = tb_peek(tb);
+    const char to_ch = tb_w_prev(tb);
+    const char deltaX = from_x - tb_xpos(tb);
 
     int sz = 0;
-    uint8_t* suffix = tb_suffix(tb, &sz);
+    char* suffix = tb_suffix(tb, &sz);
     scr_left(scr, from_ch, to_ch, deltaX, suffix, sz);
 }
 
@@ -431,14 +431,14 @@ void cmd_right(editor* ed) {
         return;
     }
 
-    uint8_t from_ch = tb_peek(tb);
+    char from_ch = tb_peek(tb);
     if (from_ch == 0 ) {
         return;
     }
 
-    const uint8_t to_ch = tb_next(tb);
+    const char to_ch = tb_next(tb);
     int sz = 0;
-    uint8_t* prefix = tb_prefix(tb, &sz);
+    char* prefix = tb_prefix(tb, &sz);
     scr_right(scr, from_ch, to_ch, 1, prefix, sz);
 }
 
@@ -456,12 +456,12 @@ void cmd_w_right(editor* ed) {
     }
 
     const int from_x = tb_xpos(tb);
-    const uint8_t from_ch = tb_peek(tb);
-    const uint8_t to_ch = tb_w_next(tb);
-    const uint8_t deltaX = tb_xpos(tb) - from_x;
+    const char from_ch = tb_peek(tb);
+    const char to_ch = tb_w_next(tb);
+    const char deltaX = tb_xpos(tb) - from_x;
 
     int sz = 0;
-    uint8_t* prefix = tb_prefix(tb, &sz);
+    char* prefix = tb_prefix(tb, &sz);
     scr_right(scr, from_ch, to_ch, deltaX, prefix, sz);
 }
 
@@ -470,11 +470,11 @@ void cmd_up(editor* ed) {
     SCR(ed);
 
     int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
+    char* prefix = tb_prefix(tb, &psz);
 
     int ypos = tb_ypos(tb);
-    uint8_t from_ch = tb_peek(tb);
-    uint8_t to_ch = tb_up(tb);
+    char from_ch = tb_peek(tb);
+    char to_ch = tb_up(tb);
     if (ypos == tb_ypos(tb)) {
         return;
     }
@@ -487,7 +487,7 @@ void cmd_up(editor* ed) {
         tb_home(tb);
         to_ch = tb_peek(tb);
 
-        uint8_t* suffix = tb_suffix(tb, &psz);
+        char* suffix = tb_suffix(tb, &psz);
         scroll_down(scr, scr->topY_, scr->bottomY_-1, suffix, psz, to_ch);
         return;
     }
@@ -515,9 +515,9 @@ void cmd_down(editor* ed) {
 
     int ypos = tb_ypos(tb);
     int psz = 0;
-    uint8_t* prefix = tb_prefix(tb, &psz);
-    uint8_t from_ch = tb_peek(tb);
-    uint8_t to_ch = tb_down(tb);
+    char* prefix = tb_prefix(tb, &psz);
+    char from_ch = tb_peek(tb);
+    char to_ch = tb_down(tb);
     if (ypos == tb_ypos(tb)) {
         return;
     }
@@ -533,7 +533,7 @@ void cmd_down(editor* ed) {
         tb_home(&cp);
 
         int sz = 0;
-        uint8_t* line = tb_suffix(&cp, &sz);
+        char* line = tb_suffix(&cp, &sz);
         scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
@@ -563,11 +563,11 @@ void cmd_home(editor* ed) {
         return;
     }
 
-    uint8_t from_ch = tb_peek(tb);
-    uint8_t to_ch = tb_home(tb);
+    char from_ch = tb_peek(tb);
+    char to_ch = tb_home(tb);
     if (to_ch != 0) {
         int sz = 0;
-        uint8_t* suffix = tb_suffix(tb, &sz);
+        char* suffix = tb_suffix(tb, &sz);
         scr_home(scr, from_ch, tb_peek(tb), suffix, sz);
     }
 }
@@ -577,12 +577,12 @@ void cmd_end(editor* ed) {
     SCR(ed);
 
     const int from_x = tb_xpos(tb);
-    uint8_t from_ch = tb_peek(tb);
-    uint8_t to_ch = tb_end(tb);
+    char from_ch = tb_peek(tb);
+    char to_ch = tb_end(tb);
     const int deltaX = tb_xpos(tb) - from_x;
     if (deltaX > 0) {
         int sz = 0;
-        uint8_t* prefix = tb_prefix(tb, &sz);
+        char* prefix = tb_prefix(tb, &sz);
         scr_end(scr, from_ch, to_ch, deltaX, prefix, sz);
     }
 }
@@ -598,7 +598,7 @@ void cmd_page_up(editor* ed) {
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_up(tb);
     }
-    uint8_t ch = tb_peek(tb);
+    char ch = tb_peek(tb);
     scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, ch);
@@ -615,7 +615,7 @@ void cmd_page_down(editor* ed) {
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_down(tb);
     }
-    uint8_t ch = tb_peek(tb);
+    char ch = tb_peek(tb);
     scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, ch);

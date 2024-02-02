@@ -20,7 +20,7 @@
 
 NAME = aed
 ICON = icon.png
-DESCRIPTION = "Agoe text editor."
+DESCRIPTION = "Agon text editor."
 COMPRESSED = NO
 ARCHIVED = NO
 INIT_LOC = 0B0000
@@ -28,8 +28,8 @@ BSSHEAP_LOW = 040000
 BSSHEAP_HIGH = 0A7FFF
 STACK_HIGH = 0AFFFF
 
-CFLAGS = -Wall -Wextra -Oz
-CXXFLAGS = -Wall -Wextra -Oz
+CFLAGS = -Werror -Wall -Wextra -Oz
+CXXFLAGS = -Werror -Wall -Wextra -Oz
 
 # ----------------------------
 

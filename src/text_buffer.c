@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-text_buffer* tb_init(text_buffer* tb, uint8_t tab_size, int mem_kb, const char* fname) {
+text_buffer* tb_init(text_buffer* tb, char tab_size, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
     if (!cb_init(&tb->cb_, char_count)) {
@@ -65,14 +65,14 @@ int tb_used(text_buffer* tb) {
 #define IS_EOL(x) (x == 0 || (x >= 10 && x <= 13))
 
 bool tb_eol(text_buffer* tb) {
-    const uint8_t ch = cb_peek(&tb->cb_);
+    const char ch = cb_peek(&tb->cb_);
     return IS_EOL(ch);
 }
 bool tb_bol(text_buffer* tb) {
     return tb->x_ == 0;
 }
 
-const char* tb_fname(text_buffer* tb) {
+char* tb_fname(text_buffer* tb) {
     if (tb->fname_[0] == 0) {
         return NULL;
     }
@@ -88,7 +88,7 @@ void tb_saved(text_buffer* tb) {
 }
 
 // Character ops.
-void tb_put(text_buffer* tb, uint8_t ch) {
+void tb_put(text_buffer* tb, char ch) {
     cb_put(&tb->cb_, ch);
     tb->x_++;
     lb_cinc(&tb->lb_);
@@ -169,12 +169,12 @@ bool tb_bksp_merge(text_buffer* tb) {
 
 
 // Cursor ops.
-uint8_t tb_next(text_buffer* tb) {
+char tb_next(text_buffer* tb) {
     tb->x_++;
     return cb_next(&tb->cb_, 1);
 }
 
-static bool isstop(uint8_t ch) {
+static bool isstop(char ch) {
     switch (ch) {
         case '[':
         case ']':
@@ -200,8 +200,8 @@ static bool isstop(uint8_t ch) {
     return false;
 }
 
-uint8_t tb_w_next(text_buffer* tb) {
-    uint8_t ch = 0;
+char tb_w_next(text_buffer* tb) {
+    char ch = 0;
     do {
         ch = cb_next(&tb->cb_, 1);
         tb->x_++;
@@ -210,16 +210,16 @@ uint8_t tb_w_next(text_buffer* tb) {
     return ch;
 }
 
-uint8_t tb_prev(text_buffer* tb) {
-    const uint8_t ch = cb_prev(&tb->cb_, 1);
+char tb_prev(text_buffer* tb) {
+    const char ch = cb_prev(&tb->cb_, 1);
     if (ch) {
         tb->x_--;
     }
     return ch;
 }
 
-uint8_t tb_w_prev(text_buffer* tb) {
-    uint8_t ch = 0;
+char tb_w_prev(text_buffer* tb) {
+    char ch = 0;
     do {
         ch = cb_prev(&tb->cb_, 1);
         tb->x_--;
@@ -228,7 +228,7 @@ uint8_t tb_w_prev(text_buffer* tb) {
     return ch;
 }
 
-uint8_t tb_up(text_buffer* tb) {
+char tb_up(text_buffer* tb) {
     if (!lb_up(&tb->lb_)) {
         return 0;
     }
@@ -243,7 +243,7 @@ uint8_t tb_up(text_buffer* tb) {
     return cb_prev(&tb->cb_, back - tb->x_);
 }
 
-uint8_t tb_down(text_buffer* tb) {
+char tb_down(text_buffer* tb) {
     int move = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_down(&tb->lb_)) {
         return 0;
@@ -258,14 +258,14 @@ uint8_t tb_down(text_buffer* tb) {
     return cb_next(&tb->cb_, move + tb->x_);
 }
 
-uint8_t tb_home(text_buffer* tb) {
+char tb_home(text_buffer* tb) {
     const int back = tb->x_;
     tb->x_ = 0;
     return cb_prev(&tb->cb_, back);
 }
 
-uint8_t tb_end(text_buffer* tb) {
-    uint8_t ch = cb_peek(&tb->cb_);
+char tb_end(text_buffer* tb) {
+    char ch = cb_peek(&tb->cb_);
     while (!IS_EOL(ch)) {
         ch = cb_next(&tb->cb_, 1);
         tb->x_++;
@@ -286,11 +286,6 @@ int tb_ymax(text_buffer* tb) {
     return lb_max(&tb->lb_)  - lb_avai(&tb->lb_) +1;
 }
 
-// State for the line iterator
-static text_buffer tb;
-static int ypos;
-static int lused;
-
 void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->lb_.buf_ = src->lb_.buf_;
     dst->lb_.curr_ = src->lb_.curr_;
@@ -308,13 +303,13 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
 }
 
 // Char read.
-uint8_t tb_peek(text_buffer* tb) {
+char tb_peek(text_buffer* tb) {
     return cb_peek(&tb->cb_);
 }
 
-uint8_t* tb_prefix(text_buffer* tb, int* sz) {
+char* tb_prefix(text_buffer* tb, int* sz) {
     int psz = 0;
-    uint8_t* prefix = cb_prefix(&tb->cb_, &psz);
+    char* prefix = cb_prefix(&tb->cb_, &psz);
     if (prefix == NULL) {
         return NULL;
     }
@@ -323,8 +318,8 @@ uint8_t* tb_prefix(text_buffer* tb, int* sz) {
     return prefix;
 }
 
-uint8_t* tb_suffix(text_buffer* tb, int* sz) {
-    uint8_t* suffix = cb_suffix(&tb->cb_, sz);
+char* tb_suffix(text_buffer* tb, int* sz) {
+    char* suffix = cb_suffix(&tb->cb_, sz);
     if (suffix == NULL) {
         return NULL;
     }
@@ -344,12 +339,12 @@ split_line tb_curr_line(text_buffer* tb) {
     return ln;
 }
 
-void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz) {
+void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, int* ssz) {
     *prefix = cb_prefix(&tb->cb_, psz);
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
-static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
+static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
     char_buffer* cb = &tb->cb_;
@@ -364,7 +359,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
     int added = 0;
     for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
-        const uint8_t ch = cb_peek(cb);
+        const char ch = cb_peek(cb);
 
         if (saw_r) {
             if (ch != '\n') {
@@ -400,9 +395,9 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
             cb_del(cb);
             cb_put(cb, ' ');
             cb_prev(cb, 1);
-            const uint8_t spaces = tab_size - (xpos % tab_size);
+            const char spaces = tab_size - (xpos % tab_size);
             if (spaces > 0) {
-                for (uint8_t i = 0; i < spaces; i++) {
+                for (char i = 0; i < spaces; i++) {
                     cb_put(cb, ' ');
                     lb_cinc(&tb->lb_);
                 }
@@ -413,7 +408,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
         cb_next(cb, 1);
         xpos++;
     }
-    const uint8_t ch = cb_peek(cb);
+    const char ch = cb_peek(cb);
     if (saw_r) {
         if (ch != '\n') {
             lb_cinc(&tb->lb_);
@@ -439,7 +434,7 @@ static bool tb_read(uint8_t fh, uint8_t tab_size, text_buffer* tb, int sz) {
 }
 
 
-bool tb_load(text_buffer* tb, uint8_t tab_size, const char* fname) {
+bool tb_load(text_buffer* tb, char tab_size, const char* fname) {
     if (fname == NULL) {
         return false;
     }
@@ -448,12 +443,12 @@ bool tb_load(text_buffer* tb, uint8_t tab_size, const char* fname) {
     strncpy(tb->fname_, fname, fsz);
     tb->fname_[fsz] = 0;
 
-    uint8_t fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
+    char fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
     if (fh == 0) {
         // Try to create the file.
         fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
         if (fh == 0) {
-            const char* msg = "invalid file";
+            char* msg = "invalid file";
             mos_puts(msg, strlen(msg), 0);
             tb->fname_[0] = 0;
             return false;
