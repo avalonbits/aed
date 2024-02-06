@@ -595,9 +595,14 @@ void cmd_page_up(editor* ed) {
     const int page = scr->bottomY_ - scr->topY_+1;
     int remaining = tb_ypos(tb)-1 - curr;
 
+    if (remaining <= 0) {
+        remaining = tb_ypos(tb)-1;
+        scr->currY_ = scr->topY_;
+    }
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_up(tb);
     }
+
     char ch = tb_peek(tb);
     scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
     refresh_screen(scr, tb);
@@ -612,6 +617,10 @@ void cmd_page_down(editor* ed) {
     const int page = scr->bottomY_ - scr->topY_;
     int remaining = tb_ymax(tb) - tb_ypos(tb) - curr + 1;
 
+    if (remaining <= 0) {
+        remaining = tb_ymax(tb) - tb_ypos(tb);
+        scr->currY_ = scr->bottomY_-1;
+    }
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_down(tb);
     }
