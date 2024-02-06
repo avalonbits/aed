@@ -200,12 +200,19 @@ static bool isstop(char ch) {
     return false;
 }
 
-char tb_w_next(text_buffer* tb) {
+#define KEEP_SKIPPING(from_stopch, ch) \
+    (!IS_EOL(ch) && ( \
+        (from_stopch && isstop(ch)) || \
+        (!from_stopch && !isstop(ch)) \
+    ))
+
+char tb_w_next(text_buffer* tb, char from_ch) {
+    const bool stopch = isstop(from_ch);
     char ch = 0;
     do {
         ch = cb_next(&tb->cb_, 1);
         tb->x_++;
-    } while (!IS_EOL(ch) && !isstop(ch));
+    } while (KEEP_SKIPPING(stopch, ch));
 
     return ch;
 }
@@ -218,12 +225,13 @@ char tb_prev(text_buffer* tb) {
     return ch;
 }
 
-char tb_w_prev(text_buffer* tb) {
+char tb_w_prev(text_buffer* tb, char from_ch) {
+    const bool stopch = isstop(from_ch);
     char ch = 0;
     do {
         ch = cb_prev(&tb->cb_, 1);
         tb->x_--;
-    } while (tb->x_ > 0 && (!IS_EOL(ch) && !isstop(ch)));
+    } while (tb->x_ > 0 && KEEP_SKIPPING(stopch, ch));
 
     return ch;
 }

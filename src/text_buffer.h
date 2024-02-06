@@ -55,9 +55,9 @@ bool tb_bksp_merge(text_buffer* tb);
 
 // Cursor ops.
 char tb_next(text_buffer* tb);
-char tb_w_next(text_buffer* tb);
+char tb_w_next(text_buffer* tb, char from_ch);
 char tb_prev(text_buffer* tb);
-char tb_w_prev(text_buffer* tb);
+char tb_w_prev(text_buffer* tb, char from_ch);
 char tb_home(text_buffer* tb);
 char tb_up(text_buffer* tb);
 char tb_down(text_buffer* tb);
