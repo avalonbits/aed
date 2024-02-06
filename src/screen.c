@@ -27,12 +27,12 @@
 
 #define MAX_COLS 255
 
-void set_colours(uint8_t fg, uint8_t bg) {
+void set_colours(char fg, char bg) {
     vdp_set_text_colour(fg);
     vdp_set_text_colour(bg+128);
 }
 
-void scr_show_cursor_ch(screen* scr, uint8_t ch) {
+void scr_show_cursor_ch(screen* scr, char ch) {
     if (ch == 0 || ch == '\r' || ch == '\n') {
         ch = scr->cursor_;
     }
@@ -52,7 +52,7 @@ static void scr_show_cursor(screen* scr) {
     scr_show_cursor_ch(scr, scr->cursor_);
 }
 
-static void vdp_puts(char* str, uint8_t sz) {
+static void vdp_puts(char* str, char sz) {
     volatile uint8_t* sysvar = mos_sysvars();
     sysvar[sysvar_vdp_pflags] = 0;
     mos_puts(str, sz, 0);
@@ -66,23 +66,23 @@ static void vdp_puts(char* str, uint8_t sz) {
     }
 }
 
-static uint8_t getColorForCh(uint8_t ch) {
+static char getColorForCh(char ch) {
     static char getcol[7] = {23, 0, 0x84, 4, 0, 4, 0};
 
     vdp_cursor_tab(0,0);
     putch(ch);
 
-    volatile uint8_t idx = 0;
+    volatile char idx = 0;
     for (int i = 0; i < 1; i++) {
         waitvblank();
-        volatile uint8_t* sysvar = (volatile uint8_t*) mos_sysvars();
+        volatile char* sysvar = (volatile char*) mos_sysvars();
         idx = sysvar[sysvar_scrpixelIndex];
     }
 
     vdp_puts(getcol, sizeof(getcol));
     for (int i = 0; i < 1; i++) {
         waitvblank();
-        volatile uint8_t* sysvar = (volatile uint8_t*) mos_sysvars();
+        volatile char* sysvar = (volatile char*) mos_sysvars();
         idx = sysvar[sysvar_scrpixelIndex];
     }
 
@@ -128,8 +128,8 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
-void scr_footer(screen* scr, const char* fname, bool dirty, int x, int y) {
-    static const char* no_file = "[NO FILE]";
+void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
+    static char* no_file = "[NO FILE]";
     if (fname == NULL) {
         fname = no_file;
     }
@@ -153,7 +153,7 @@ void scr_footer(screen* scr, const char* fname, bool dirty, int x, int y) {
     static char digits[16];
     i2s(y, digits, 16);
     int dsz = strlen(digits);
-    uint8_t max = strlen(digits) < 4 ? 4 - strlen(digits) : 4;
+    char max = strlen(digits) < 4 ? 4 - strlen(digits) : 4;
     for (int i = 0; i < max; i++) {
         putch(' ');
     }
@@ -172,7 +172,7 @@ void scr_footer(screen* scr, const char* fname, bool dirty, int x, int y) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
-const char* title = "AED: Another Text Editor";
+char* title = "AED: Another Text Editor";
 void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
@@ -193,7 +193,7 @@ void scr_clear(screen* scr) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
-void scr_hide_cursor_ch(screen* scr, uint8_t ch) {
+void scr_hide_cursor_ch(screen* scr, char ch) {
     if (ch == 0 || ch == '\r' || ch == '\n') {
         ch = scr->cursor_;
     }
@@ -207,7 +207,7 @@ static void scr_hide_cursor(screen* scr) {
     scr_hide_cursor_ch(scr, scr->cursor_);
 }
 
-void scr_putc(screen* scr, uint8_t ch, uint8_t* prefix, int psz, uint8_t* suffix, int ssz) {
+void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
     if (scr->currX_ < scr->cols_-1) {
         putch(ch);
@@ -235,7 +235,7 @@ void scr_putc(screen* scr, uint8_t ch, uint8_t* prefix, int psz, uint8_t* suffix
     }
 }
 
-static void print_suffix(screen* scr, uint8_t* suffix, int sz) {
+static void print_suffix(screen* scr, char* suffix, int sz) {
     int i = 0;
     const int limit = scr->cols_ - scr->currX_;
     for (; i < sz && i < limit; i++) {
@@ -247,8 +247,8 @@ static void print_suffix(screen* scr, uint8_t* suffix, int sz) {
     vdp_cursor_tab(scr->currY_, scr->currX_);
 }
 
-void scr_del(screen* scr, uint8_t* suffix, int sz) {
-    uint8_t ch = scr->cursor_;
+void scr_del(screen* scr, char* suffix, int sz) {
+    char ch = scr->cursor_;
     if (sz > 0) {
         ch = suffix[0];
         print_suffix(scr, suffix, sz);
@@ -256,7 +256,7 @@ void scr_del(screen* scr, uint8_t* suffix, int sz) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
+void scr_bksp(screen* scr, char* suffix, int sz) {
     if (scr->currX_ == 0) {
         return;
     }
@@ -264,7 +264,7 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     scr_hide_cursor(scr);
     vdp_cursor_tab(scr->currY_, scr->currX_);
 
-    uint8_t ch = scr->cursor_;
+    char ch = scr->cursor_;
     if (sz > 0) {
         ch = suffix[0];
         print_suffix(scr, suffix, sz);
@@ -272,7 +272,7 @@ void scr_bksp(screen* scr, uint8_t* suffix, int sz) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* suffix, int sz) {
+void scr_left(screen* scr, char from_ch, char to_ch, char deltaX, char* suffix, int sz) {
     int x = scr->currX_ - deltaX;
     if (x >= 0) {
         scr->currX_ -= deltaX;
@@ -291,7 +291,7 @@ void scr_left(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint8_t* prefix, int sz) {
+void scr_right(screen* scr, char from_ch, char to_ch, char deltaX, char* prefix, int sz) {
     int x = scr->currX_ + deltaX;
     if (x < scr->cols_) {
         scr->currX_ = x;
@@ -311,7 +311,7 @@ void scr_right(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t deltaX, uint
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* suffix, int sz) {
+void scr_home(screen* scr, char from_ch, char to_ch, char* suffix, int sz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currX_ = 0;
     if (sz > 0) {
@@ -321,7 +321,7 @@ void scr_home(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t* suffix, int 
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, int deltaX, uint8_t* prefix, int sz) {
+void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, int sz) {
     scr_hide_cursor_ch(scr, from_ch);
     int x = (scr->currX_) + deltaX;
     if (x >= scr->cols_) {
@@ -340,7 +340,7 @@ void scr_end(screen* scr, uint8_t from_ch, uint8_t to_ch, int deltaX, uint8_t* p
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
+void scr_up(screen* scr, char from_ch, char to_ch, char currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
     scr->currX_ = currX;
@@ -348,7 +348,7 @@ void scr_up(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_down(screen* scr, uint8_t from_ch, uint8_t to_ch, uint8_t currX) {
+void scr_down(screen* scr, char from_ch, char to_ch, char currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
     scr->currX_ = currX;
@@ -364,17 +364,17 @@ static void define_viewport(screen* scr, char top, char bottom) {
     VDP_PUTS(viewport);
 }
 
-void scr_clear_textarea(screen* scr, uint8_t top, uint8_t bottom) {
+void scr_clear_textarea(screen* scr, char top, char bottom) {
     define_viewport(scr, top, bottom);
     vdp_clear_screen();
     putch(26);  // Reset viewport.
 }
 
-void scr_write_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz) {
+void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
     scr_overwrite_line(scr, ypos, buf, sz, scr->cols_);
 }
 
-void scr_overwrite_line(screen* scr, uint8_t ypos, uint8_t* buf, int sz, int psz) {
+void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
     vdp_cursor_tab(ypos, 0);
     int i = 0;
     for (; i < sz && i < scr->cols_; i++) {

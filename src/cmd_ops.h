@@ -27,7 +27,7 @@
 typedef struct _editor editor;
 
 typedef struct _key {
-    uint8_t key;
+    char key;
     VKey vkey;
 } key;
 

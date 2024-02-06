@@ -31,7 +31,7 @@ typedef struct _text_buffer {
     char fname_[256];
 } text_buffer;
 
-text_buffer* tb_init(text_buffer* tb, uint8_t tab_size, int mem_kb, const char* fname);
+text_buffer* tb_init(text_buffer* tb, char tab_size, int mem_kb, const char* fname);
 void tb_destroy(text_buffer* tb);
 
 // Info ops.
@@ -40,12 +40,12 @@ int tb_available(text_buffer* tb);
 int tb_used(text_buffer* tb);
 bool tb_eol(text_buffer* tb);
 bool tb_bol(text_buffer* tb);
-const char* tb_fname(text_buffer* tb);
+char* tb_fname(text_buffer* tb);
 bool tb_changed(text_buffer* tb);
 void tb_saved(text_buffer* tb);
 
 // Character ops.
-void tb_put(text_buffer* tb, uint8_t ch);
+void tb_put(text_buffer* tb, char ch);
 bool tb_del(text_buffer* tb);
 bool tb_bksp(text_buffer* tb);
 bool tb_newline(text_buffer* tb);
@@ -54,33 +54,33 @@ bool tb_del_merge(text_buffer* tb);
 bool tb_bksp_merge(text_buffer* tb);
 
 // Cursor ops.
-uint8_t tb_next(text_buffer* tb);
-uint8_t tb_w_next(text_buffer* tb);
-uint8_t tb_prev(text_buffer* tb);
-uint8_t tb_w_prev(text_buffer* tb);
-uint8_t tb_home(text_buffer* tb);
-uint8_t tb_up(text_buffer* tb);
-uint8_t tb_down(text_buffer* tb);
-uint8_t tb_end(text_buffer* tb);
+char tb_next(text_buffer* tb);
+char tb_w_next(text_buffer* tb);
+char tb_prev(text_buffer* tb);
+char tb_w_prev(text_buffer* tb);
+char tb_home(text_buffer* tb);
+char tb_up(text_buffer* tb);
+char tb_down(text_buffer* tb);
+char tb_end(text_buffer* tb);
 int tb_xpos(text_buffer* tb);
 int tb_ypos(text_buffer* tb);
 int tb_ymax(text_buffer* tb);
 
 // Text read.
-uint8_t tb_peek(text_buffer* tb);
-uint8_t* tb_suffix(text_buffer* tb, int* sz);
-uint8_t* tb_prefix(text_buffer* tb, int* sz);
+char tb_peek(text_buffer* tb);
+char* tb_suffix(text_buffer* tb, int* sz);
+char* tb_prefix(text_buffer* tb, int* sz);
 
 typedef struct _split_line {
     int psz_;
-    uint8_t* prefix_;
+    char* prefix_;
     int ssz_;
-    uint8_t* suffix_;
+    char* suffix_;
 } split_line;
 split_line tb_curr_line(text_buffer* tb);
 
-bool tb_load(text_buffer* tb, uint8_t tab_size, const char* fname);
-void tb_content(text_buffer* tb, uint8_t** prefix, int* psz, uint8_t** suffix, int* ssz);
+bool tb_load(text_buffer* tb, char tab_size, const char* fname);
+void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, int* ssz);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
 

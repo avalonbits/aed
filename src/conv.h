@@ -21,6 +21,6 @@
 
 #include <stdint.h>
 
-uint8_t* i2s(int num, uint8_t* buf, int sz);
+char* i2s(int num, char* buf, int sz);
 
 #endif  // _CONV_H_

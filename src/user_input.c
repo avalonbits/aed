@@ -38,11 +38,11 @@ void ui_destroy(user_input* ui) {
 }
 
 
-static const char goto_line[11] = "Goto line: ";
-static int atoi(uint8_t* str, uint8_t sz) {
+static char goto_line[11] = "Goto line: ";
+static int atoi(char* str, char sz) {
     int v = 0;
     int mul = 1;
-    for (uint8_t i = 1; i <= sz; i++) {
+    for (char i = 1; i <= sz; i++) {
         v += (str[sz-i] - '0') * mul;
         mul *= 10;
     }
@@ -58,7 +58,7 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
     cb_clear(cb);
 
     do {
-        uint8_t key = getch();
+        char key = getch();
         VKey vkey = getsysvar_vkeycode();
 
         if (key >= '0' && key <= '9') {
@@ -73,11 +73,11 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
                 return CANCEL_OPT;
             case VK_RETURN: {
                 int sz = 0;
-                uint8_t* buf = cb_prefix(cb, &sz);
+                char* buf = cb_prefix(cb, &sz);
                 if (sz <= 0) {
                     return CANCEL_OPT;
                 }
-                *line = atoi(buf, (uint8_t) sz);
+                *line = atoi(buf, (char) sz);
                 if (*line < 0) {
                     return CANCEL_OPT;
                 }
@@ -103,8 +103,8 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
 static const char col_select[39] = "Use UP/DOWN LEFT/RIGHT to select FG/BG";
 
 RESPONSE ui_color_picker(user_input* ui, screen* scr) {
-    uint8_t fg = scr->fg_;
-    uint8_t bg = scr->bg_;
+    char fg = scr->fg_;
+    char bg = scr->bg_;
 
     const int pad =  (scr->cols_ - sizeof(col_select)) / 2;
     do {
@@ -118,7 +118,7 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
             putch(' ');
         }
 
-        uint8_t key = getch();
+        getch();
         VKey vkey = getsysvar_vkeycode();
 
         switch (vkey) {
@@ -164,7 +164,7 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
 
 static const char options[13] = " [Y/N/ESC]: ";
 
-RESPONSE ui_dialog(user_input* ui, screen* scr, const char* msg) {
+RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     const int msz = strlen(msg);
     scr_write_line(scr, ui->ypos_, msg, msz);
     vdp_cursor_tab(ui->ypos_, msz);
@@ -172,7 +172,7 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, const char* msg) {
     scr_show_cursor_ch(scr, scr->cursor_);
 
     do {
-        uint8_t key = getch();
+        char key = getch();
         VKey vkey = getsysvar_vkeycode();
         if (vkey == VK_ESCAPE) {
             break;
@@ -191,10 +191,10 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, const char* msg) {
 RESPONSE ui_text(
     user_input* ui,
     screen* scr,
-    const char* title,
-    const char* prefill,
-    uint8_t** buf,
-    uint8_t* sz
+    char* title,
+    char* prefill,
+    char** buf,
+    int* sz
 ) {
     const int msz = strlen(title);
     scr_write_line(scr, ui->ypos_, title, msz);
@@ -206,7 +206,7 @@ RESPONSE ui_text(
     cb_clear(cb);
 
     if (prefill != NULL) {
-        for (int i = 0; i < strlen(prefill); i++) {
+        for (unsigned int i = 0; i < strlen(prefill); i++) {
             const char ch = prefill[i];
             cb_put(cb, ch);
             putch(ch);
@@ -215,7 +215,7 @@ RESPONSE ui_text(
     scr_show_cursor_ch(scr, scr->cursor_);
 
     do {
-        uint8_t key = getch();
+        char key = getch();
         VKey vkey = getsysvar_vkeycode();
 
         if (key != 0x7F && key > 0x20) {
