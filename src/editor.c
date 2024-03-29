@@ -41,6 +41,8 @@ screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
     if (tb_used(&ed->buf_) > 0) {
         cmd_show(ed);
     }
+    ed->select_ = false;
+    ed->prev_select_ = false;
     return ed;
 }
 
@@ -69,7 +71,10 @@ void ed_run(editor* ed) {
     for (;;) {
         scr_footer(scr, tb_fname(buf), tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
         key_command kc = read_input();
+
+        ed->prev_select_ = ed->select_;
         ed->select_ = kc.select;
+
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
         } else if (kc.cmd == CMD_QUIT) {

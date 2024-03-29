@@ -29,6 +29,7 @@ typedef struct _editor {
     screen scr_;
     text_buffer buf_;
     user_input ui_;
+    bool prev_select_;
     bool select_;
 } editor;
 
