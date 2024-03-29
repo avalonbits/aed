@@ -352,6 +352,33 @@ void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, int* ss
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
+static void convert_tabs(char_buffer* cb, line_buffer* lb, int spaces){
+    cb_del(cb);
+    cb_put(cb, ' ');
+    cb_prev(cb, 1);
+    if (spaces > 0) {
+        for (char i = 0; i < spaces; i++) {
+            cb_put(cb, ' ');
+            lb_cinc(lb);
+        }
+    }
+}
+
+static int ensure_newline(char_buffer* cb, line_buffer* lb) {
+    int added = 0;
+    const char pch = cb_prev(cb, 1);
+    cb_next(cb, 1);
+
+    if (pch != '\r') {
+        cb_put(cb, '\r');
+        lb_cinc(lb);
+        added++;
+    }
+
+    lb_new(lb, lb_csize(lb));
+    return added;
+}
+
 static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
@@ -361,76 +388,36 @@ static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
 
     //  Now I need to update lb_ line buffer with the correct values.
     //  There might be cases where the line endings are not \r\n so we correct for them.
-    bool saw_r = false;
-    bool saw_n = false;
+    //bool saw_r = false;
+    //bool saw_n = false;
     int xpos = 0;
     int added = 0;
     for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
         const char ch = cb_peek(cb);
-
-        if (saw_r) {
-            if (ch != '\n') {
-                cb_put(cb, '\n');
-                added++;
-            }
-            lb_new(&tb->lb_, lb_csize(&tb->lb_));
-            if (ch != '\n') {
-                lb_cinc(&tb->lb_);
-            }
-            saw_r = false;
-            saw_n = false;
+        if (ch == '\n') {
+            added += ensure_newline(&tb->cb_, &tb->lb_);
             xpos = 0;
-        } else if  (saw_n) {
-            if (!saw_r) {
-                cb_prev(cb, 1);
-                cb_put(cb, '\r');
-                cb_next(cb, 1);
-                added++;
-            }
-            lb_new(&tb->lb_, lb_csize(&tb->lb_));
-            if (!saw_r) {
-                lb_cinc(&tb->lb_);
-            }
-            saw_r = false;
-            saw_n = false;
-            xpos = 0;
-        } else if (ch == '\r') {
-            saw_r = true;
-        } else if  (ch == '\n') {
-            saw_n = true;
-        } else if (ch == '\t') {
-            cb_del(cb);
-            cb_put(cb, ' ');
-            cb_prev(cb, 1);
+        }
+        if (ch == '\t') {
             const char spaces = tab_size - (xpos % tab_size);
-            if (spaces > 0) {
-                for (char i = 0; i < spaces; i++) {
-                    cb_put(cb, ' ');
-                    lb_cinc(&tb->lb_);
-                }
-                xpos += spaces;
-                added += spaces;
-            }
+            convert_tabs(&tb->cb_, &tb->lb_, spaces);
+            xpos += spaces;
+            added += spaces;
         }
         cb_next(cb, 1);
         xpos++;
     }
+
     const char ch = cb_peek(cb);
-    if (saw_r) {
-        if (ch != '\n') {
-            lb_cinc(&tb->lb_);
-            cb_put(cb, '\n');
-        }
-        lb_new(&tb->lb_, lb_csize(&tb->lb_));
-    } else if  (saw_n) {
-        if (!saw_r) {
-            lb_cinc(&tb->lb_);
-            cb_prev(cb, 1);
-            cb_put(cb, '\r');
-            cb_next(cb, 1);
-        }
-        lb_new(&tb->lb_, lb_csize(&tb->lb_));
+    if (ch == '\n') {
+        added += ensure_newline(&tb->cb_, &tb->lb_);
+        xpos = 0;
+    } else if (ch == '\t') {
+        const char spaces = tab_size - (xpos % tab_size);
+        convert_tabs(&tb->cb_, &tb->lb_, spaces);
+        xpos += spaces;
+        added += spaces;
     }
 
     cb_prev(cb, sz+added);
