@@ -111,6 +111,10 @@ char cb_next(char_buffer* cb, int cnt) {
     return 0;
 }
 
+int cb_pos(char_buffer* cb) {
+    return cb->curr_ - cb->buf_;
+}
+
 char cb_peek(char_buffer* cb) {
     const char* end = cb->buf_ + cb->size_;
     if (cb->cend_ == end) {

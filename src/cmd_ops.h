@@ -22,6 +22,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "screen.h"
+#include "text_buffer.h"
 #include "vkey.h"
 
 typedef struct _editor editor;
@@ -32,6 +34,8 @@ typedef struct _key {
 } key;
 
 typedef void(*cmd_op)(editor* ed);
+
+void refresh_screen(screen* scr, text_buffer* tb);
 
 void cmd_show(editor* ed);
 bool cmd_quit(editor* ed);

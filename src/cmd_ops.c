@@ -52,7 +52,7 @@ static void fill_screen(screen* scr, text_buffer* tb) {
 }
 
 
-static void refresh_screen(screen* scr, text_buffer* tb) {
+void refresh_screen(screen* scr, text_buffer* tb) {
     char currY = scr->currY_;
     char currX = scr->currX_;
 

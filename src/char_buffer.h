@@ -47,6 +47,7 @@ bool cb_bksp(char_buffer* cb);
 // Cursor ops.
 char cb_next(char_buffer* cb, int cnt);
 char cb_prev(char_buffer* cb, int cnt);
+int cb_pos(char_buffer* cb);
 
 // Char read.
 char cb_peek(char_buffer* cb);

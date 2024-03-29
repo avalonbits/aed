@@ -74,6 +74,10 @@ void ed_run(editor* ed) {
 
         ed->prev_select_ = ed->select_;
         ed->select_ = kc.select;
+        if (ed->prev_select_ == true && ed->select_ == false) {
+            // We moved from select mode to edit mode. Refresh the screen.
+            refresh_screen(scr, buf);
+        }
 
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
