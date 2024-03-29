@@ -299,11 +299,11 @@ typedef enum VirtualKey {
 } VKey;
 
 #define MOD_CTRL 0x01
-#define MOD_LALT 0x02
-#define MOD_RALT 0x04
-#define MOD_ALT  0x06   // Either alt key is fine.
-#define MOD_SHFT 0x08
-#define MOD_GUI  0x10
-#define MOD_CAPS 0x20
+#define MOD_SHFT 0x02
+#define MOD_LALT 0x04
+#define MOD_RALT 0x08
+#define MOD_ALT  0x0C
+#define MOD_CAPS 0x10
+#define MOD_GUI  0x20
 #define MOD_NUML 0x40
 #define MOD_SCRL 0x80
