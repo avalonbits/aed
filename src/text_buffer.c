@@ -388,8 +388,6 @@ static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
 
     //  Now I need to update lb_ line buffer with the correct values.
     //  There might be cases where the line endings are not \r\n so we correct for them.
-    //bool saw_r = false;
-    //bool saw_n = false;
     int xpos = 0;
     int added = 0;
     for (int i = 0; i < sz; i++) {
@@ -421,7 +419,7 @@ static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
     }
 
     cb_prev(cb, sz+added);
-    tb->dirty_ = false;
+    tb->dirty_ = added != 0;
 
     // Now move the line buffer back to the first line.
     while (lb_up(&tb->lb_)) ;
