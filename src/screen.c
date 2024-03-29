@@ -128,7 +128,7 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
-void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
+void scr_footer(screen* scr, char* fname, bool select_mode, bool dirty, int x, int y) {
     static char* no_file = "[NO FILE]";
     if (fname == NULL) {
         fname = no_file;
@@ -137,7 +137,11 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     int psz = 13 + fnsz ;
 
     vdp_cursor_tab(scr->bottomY_, 0);
-    set_colours(scr->bg_, scr->fg_);
+    if (select_mode) {
+        set_colours(scr->fg_, scr->bg_);
+    } else {
+        set_colours(scr->bg_, scr->fg_);
+    }
 
     mos_puts(fname, fnsz, 0);
     if (dirty) {

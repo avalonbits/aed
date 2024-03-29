@@ -64,20 +64,37 @@ typedef struct _key_command {
 
 key_command read_input();
 
+static void set_mode(editor* ed, bool select) {
+    ed->prev_select_ = ed->select_;
+    ed->select_ = select;
+    const bool edit_to_select = ed->select_ && !ed->prev_select_;
+    const bool select_to_edit = ed->prev_select_ && !ed->select_;
+
+    if (edit_to_select || select_to_edit) {
+        // We are moving between modes. Swap fg/bg colors.
+        screen* scr = &ed->scr_;
+        const char tmp = scr->fg_;
+
+        scr->fg_ = scr->bg_;
+        scr->bg_ = tmp;
+        set_colours(scr->fg_, scr->bg_);
+
+        if (select_to_edit) {
+            // We moving from select to edit mode. Refresh the screen.
+            refresh_screen(scr, &ed->buf_);
+        }
+    }
+}
+
 void ed_run(editor* ed) {
     text_buffer* buf = &ed->buf_;
     screen* scr = &ed->scr_;
 
     for (;;) {
-        scr_footer(scr, tb_fname(buf), tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
         key_command kc = read_input();
 
-        ed->prev_select_ = ed->select_;
-        ed->select_ = kc.select;
-        if (ed->prev_select_ == true && ed->select_ == false) {
-            // We moved from select mode to edit mode. Refresh the screen.
-            refresh_screen(scr, buf);
-        }
+        set_mode(ed, kc.select);
+        scr_footer(scr, tb_fname(buf), kc.select, tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
 
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
@@ -195,6 +212,7 @@ key_command read_input() {
 
     const char mods = getsysvar_keymods();
     if (mods & MOD_CTRL) {
+        kc.select = mods & MOD_SHFT;
         return ctrlCmds(kc, mods);
     }
     if (kc.k.key == '\t' || (kc.k.key != 0x7F && kc.k.key >= 32)) {
