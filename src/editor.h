@@ -29,6 +29,7 @@ typedef struct _editor {
     screen scr_;
     text_buffer buf_;
     user_input ui_;
+    bool select_;
 } editor;
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);

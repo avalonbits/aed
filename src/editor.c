@@ -29,7 +29,7 @@
 #define DEFAULT_CURSOR 32
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
-    screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
+screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
     if (!tb_init(&ed->buf_, scr->tab_size_, mem_kb, fname)) {
        return NULL;
     }
@@ -56,6 +56,8 @@ void ed_destroy(editor* ed) {
 typedef struct _key_command {
     cmd_op cmd;
     key k;
+    bool select;
+
 } key_command;
 
 key_command read_input();
@@ -67,6 +69,7 @@ void ed_run(editor* ed) {
     for (;;) {
         scr_footer(scr, tb_fname(buf), tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
         key_command kc = read_input();
+        ed->select_ = kc.select;
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
         } else if (kc.cmd == CMD_QUIT) {
@@ -177,7 +180,7 @@ key_command editCmds(key_command kc) {
 }
 
 key_command read_input() {
-    key_command kc = {NULL, {'\0', VK_NONE}};
+    key_command kc = {NULL, {'\0', VK_NONE}, false};
     kc.k.key = getch();
     kc.k.vkey = getsysvar_vkeycode();
 
@@ -185,10 +188,10 @@ key_command read_input() {
     if (mods & MOD_CTRL) {
         return ctrlCmds(kc, mods);
     }
-
     if (kc.k.key == '\t' || (kc.k.key != 0x7F && kc.k.key >= 32)) {
         kc.cmd = CMD_PUTC;
     } else {
+        kc.select = mods & MOD_SHFT;
         return editCmds(kc);
     }
 
