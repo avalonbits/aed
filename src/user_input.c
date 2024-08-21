@@ -51,7 +51,7 @@ static int atoi(char* str, char sz) {
 
 RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
     scr_write_line(scr, ui->ypos_, goto_line, sizeof(goto_line));
-    vdp_cursor_tab(ui->ypos_, sizeof(goto_line));
+    vdp_cursor_tab(sizeof(goto_line), ui->ypos_);
     scr_show_cursor_ch(scr, scr->cursor_);
 
     char_buffer* cb = &ui->cb_;
@@ -108,7 +108,7 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
 
     const int pad =  (scr->cols_ - sizeof(col_select)) / 2;
     do {
-        vdp_cursor_tab(ui->ypos_, 0);
+        vdp_cursor_tab(0, ui->ypos_);
         set_colours(fg, bg);
         for (int i = 0; i < pad; i++) {
             putch(' ');
@@ -167,7 +167,7 @@ static const char options[13] = " [Y/N/ESC]: ";
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     const int msz = strlen(msg);
     scr_write_line(scr, ui->ypos_, msg, msz);
-    vdp_cursor_tab(ui->ypos_, msz);
+    vdp_cursor_tab(msz, ui->ypos_);
     VDP_PUTS(options);
     scr_show_cursor_ch(scr, scr->cursor_);
 
@@ -198,7 +198,7 @@ RESPONSE ui_text(
 ) {
     const int msz = strlen(title);
     scr_write_line(scr, ui->ypos_, title, msz);
-    vdp_cursor_tab(ui->ypos_, msz);
+    vdp_cursor_tab(msz, ui->ypos_);
 
     *buf = NULL;
     *sz = 0;

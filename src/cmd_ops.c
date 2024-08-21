@@ -65,7 +65,7 @@ void refresh_screen(screen* scr, text_buffer* tb) {
     }
     fill_screen(scr, &cp);
 
-    vdp_cursor_tab(currY, currX);
+    vdp_cursor_tab(currX, currY);
     scr->currY_ = currY;
     scr->currX_ = currX;
 }
@@ -214,7 +214,7 @@ static void scroll_down(
     VDP_PUTS(down);
     reset_viewport();
     scr_write_line(scr, scr->currY_, line, sz);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, ch);
 }
 
@@ -225,7 +225,7 @@ static void scroll_up(
     VDP_PUTS(up);
     reset_viewport();
     scr_write_line(scr, scr->currY_, line, sz);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, ch);
 }
 
@@ -255,7 +255,7 @@ void cmd_show(editor* ed) {
     text_buffer cb;
     tb_copy(&cb, tb);
     fill_screen(scr, &cb);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 
     const char to_ch = tb_peek(tb);
     scr_show_cursor_ch(scr, to_ch);
@@ -482,7 +482,7 @@ void cmd_up(editor* ed) {
     if (scr->currY_ == scr->topY_) {
         scr_hide_cursor_ch(scr, from_ch);
         scr->currX_ = 0;
-        vdp_cursor_tab(scr->currY_, scr->currX_);
+        vdp_cursor_tab(scr->currX_, scr->currY_);
 
         tb_home(tb);
         to_ch = tb_peek(tb);
@@ -677,7 +677,7 @@ void cmd_goto(editor* ed) {
     } else {
         scr->currY_ = diff;
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 
     scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
     refresh_screen(scr, tb);

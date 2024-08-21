@@ -136,7 +136,7 @@ void scr_footer(screen* scr, char* fname, bool select_mode, bool dirty, int x, i
     const int fnsz = strlen(fname);
     int psz = 13 + fnsz ;
 
-    vdp_cursor_tab(scr->bottomY_, 0);
+    vdp_cursor_tab(0, scr->bottomY_);
     if (select_mode) {
         set_colours(scr->fg_, scr->bg_);
     } else {
@@ -173,7 +173,7 @@ void scr_footer(screen* scr, char* fname, bool select_mode, bool dirty, int x, i
     }
 
     set_colours(scr->fg_, scr->bg_);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 char* title = "AED: Another Text Editor";
@@ -194,7 +194,7 @@ void scr_clear(screen* scr) {
     }
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_hide_cursor_ch(screen* scr, char ch) {
@@ -221,7 +221,7 @@ void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz
             for (int i = 0; i < ssz && i < max; i++) {
                 putch(suffix[i]);
             }
-            vdp_cursor_tab(scr->currY_, scr->currX_);
+            vdp_cursor_tab(scr->currX_, scr->currY_);
             scr_show_cursor_ch(scr, suffix[0]);
         } else {
             scr_show_cursor(scr);
@@ -229,7 +229,7 @@ void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz
     } else {
         int pad = psz - scr->cols_+1;
         scr_write_line(scr, scr->currY_, prefix+pad, psz-pad-1);
-        vdp_cursor_tab(scr->currY_, scr->currX_-1);
+        vdp_cursor_tab(scr->currX_-1, scr->currY_);
         putch(ch);
         if (ssz > 0) {
             scr_show_cursor_ch(scr, suffix[0]);
@@ -248,7 +248,7 @@ static void print_suffix(screen* scr, char* suffix, int sz) {
     if (i < limit) {
         putch(' ');
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_del(screen* scr, char* suffix, int sz) {
@@ -266,7 +266,7 @@ void scr_bksp(screen* scr, char* suffix, int sz) {
     }
     scr->currX_--;
     scr_hide_cursor(scr);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 
     char ch = scr->cursor_;
     if (sz > 0) {
@@ -283,15 +283,15 @@ void scr_left(screen* scr, char from_ch, char to_ch, char deltaX, char* suffix, 
     } else if (sz > 0) {
         scr->currX_ = 0;
         int max = scr->cols_ - scr->currX_;
-        vdp_cursor_tab(scr->currY_, 0);
+        vdp_cursor_tab(0, scr->currY_);
         for (int i = 0; i < max; i++) {
             putch(suffix[i]);
         }
-        vdp_cursor_tab(scr->currY_, scr->currX_);
+        vdp_cursor_tab(scr->currX_, scr->currY_);
 
     }
     scr_hide_cursor_ch(scr, from_ch);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -303,15 +303,15 @@ void scr_right(screen* scr, char from_ch, char to_ch, char deltaX, char* prefix,
         scr->currX_ = scr->cols_-1;
         int pad = sz - scr->cols_ + 1;
 
-        vdp_cursor_tab(scr->currY_, 0);
+        vdp_cursor_tab(0, scr->currY_);
         for (int i = 0; i < scr->cols_; i++) {
             putch(prefix[i+pad]);
         }
-        vdp_cursor_tab(scr->currY_, scr->currX_);
+        vdp_cursor_tab(scr->currX_, scr->currY_);
 
     }
     scr_hide_cursor_ch(scr, from_ch);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -321,7 +321,7 @@ void scr_home(screen* scr, char from_ch, char to_ch, char* suffix, int sz) {
     if (sz > 0) {
         scr_write_line(scr, scr->currY_, suffix, sz);
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -340,7 +340,7 @@ void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, in
         }
         scr_write_line(scr, scr->currY_, prefix+pad, sz-pad);
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -348,7 +348,7 @@ void scr_up(screen* scr, char from_ch, char to_ch, char currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
     scr->currX_ = currX;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -356,7 +356,7 @@ void scr_down(screen* scr, char from_ch, char to_ch, char currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
     scr->currX_ = currX;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -379,7 +379,7 @@ void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
 }
 
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
-    vdp_cursor_tab(ypos, 0);
+    vdp_cursor_tab(0, ypos);
     int i = 0;
     for (; i < sz && i < scr->cols_; i++) {
         putch(buf[i]);
@@ -387,7 +387,7 @@ void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
     for (; i < psz && i < scr->cols_; i++) {
         putch(' ');
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_erase(screen* scr, int sz) {
@@ -398,6 +398,6 @@ void scr_erase(screen* scr, int sz) {
     for (int i = scr->currX_; i < sz; ++i) {
         putch(' ');
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
