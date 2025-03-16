@@ -29,7 +29,7 @@
 #define DEFAULT_CURSOR 32
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
-screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
+    screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
     if (!tb_init(&ed->buf_, scr->tab_size_, mem_kb, fname)) {
        return NULL;
     }
@@ -90,11 +90,12 @@ void ed_run(editor* ed) {
     text_buffer* buf = &ed->buf_;
     screen* scr = &ed->scr_;
 
+    scr_footer(scr, tb_fname(buf), false, tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
+
     for (;;) {
         key_command kc = read_input();
 
         set_mode(ed, kc.select);
-        scr_footer(scr, tb_fname(buf), kc.select, tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
 
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
@@ -107,6 +108,8 @@ void ed_run(editor* ed) {
         } else if (kc.cmd != NULL) {
             kc.cmd(ed);
         }
+
+        scr_footer(scr, tb_fname(buf), kc.select, tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
     }
     vdp_clear_screen();
 }
