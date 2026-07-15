@@ -18,8 +18,8 @@
 
 #include "editor.h"
 
-#include <agon/vdp_vdu.h>
-#include <mos_api.h>
+#include <agon/vdp.h>
+#include <agon/mos.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>

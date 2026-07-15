@@ -18,9 +18,9 @@
 
 #include "screen.h"
 
-#include <agon/vdp_vdu.h>
+#include <agon/vdp.h>
 #include <string.h>
-#include <mos_api.h>
+#include <agon/mos.h>
 #include <stdio.h>
 
 #include "conv.h"
@@ -41,7 +41,7 @@ void scr_show_cursor_ch(screen* scr, char ch) {
     set_colours(scr->bg_, scr->fg_);
 
     // Print the cursor;
-    putch(ch);
+    putchar(ch);
     vdp_cursor_left();
 
     // Reverse colors back.
@@ -70,7 +70,7 @@ static char getColorForCh(char ch) {
     static char getcol[7] = {23, 0, 0x84, 4, 0, 4, 0};
 
     vdp_cursor_tab(0,0);
-    putch(ch);
+    putchar(ch);
 
     volatile char idx = 0;
     for (int i = 0; i < 1; i++) {
@@ -136,18 +136,18 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     const int fnsz = strlen(fname);
     int psz = 13 + fnsz ;
 
-    vdp_cursor_tab(scr->bottomY_, 0);
+    vdp_cursor_tab(0, scr->bottomY_);
     set_colours(scr->bg_, scr->fg_);
 
     mos_puts(fname, fnsz, 0);
     if (dirty) {
-        putch('*');
+        putchar('*');
     } else {
-        putch(' ');
+        putchar(' ');
     }
-    putch(' ');
+    putchar(' ');
     for (int i = 0; i < scr->cols_-psz; i++) {
-        putch(' ');
+        putchar(' ');
     }
 
     static char digits[16];
@@ -155,21 +155,21 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     int dsz = strlen(digits);
     char max = strlen(digits) < 4 ? 4 - strlen(digits) : 4;
     for (int i = 0; i < max; i++) {
-        putch(' ');
+        putchar(' ');
     }
     mos_puts(digits, dsz, 0);
-    putch(',');
+    putchar(',');
 
     i2s(x, digits, 16);
     dsz = strlen(digits);
     max = strlen(digits) < 6 ? 6 - strlen(digits) : 6;
     mos_puts(digits, dsz, 0);
     for (int i = 0; i < max; i++) {
-        putch(' ');
+        putchar(' ');
     }
 
     set_colours(scr->fg_, scr->bg_);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_ );
 }
 
 char* title = "AED: Another Text Editor";
@@ -180,17 +180,17 @@ void scr_clear(screen* scr) {
     const int len = strlen(title);
     const int banner = (scr->cols_ - len)/2;
     for (int i = 0; i < banner; i++) {
-        putch('-');
+        putchar('-');
     }
     set_colours(scr->bg_, scr->fg_);
     mos_puts(title, strlen(title), 0);
     set_colours(scr->fg_, scr->bg_);
     for (int i = 0; i < banner; i++)  {
-        putch('-');
+        putchar('-');
     }
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_hide_cursor_ch(screen* scr, char ch) {
@@ -199,7 +199,7 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
     }
 
     set_colours(scr->fg_, scr->bg_);
-    putch(ch);
+    putchar(ch);
     vdp_cursor_left();
 }
 
@@ -210,14 +210,14 @@ static void scr_hide_cursor(screen* scr) {
 void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
     if (scr->currX_ < scr->cols_-1) {
-        putch(ch);
+        putchar(ch);
         scr->currX_++;
         if (suffix != NULL && ssz > 0) {
             int max = scr->cols_ - scr->currX_;
             for (int i = 0; i < ssz && i < max; i++) {
-                putch(suffix[i]);
+                putchar(suffix[i]);
             }
-            vdp_cursor_tab(scr->currY_, scr->currX_);
+            vdp_cursor_tab(scr->currX_, scr->currY_);
             scr_show_cursor_ch(scr, suffix[0]);
         } else {
             scr_show_cursor(scr);
@@ -225,8 +225,8 @@ void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz
     } else {
         int pad = psz - scr->cols_+1;
         scr_write_line(scr, scr->currY_, prefix+pad, psz-pad-1);
-        vdp_cursor_tab(scr->currY_, scr->currX_-1);
-        putch(ch);
+        vdp_cursor_tab(scr->currX_ -1, scr->currY_);
+        putchar(ch);
         if (ssz > 0) {
             scr_show_cursor_ch(scr, suffix[0]);
         } else {
@@ -239,12 +239,12 @@ static void print_suffix(screen* scr, char* suffix, int sz) {
     int i = 0;
     const int limit = scr->cols_ - scr->currX_;
     for (; i < sz && i < limit; i++) {
-        putch(suffix[i]);
+        putchar(suffix[i]);
     }
     if (i < limit) {
-        putch(' ');
+        putchar(' ');
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_del(screen* scr, char* suffix, int sz) {
@@ -262,7 +262,7 @@ void scr_bksp(screen* scr, char* suffix, int sz) {
     }
     scr->currX_--;
     scr_hide_cursor(scr);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 
     char ch = scr->cursor_;
     if (sz > 0) {
@@ -279,15 +279,15 @@ void scr_left(screen* scr, char from_ch, char to_ch, char deltaX, char* suffix, 
     } else if (sz > 0) {
         scr->currX_ = 0;
         int max = scr->cols_ - scr->currX_;
-        vdp_cursor_tab(scr->currY_, 0);
+        vdp_cursor_tab(0, scr->currY_);
         for (int i = 0; i < max; i++) {
-            putch(suffix[i]);
+            putchar(suffix[i]);
         }
-        vdp_cursor_tab(scr->currY_, scr->currX_);
+        vdp_cursor_tab(scr->currX_, scr->currY_);
 
     }
     scr_hide_cursor_ch(scr, from_ch);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -299,15 +299,15 @@ void scr_right(screen* scr, char from_ch, char to_ch, char deltaX, char* prefix,
         scr->currX_ = scr->cols_-1;
         int pad = sz - scr->cols_ + 1;
 
-        vdp_cursor_tab(scr->currY_, 0);
+        vdp_cursor_tab(0, scr->currY_);
         for (int i = 0; i < scr->cols_; i++) {
-            putch(prefix[i+pad]);
+            putchar(prefix[i+pad]);
         }
-        vdp_cursor_tab(scr->currY_, scr->currX_);
+        vdp_cursor_tab(scr->currX_, scr->currY_);
 
     }
     scr_hide_cursor_ch(scr, from_ch);
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -317,7 +317,7 @@ void scr_home(screen* scr, char from_ch, char to_ch, char* suffix, int sz) {
     if (sz > 0) {
         scr_write_line(scr, scr->currY_, suffix, sz);
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -336,7 +336,7 @@ void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, in
         }
         scr_write_line(scr, scr->currY_, prefix+pad, sz-pad);
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -344,7 +344,7 @@ void scr_up(screen* scr, char from_ch, char to_ch, char currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
     scr->currX_ = currX;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -352,7 +352,7 @@ void scr_down(screen* scr, char from_ch, char to_ch, char currX) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
     scr->currX_ = currX;
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
@@ -367,7 +367,7 @@ static void define_viewport(screen* scr, char top, char bottom) {
 void scr_clear_textarea(screen* scr, char top, char bottom) {
     define_viewport(scr, top, bottom);
     vdp_clear_screen();
-    putch(26);  // Reset viewport.
+    putchar(26);  // Reset viewport.
 }
 
 void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
@@ -375,15 +375,15 @@ void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
 }
 
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
-    vdp_cursor_tab(ypos, 0);
+    vdp_cursor_tab(0, ypos);
     int i = 0;
     for (; i < sz && i < scr->cols_; i++) {
-        putch(buf[i]);
+        putchar(buf[i]);
     }
     for (; i < psz && i < scr->cols_; i++) {
-        putch(' ');
+        putchar(' ');
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_erase(screen* scr, int sz) {
@@ -392,8 +392,8 @@ void scr_erase(screen* scr, int sz) {
         sz = scr->cols_;
     }
     for (int i = scr->currX_; i < sz; ++i) {
-        putch(' ');
+        putchar(' ');
     }
-    vdp_cursor_tab(scr->currY_, scr->currX_);
+    vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
