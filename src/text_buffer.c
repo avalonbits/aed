@@ -18,8 +18,8 @@
 
 #include "text_buffer.h"
 
-#include <agon/vdp_vdu.h>
-#include <mos_api.h>
+#include <agon/vdp.h>
+#include <agon/mos.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
