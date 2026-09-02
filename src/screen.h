@@ -58,17 +58,17 @@ void scr_clear(screen* scr);
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y);
 
 // Input.
-// These return true when the horizontal origin moved; the caller must then
-// repaint the whole text area, since every other row is drawn against the old one.
-bool scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz);
+// These return how far the horizontal origin moved (see scr_place_cursor);
+// non-zero means every other row is drawn against the old origin.
+int scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz);
 void scr_del(screen* scr, char* suffix, int sz);
-bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz);
+int scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz);
 
 // Navigation.
-bool scr_up(screen* scr, char from_ch, char to_ch,
-            const char* pre, int presz, const char* suf, int sufsz);
-bool scr_down(screen* scr, char from_ch, char to_ch,
-              const char* pre, int presz, const char* suf, int sufsz);
+// These no longer paint the row -- when the window moves the controller repaints
+// the whole text area -- so they only need where the cursor sits in the line.
+int scr_up(screen* scr, char from_ch, char to_ch, const char* pre, int presz);
+int scr_down(screen* scr, char from_ch, char to_ch, const char* pre, int presz);
 
 // Column projection. `line` is the current line from its start and `len` is how
 // many of its bytes precede the cursor.
@@ -79,9 +79,27 @@ int  scr_column_of(screen* scr, const char* line, int len);
 int  scr_byte_at(screen* scr, const char* line, int len, int column);
 
 // Places the cursor at the column `len` bytes into the line, scrolling the view
-// horizontally if that column is off screen. Returns true when the origin moved
-// and the row therefore needs repainting.
-bool scr_place_cursor(screen* scr, const char* line, int len);
+// horizontally if that column is off screen. Returns how far the origin moved,
+// in columns: positive means the window moved right, negative left, zero not at
+// all. The caller needs the distance, not just the fact, to decide between a
+// VDP region scroll and a full repaint.
+int scr_place_cursor(screen* scr, const char* line, int len);
+
+// Beyond this many columns a full repaint costs less than scrolling and
+// painting the newly exposed columns one at a time.
+#define SCR_MAX_HSCROLL 16
+
+// Scrolls the whole text area sideways using the VDP's own region scroll, the
+// same mechanism as scr_scroll_up/down. Positive `cols` moves the window right
+// (text moves left). The exposed columns are left blank for the caller to fill.
+void scr_scroll_h(screen* scr, int cols);
+
+// The glyph rendered at document column `col` of `line`, or a space when that
+// column falls past the end or inside a tab's expansion.
+char scr_glyph_at(screen* scr, const char* line, int len, int col);
+
+// Prints one character at a screen cell without disturbing the recorded cursor.
+void scr_put_at(screen* scr, char sx, char sy, char ch);
 
 // Paints one row from a line held as a gap-buffer split (either half may be
 // NULL/0), starting at the current horizontal origin, expanding tabs and
@@ -100,8 +118,8 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz);
 
 // The single horizontal-motion primitive: move the cursor to the given position
 // in the line, scrolling and repainting the row if required.
-bool scr_move_cursor(screen* scr, char from_ch, char to_ch,
-                     const char* pre, int presz, const char* suf, int sufsz);
+int scr_move_cursor(screen* scr, char from_ch, char to_ch,
+                    const char* pre, int presz);
 
 // Screen management.
 void set_colours(char fg, char bg);

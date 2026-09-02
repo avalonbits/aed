@@ -53,40 +53,40 @@ int main(void) {
 
     /* --- the window follows the cursor rightwards --- */
     screen scr = mkscreen(80);
-    scr_move_cursor(&scr, 'a', 'b', plain, 10, plain + 10, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 10);
     check("short move stays at origin 0", scr.originX_, 0);
     check("  and the cursor is at its column", scr.currX_, 10);
 
-    scr_move_cursor(&scr, 'a', 'b', plain, 79, plain + 79, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 79);
     check("column 79 still fits", scr.originX_, 0);
     check("  cursor at the last column", scr.currX_, 79);
 
-    scr_move_cursor(&scr, 'a', 'b', plain, 200, plain + 200, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 200);
     check("column 200 scrolls the window", scr.originX_, 121);
     check("  cursor pinned to the right edge", scr.currX_, 79);
 
     /* A further move right by one advances the origin by exactly one. */
-    scr_move_cursor(&scr, 'a', 'b', plain, 201, plain + 201, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 201);
     check("one more column, origin advances by one", scr.originX_, 122);
     check("  cursor still at the right edge", scr.currX_, 79);
 
     /* --- and leftwards, which the old code only handled by jumping to 0 --- */
-    scr_move_cursor(&scr, 'a', 'b', plain, 150, plain + 150, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 150);
     check("moving left inside the window keeps origin", scr.originX_, 122);
     check("  cursor tracks the column", scr.currX_, 28);
 
-    scr_move_cursor(&scr, 'a', 'b', plain, 100, plain + 100, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 100);
     check("moving left past the origin scrolls back", scr.originX_, 100);
     check("  cursor at the left edge", scr.currX_, 0);
 
     /* Scrolling left to a column that fits on screen should show the line from
      * its start, not park the window mid-line -- otherwise every shorter row
      * goes blank. */
-    scr_move_cursor(&scr, 'a', 'b', plain, 9, plain + 9, 60);
+    scr_move_cursor(&scr, 'a', 'b', plain, 9);
     check("scrolling left to a column that fits snaps to 0", scr.originX_, 0);
     check("  and the cursor keeps its column", scr.currX_, 9);
 
-    scr_move_cursor(&scr, 'a', 'b', NULL, 0, plain, 200);
+    scr_move_cursor(&scr, 'a', 'b', NULL, 0);
     check("home returns the window to 0", scr.originX_, 0);
     check("  cursor at column 0", scr.currX_, 0);
 
@@ -96,22 +96,38 @@ int main(void) {
      * document -- so it has to tell the controller the window moved. */
     scr = mkscreen(80);
     check("a move inside the window reports no scroll",
-          scr_move_cursor(&scr, 'a', 'b', plain, 10, plain + 10, 60) ? 1 : 0, 0);
+          scr_move_cursor(&scr, 'a', 'b', plain, 10) ? 1 : 0, 0);
     check("a move past the right edge reports a scroll",
-          scr_move_cursor(&scr, 'a', 'b', plain, 200, plain + 200, 60) ? 1 : 0, 1);
+          scr_move_cursor(&scr, 'a', 'b', plain, 200) ? 1 : 0, 1);
     check("staying inside the new window reports nothing",
-          scr_move_cursor(&scr, 'a', 'b', plain, 150, plain + 150, 60) ? 1 : 0, 0);
+          scr_move_cursor(&scr, 'a', 'b', plain, 150) ? 1 : 0, 0);
     check("moving left past the origin reports a scroll",
-          scr_move_cursor(&scr, 'a', 'b', plain, 10, plain + 10, 60) ? 1 : 0, 1);
+          scr_move_cursor(&scr, 'a', 'b', plain, 10) ? 1 : 0, 1);
+
+    /* The distance matters, not just the fact: the controller uses it to choose
+     * between a VDP region scroll and a full repaint, and to know how many
+     * columns were exposed. */
+    scr = mkscreen(80);
+    check("moving one past the edge reports exactly 1",
+          scr_move_cursor(&scr, 'a', 'b', plain, 80), 1);
+    check("another column reports 1 again",
+          scr_move_cursor(&scr, 'a', 'b', plain, 81), 1);
+    check("a jump of 20 reports 20",
+          scr_move_cursor(&scr, 'a', 'b', plain, 101), 20);
+    /* Leftwards the snap-to-zero rule applies, so the distance is the whole way
+     * back from origin 22, not just to the cursor's column. */
+    check("scrolling back left reports the full negative distance",
+          scr_move_cursor(&scr, 'a', 'b', plain, 21), -22);
+    check("  and the window is at the start", scr.originX_, 0);
 
     /* Vertical motion can move the window too, when the column it lands on is
      * outside it -- that is exactly the case that showed stale rows. */
     scr = mkscreen(80);
-    (void) scr_move_cursor(&scr, 'a', 'b', plain, 200, plain + 200, 60);
+    (void) scr_move_cursor(&scr, 'a', 'b', plain, 200);
     check("window is scrolled before the vertical move", scr.originX_, 121);
     scr.currY_ = 5;
     check("moving down to column 0 reports a scroll",
-          scr_down(&scr, 'a', 'b', NULL, 0, plain, 60) ? 1 : 0, 1);
+          scr_down(&scr, 'a', 'b', NULL, 0) ? 1 : 0, 1);
     check("  and the window came back", scr.originX_, 0);
 
     /* Edits that push the cursor past the edge scroll as well. */
@@ -127,17 +143,17 @@ int main(void) {
 
     scr = mkscreen(80);
     /* 30 tabs at width 4 is column 120: past the edge, so the window moves. */
-    scr_move_cursor(&scr, 'a', 'b', tabs, 30, tabs + 30, 10);
+    scr_move_cursor(&scr, 'a', 'b', tabs, 30);
     check("30 tabs is column 120, so origin moves", scr.originX_, 120 - 79);
     check("  cursor at the right edge", scr.currX_, 79);
 
     /* One tab back is 4 columns back, not 1 -- the whole point. */
-    scr_move_cursor(&scr, 'a', 'b', tabs, 29, tabs + 29, 10);
+    scr_move_cursor(&scr, 'a', 'b', tabs, 29);
     check("one tab back is four columns back", scr.originX_ + scr.currX_, 116);
 
     /* A 128+ column motion in one step: the case that used to truncate. */
     scr = mkscreen(80);
-    scr_move_cursor(&scr, 'a', 'b', tabs, 40, tabs + 40, 10);
+    scr_move_cursor(&scr, 'a', 'b', tabs, 40);
     check("160-column motion lands correctly", scr.originX_ + scr.currX_, 160);
     check("  and stays on screen", scr.currX_, 79);
 

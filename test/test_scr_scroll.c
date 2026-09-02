@@ -149,6 +149,40 @@ int main(void) {
               want_clear, (int) sizeof(want_clear));
     check("clear_textarea resets the viewport", got[n - 1], 26);
 
+    /* Horizontal region scroll: same VDU 23,7 mechanism, directions 0 and 1.
+     * Scrolling the window right means moving the content left, so a positive
+     * column count must emit direction 1. */
+    const unsigned char want_right[] = {28, 0, 23, 80, 1, 23, 7, 0, 1, 8, 26};
+    cap_start();
+    scr_scroll_h(&scr, 1);
+    n = cap_read(got, sizeof(got));
+    check_seq("scroll window right -> direction 1", got, n,
+              want_right, (int) sizeof(want_right));
+
+    const unsigned char want_left[] = {28, 0, 23, 80, 1, 23, 7, 0, 0, 8, 26};
+    cap_start();
+    scr_scroll_h(&scr, -1);
+    n = cap_read(got, sizeof(got));
+    check_seq("scroll window left  -> direction 0", got, n,
+              want_left, (int) sizeof(want_left));
+
+    /* A multi-column hop repeats the scroll inside one viewport definition. */
+    cap_start();
+    scr_scroll_h(&scr, 3);
+    n = cap_read(got, sizeof(got));
+    const unsigned char want3[] = {28, 0, 23, 80, 1,
+                                   23, 7, 0, 1, 8,
+                                   23, 7, 0, 1, 8,
+                                   23, 7, 0, 1, 8, 26};
+    check_seq("three columns -> three scroll commands", got, n,
+              want3, (int) sizeof(want3));
+
+    /* Zero must emit nothing at all. */
+    cap_start();
+    scr_scroll_h(&scr, 0);
+    n = cap_read(got, sizeof(got));
+    check("a zero-column scroll emits nothing", n, 0);
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
