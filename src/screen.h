@@ -58,14 +58,16 @@ void scr_clear(screen* scr);
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y);
 
 // Input.
-void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz);
+// These return true when the horizontal origin moved; the caller must then
+// repaint the whole text area, since every other row is drawn against the old one.
+bool scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz);
 void scr_del(screen* scr, char* suffix, int sz);
-void scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz);
+bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz);
 
 // Navigation.
-void scr_up(screen* scr, char from_ch, char to_ch,
+bool scr_up(screen* scr, char from_ch, char to_ch,
             const char* pre, int presz, const char* suf, int sufsz);
-void scr_down(screen* scr, char from_ch, char to_ch,
+bool scr_down(screen* scr, char from_ch, char to_ch,
               const char* pre, int presz, const char* suf, int sufsz);
 
 // Column projection. `line` is the current line from its start and `len` is how
@@ -98,7 +100,7 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz);
 
 // The single horizontal-motion primitive: move the cursor to the given position
 // in the line, scrolling and repainting the row if required.
-void scr_move_cursor(screen* scr, char from_ch, char to_ch,
+bool scr_move_cursor(screen* scr, char from_ch, char to_ch,
                      const char* pre, int presz, const char* suf, int sufsz);
 
 // Screen management.

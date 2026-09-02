@@ -79,9 +79,47 @@ int main(void) {
     check("moving left past the origin scrolls back", scr.originX_, 100);
     check("  cursor at the left edge", scr.currX_, 0);
 
+    /* Scrolling left to a column that fits on screen should show the line from
+     * its start, not park the window mid-line -- otherwise every shorter row
+     * goes blank. */
+    scr_move_cursor(&scr, 'a', 'b', plain, 9, plain + 9, 60);
+    check("scrolling left to a column that fits snaps to 0", scr.originX_, 0);
+    check("  and the cursor keeps its column", scr.currX_, 9);
+
     scr_move_cursor(&scr, 'a', 'b', NULL, 0, plain, 200);
     check("home returns the window to 0", scr.originX_, 0);
     check("  cursor at column 0", scr.currX_, 0);
+
+    /* --- moving the window must be reported, not just done --- */
+    /* originX_ is screen-wide, so a scroll leaves every other visible row drawn
+     * against the old origin. The view cannot repaint them -- it cannot walk the
+     * document -- so it has to tell the controller the window moved. */
+    scr = mkscreen(80);
+    check("a move inside the window reports no scroll",
+          scr_move_cursor(&scr, 'a', 'b', plain, 10, plain + 10, 60) ? 1 : 0, 0);
+    check("a move past the right edge reports a scroll",
+          scr_move_cursor(&scr, 'a', 'b', plain, 200, plain + 200, 60) ? 1 : 0, 1);
+    check("staying inside the new window reports nothing",
+          scr_move_cursor(&scr, 'a', 'b', plain, 150, plain + 150, 60) ? 1 : 0, 0);
+    check("moving left past the origin reports a scroll",
+          scr_move_cursor(&scr, 'a', 'b', plain, 10, plain + 10, 60) ? 1 : 0, 1);
+
+    /* Vertical motion can move the window too, when the column it lands on is
+     * outside it -- that is exactly the case that showed stale rows. */
+    scr = mkscreen(80);
+    (void) scr_move_cursor(&scr, 'a', 'b', plain, 200, plain + 200, 60);
+    check("window is scrolled before the vertical move", scr.originX_, 121);
+    scr.currY_ = 5;
+    check("moving down to column 0 reports a scroll",
+          scr_down(&scr, 'a', 'b', NULL, 0, plain, 60) ? 1 : 0, 1);
+    check("  and the window came back", scr.originX_, 0);
+
+    /* Edits that push the cursor past the edge scroll as well. */
+    scr = mkscreen(80);
+    check("an insert inside the window reports nothing",
+          scr_putc(&scr, 'x', plain, 5, plain + 5, 10) ? 1 : 0, 0);
+    check("an insert past the edge reports a scroll",
+          scr_putc(&scr, 'x', plain, 200, plain + 200, 10) ? 1 : 0, 1);
 
     /* --- the same, but where bytes and columns differ --- */
     static char tabs[64];

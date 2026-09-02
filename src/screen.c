@@ -192,7 +192,10 @@ bool scr_place_cursor(screen* scr, const char* line, int len) {
     // Keep the cursor inside the window by moving the window, not by pinning
     // the cursor to an edge and losing track of where it really is.
     if (col < origin) {
-        scr->originX_ = col;
+        // Scrolling left: if everything up to the cursor already fits, show the
+        // line from its start rather than leaving the window parked mid-line,
+        // which would blank out every shorter row on screen.
+        scr->originX_ = col < width ? 0 : col;
     } else if (col > origin + width - 1) {
         scr->originX_ = col - (width - 1);
     }
@@ -299,7 +302,7 @@ static void scr_hide_cursor(screen* scr) {
 
 // `prefix`/`psz` describe the line up to and including the character just
 // inserted, so the cursor lands after it.
-void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
+bool scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
     (void) ch;
     scr_hide_cursor(scr);
 
@@ -314,6 +317,8 @@ void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz
     }
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, (suffix != NULL && ssz > 0) ? suffix[0] : scr->cursor_);
+
+    return scrolled;
 }
 
 void scr_del(screen* scr, char* suffix, int sz) {
@@ -323,7 +328,7 @@ void scr_del(screen* scr, char* suffix, int sz) {
 
 // `prefix`/`psz` describe the line after the deletion, so the cursor lands on
 // the character that moved into the deleted position.
-void scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
+bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
     const bool scrolled = scr_place_cursor(scr, prefix, psz);
     if (scrolled) {
@@ -333,32 +338,40 @@ void scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
     }
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, ssz > 0 ? suffix[0] : scr->cursor_);
+
+    return scrolled;
 }
 
 
 
 
 
-void scr_up(screen* scr, char from_ch, char to_ch,
+bool scr_up(screen* scr, char from_ch, char to_ch,
             const char* pre, int presz, const char* suf, int sufsz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
-    if (scr_place_cursor(scr, pre, presz)) {
+    const bool scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled) {
         scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
     }
     vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
+
+    return scrolled;
 }
 
-void scr_down(screen* scr, char from_ch, char to_ch,
+bool scr_down(screen* scr, char from_ch, char to_ch,
             const char* pre, int presz, const char* suf, int sufsz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
-    if (scr_place_cursor(scr, pre, presz)) {
+    const bool scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled) {
         scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
     }
     vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
+
+    return scrolled;
 }
 
 // VDU 28, left, bottom, right, top -- define a text viewport.
@@ -448,7 +461,10 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
     scr_sync_cursor(scr);
 }
 
-void scr_move_cursor(screen* scr, char from_ch, char to_ch,
+// Returns true when the horizontal origin moved. The origin is screen-wide, so
+// every other visible row is then drawn against the old one and the caller must
+// repaint the text area -- the view cannot, it has no access to the document.
+bool scr_move_cursor(screen* scr, char from_ch, char to_ch,
                      const char* pre, int presz, const char* suf, int sufsz) {
     scr_hide_cursor_ch(scr, from_ch);
     const bool scrolled = scr_place_cursor(scr, pre, presz);
@@ -457,6 +473,8 @@ void scr_move_cursor(screen* scr, char from_ch, char to_ch,
     }
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, to_ch);
+
+    return scrolled;
 }
 
 void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
