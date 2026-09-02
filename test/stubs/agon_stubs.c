@@ -39,6 +39,10 @@ uint8_t* mos_sysvars(void) {
     return sysvars;
 }
 
+char    getch(void)              { return 0; }
+uint8_t getsysvar_vkeycode(void) { return 0; }
+uint8_t getsysvar_keymods(void)  { return 0; }
+
 uint8_t getsysvar_scrCols(void)    { return 80; }
 uint8_t getsysvar_scrRows(void)    { return 25; }
 uint8_t getsysvar_scrColours(void) { return 16; }

@@ -102,20 +102,28 @@ static void fill_columns(screen* scr, text_buffer* tb, char sx, int count) {
 // The horizontal origin is screen-wide, so a scroll invalidates every visible
 // row. For a short hop the VDP can shift the whole text area itself and only
 // the exposed columns need drawing; past that a full repaint is cheaper.
+// `edited` says whether the current row's text changed. The region scroll moves
+// pixels, which only reproduces the document while the text is unchanged, so an
+// edit that also scrolls must have its row redrawn from the buffer afterwards.
 static void resync_after_scroll(screen* scr, text_buffer* tb, char to_ch,
-                                int delta) {
+                                int delta, bool edited) {
     if (delta == 0) {
         return;
     }
 
     if (delta > SCR_MAX_HSCROLL || delta < -SCR_MAX_HSCROLL) {
-        refresh_screen(scr, tb);
+        refresh_screen(scr, tb);   // reads the document, so already correct
     } else {
         scr_scroll_h(scr, delta);
         if (delta > 0) {
             fill_columns(scr, tb, (char)(scr->cols_ - delta), delta);
         } else {
             fill_columns(scr, tb, 0, -delta);
+        }
+        if (edited) {
+            split_line ln = tb_curr_line(tb);
+            scr_paint_row(scr, scr->currY_, ln.prefix_, ln.psz_,
+                          ln.suffix_, ln.ssz_);
         }
     }
     scr_sync_cursor(scr);
@@ -207,7 +215,7 @@ void cmd_putc(editor* ed, key k) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, tb_peek(tb), moved);
+        resync_after_scroll(scr, tb, tb_peek(tb), moved, true);
     }
 }
 
@@ -316,7 +324,7 @@ void cmd_bksp(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, tb_peek(tb), moved);
+        resync_after_scroll(scr, tb, tb_peek(tb), moved, true);
     }
 }
 
@@ -376,7 +384,7 @@ void cmd_left(editor* ed) {
     const int moved = scr_move_cursor(scr, from_ch, to_ch,
                                       ln.prefix_, ln.psz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, to_ch, moved);
+        resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
@@ -398,7 +406,7 @@ void cmd_w_left(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved);
+            resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
@@ -425,7 +433,7 @@ void cmd_right(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved);
+            resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
@@ -448,7 +456,7 @@ void cmd_w_right(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved);
+            resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
@@ -492,7 +500,7 @@ void cmd_up(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_up(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved);
+            resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
@@ -533,7 +541,7 @@ void cmd_down(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_down(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved);
+            resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
@@ -552,7 +560,7 @@ void cmd_home(editor* ed) {
     const int moved = scr_move_cursor(scr, from_ch, tb_peek(tb),
                                       ln.prefix_, ln.psz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, tb_peek(tb), moved);
+        resync_after_scroll(scr, tb, tb_peek(tb), moved, false);
     }
 }
 
@@ -568,7 +576,7 @@ void cmd_end(editor* ed) {
         const int moved = scr_move_cursor(scr, from_ch, to_ch,
                                           ln.prefix_, ln.psz_);
         if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved);
+            resync_after_scroll(scr, tb, to_ch, moved, false);
         }
     }
 }
