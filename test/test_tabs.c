@@ -189,6 +189,19 @@ int main(void) {
     n = cap_read(buf, sizeof(buf));
     check("a printable character is still shown as itself", n > 0 && buf[0] == 'q', 1);
 
+    /* Painting a single exposed column after a region scroll needs to know what
+     * renders at one document column -- including "inside a tab", which is a
+     * space rather than the tab byte. */
+    char gl[] = "ab\tcd";      /* cols: a=0 b=1 tab=2,3 c=4 d=5 */
+    check("glyph at column 0", scr_glyph_at(&scr, gl, 5, 0), 'a');
+    check("glyph at column 1", scr_glyph_at(&scr, gl, 5, 1), 'b');
+    check("glyph inside a tab is a space", scr_glyph_at(&scr, gl, 5, 2), ' ');
+    check("glyph later inside the same tab", scr_glyph_at(&scr, gl, 5, 3), ' ');
+    check("glyph after the tab", scr_glyph_at(&scr, gl, 5, 4), 'c');
+    check("glyph at the last column", scr_glyph_at(&scr, gl, 5, 5), 'd');
+    check("glyph past the end is a space", scr_glyph_at(&scr, gl, 5, 6), ' ');
+    check("glyph on an empty line is a space", scr_glyph_at(&scr, NULL, 0, 3), ' ');
+
     /* ---------- holding a column across differently shaped lines ---------- */
     /* This is what cmd_up/cmd_down do: column on the old line -> byte on the new. */
     char from[] = "\tx";        /* 'x' is byte 1, column 4 */

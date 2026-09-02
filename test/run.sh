@@ -19,10 +19,12 @@ trap 'rm -rf "$OUT"' EXIT
 CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
         -Isrc -Itest/stubs)
 
-# Model + View, plus the stubbed platform layer. No controller: cmd_ops.c and
-# editor.c drive blocking input, which is not meaningful to link here.
+# Model, View and Controller, plus the stubbed platform layer. cmd_ops.c is
+# linked so tests can drive whole commands: the two worst bugs so far lived in
+# the controller/view interaction, which nothing below that level can reach.
+# editor.c stays out -- it is only the blocking input loop.
 SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
-      src/conv.c test/stubs/agon_stubs.c)
+      src/conv.c src/cmd_ops.c src/user_input.c test/stubs/agon_stubs.c)
 
 status=0
 for t in test/test_*.c; do

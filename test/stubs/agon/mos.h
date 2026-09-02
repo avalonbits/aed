@@ -26,6 +26,13 @@ uint8_t  getsysvar_scrCols(void);
 uint8_t  getsysvar_scrRows(void);
 uint8_t  getsysvar_scrColours(void);
 
+/* Keyboard. The prompts in user_input.c drive their own blocking loops; these
+ * let the controller link without any test actually pressing a key. The
+ * modifier masks come from vkey.h, not here. */
+char     getch(void);
+uint8_t  getsysvar_vkeycode(void);
+uint8_t  getsysvar_keymods(void);
+
 uint8_t  mos_fopen(const char* filename, uint8_t mode);
 uint8_t  mos_fclose(uint8_t fh);
 unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes);

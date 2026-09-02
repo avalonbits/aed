@@ -184,7 +184,7 @@ int scr_byte_at(screen* scr, const char* line, int len, int column) {
     return len;
 }
 
-bool scr_place_cursor(screen* scr, const char* line, int len) {
+int scr_place_cursor(screen* scr, const char* line, int len) {
     const int col = scr_column_of(scr, line, len);
     const int width = scr->cols_ > 0 ? scr->cols_ : 1;
     const int origin = scr->originX_;
@@ -209,7 +209,7 @@ bool scr_place_cursor(screen* scr, const char* line, int len) {
     }
     scr->currX_ = (char) x;
 
-    return scr->originX_ != origin;
+    return scr->originX_ - origin;
 }
 
 void scr_destroy(screen* scr) {
@@ -302,21 +302,20 @@ static void scr_hide_cursor(screen* scr) {
 
 // `prefix`/`psz` describe the line up to and including the character just
 // inserted, so the cursor lands after it.
-bool scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
+int scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
     (void) ch;
     scr_hide_cursor(scr);
 
     // Repaint from where the inserted character starts, not from the cursor:
     // the cursor now sits after it, and a tab starts several columns back.
     const int at = scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
-    const bool scrolled = scr_place_cursor(scr, prefix, psz);
-    if (scrolled) {
-        scr_paint_row(scr, scr->currY_, prefix, psz, suffix, ssz);
-    } else {
+    const int scrolled = scr_place_cursor(scr, prefix, psz);
+    if (scrolled == 0) {
         scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz, at);
+        scr_sync_cursor(scr);
+        scr_show_cursor_ch(scr,
+                           (suffix != NULL && ssz > 0) ? suffix[0] : scr->cursor_);
     }
-    scr_sync_cursor(scr);
-    scr_show_cursor_ch(scr, (suffix != NULL && ssz > 0) ? suffix[0] : scr->cursor_);
 
     return scrolled;
 }
@@ -328,16 +327,14 @@ void scr_del(screen* scr, char* suffix, int sz) {
 
 // `prefix`/`psz` describe the line after the deletion, so the cursor lands on
 // the character that moved into the deleted position.
-bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
+int scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
-    const bool scrolled = scr_place_cursor(scr, prefix, psz);
-    if (scrolled) {
-        scr_paint_row(scr, scr->currY_, prefix, psz, suffix, ssz);
-    } else {
+    const int scrolled = scr_place_cursor(scr, prefix, psz);
+    if (scrolled == 0) {
         scr_paint_tail(scr, suffix, ssz);
+        scr_sync_cursor(scr);
+        scr_show_cursor_ch(scr, ssz > 0 ? suffix[0] : scr->cursor_);
     }
-    scr_sync_cursor(scr);
-    scr_show_cursor_ch(scr, ssz > 0 ? suffix[0] : scr->cursor_);
 
     return scrolled;
 }
@@ -346,30 +343,28 @@ bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
 
 
 
-bool scr_up(screen* scr, char from_ch, char to_ch,
-            const char* pre, int presz, const char* suf, int sufsz) {
+int scr_up(screen* scr, char from_ch, char to_ch,
+           const char* pre, int presz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
-    const bool scrolled = scr_place_cursor(scr, pre, presz);
-    if (scrolled) {
-        scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    const int scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled == 0) {
+        vdp_cursor_tab(scr->currX_, scr->currY_);
+        scr_show_cursor_ch(scr, to_ch);
     }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, to_ch);
 
     return scrolled;
 }
 
-bool scr_down(screen* scr, char from_ch, char to_ch,
-            const char* pre, int presz, const char* suf, int sufsz) {
+int scr_down(screen* scr, char from_ch, char to_ch,
+           const char* pre, int presz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
-    const bool scrolled = scr_place_cursor(scr, pre, presz);
-    if (scrolled) {
-        scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    const int scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled == 0) {
+        vdp_cursor_tab(scr->currX_, scr->currY_);
+        scr_show_cursor_ch(scr, to_ch);
     }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, to_ch);
 
     return scrolled;
 }
@@ -464,15 +459,14 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
 // Returns true when the horizontal origin moved. The origin is screen-wide, so
 // every other visible row is then drawn against the old one and the caller must
 // repaint the text area -- the view cannot, it has no access to the document.
-bool scr_move_cursor(screen* scr, char from_ch, char to_ch,
-                     const char* pre, int presz, const char* suf, int sufsz) {
+int scr_move_cursor(screen* scr, char from_ch, char to_ch,
+                    const char* pre, int presz) {
     scr_hide_cursor_ch(scr, from_ch);
-    const bool scrolled = scr_place_cursor(scr, pre, presz);
-    if (scrolled) {
-        scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    const int scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled == 0) {
+        scr_sync_cursor(scr);
+        scr_show_cursor_ch(scr, to_ch);
     }
-    scr_sync_cursor(scr);
-    scr_show_cursor_ch(scr, to_ch);
 
     return scrolled;
 }
@@ -501,6 +495,55 @@ static void scroll_region(
     scr_paint_row(scr, scr->currY_, NULL, 0, line, lsz);
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, ch);
+}
+
+// VDU 23,7,extent,direction,movement -- direction 0 moves the content right,
+// 1 moves it left. Scrolling the window right means moving the content left.
+void scr_scroll_h(screen* scr, int cols) {
+    if (cols == 0) {
+        return;
+    }
+
+    static char scroll[5] = {23, 7, 0, 0, 0};
+    int n = cols;
+    if (n < 0) {
+        n = -n;
+        scroll[3] = 0;   // window left  -> content right
+    } else {
+        scroll[3] = 1;   // window right -> content left
+    }
+    scroll[4] = 8;       // one character cell
+
+    define_viewport(0, scr->bottomY_ - 1, scr->cols_, scr->topY_);
+    for (int i = 0; i < n; i++) {
+        VDP_PUTS(scroll);
+    }
+    reset_viewport();
+}
+
+char scr_glyph_at(screen* scr, const char* line, int len, int col) {
+    if (line == NULL || len <= 0 || col < 0) {
+        return ' ';
+    }
+
+    const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
+    int at = 0;
+    for (int i = 0; i < len; i++) {
+        const int width = line[i] == '\t' ? tab - (at % tab) : 1;
+        if (col < at + width) {
+            // Inside a tab's expansion, or past the start of a normal cell.
+            return (line[i] == '\t' || col > at) ? ' ' : line[i];
+        }
+        at += width;
+    }
+
+    return ' ';
+}
+
+void scr_put_at(screen* scr, char sx, char sy, char ch) {
+    vdp_cursor_tab(sx, sy);
+    putchar(ch);
+    scr_sync_cursor(scr);
 }
 
 void scr_scroll_down(
