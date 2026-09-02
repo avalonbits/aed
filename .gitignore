@@ -1,2 +1,6 @@
 # Private development notes, scratch work, design docs.
 .internal/
+
+# Build artifacts.
+obj/
+bin/*.map
