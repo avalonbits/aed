@@ -14,7 +14,10 @@ cd "$(dirname "$0")/.."
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
-CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -Isrc -Itest/stubs)
+# ASan catches out-of-bounds writes that would otherwise corrupt the heap
+# silently -- the buffer-full tests depend on it to prove the bound holds.
+CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
+        -Isrc -Itest/stubs)
 
 # Model + View, plus the stubbed platform layer. No controller: cmd_ops.c and
 # editor.c drive blocking input, which is not meaningful to link here.

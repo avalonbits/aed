@@ -45,7 +45,7 @@ bool tb_changed(text_buffer* tb);
 void tb_set_fname(text_buffer* tb, const char* fname, int sz);
 
 // Character ops.
-void tb_put(text_buffer* tb, char ch);
+bool tb_put(text_buffer* tb, char ch);
 bool tb_del(text_buffer* tb);
 bool tb_bksp(text_buffer* tb);
 bool tb_newline(text_buffer* tb);
