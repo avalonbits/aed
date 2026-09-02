@@ -397,12 +397,20 @@ static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     const char pch = cb_prev(cb, 1);
     cb_next(cb, 1);
 
-    if (pch != '\r' && cb_put(cb, '\r')) {
+    if (pch != '\r') {
+        if (!cb_put(cb, '\r')) {
+            // Without the CR this ending is a bare LF, but every consumer of
+            // the line index assumes a two-byte CRLF -- tb_suffix and tb_up
+            // both subtract 2. Recording a boundary here would put navigation
+            // permanently off by one, so leave the index alone.
+            return 0;
+        }
         lb_cinc(lb);
         added++;
     }
 
     lb_new(lb, lb_csize(lb));
+
     return added;
 }
 
@@ -482,6 +490,17 @@ bool tb_load(text_buffer* tb, char tab_size, const char* fname) {
 
     bool ok = true;
     int sz = (int) fil->obj.objsize;
+
+    // tb_read carves the read out of the tail of the gap, so a file bigger than
+    // the buffer would put cend_ below buf_ and read outside the allocation.
+    if (sz > cb_available(&tb->cb_)) {
+        char* msg = "file too large";
+        mos_puts(msg, strlen(msg), 0);
+        mos_fclose(fh);
+        tb->fname_[0] = 0;
+
+        return false;
+    }
     if (sz > 0) {
        ok = tb_read(fh, tab_size, tb, sz);
     }

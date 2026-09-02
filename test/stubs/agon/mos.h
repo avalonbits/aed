@@ -42,4 +42,7 @@ int         stub_file_opens(void);   /* mos_fopen calls */
 int         stub_file_closes(void);  /* mos_fclose calls */
 void        stub_file_fail_open(int fail);  /* make the next mos_fopen return 0 */
 
+/* Content mos_fread serves, and the size mos_getfil reports. */
+void        stub_file_set_content(const char* data, int len);
+
 #endif

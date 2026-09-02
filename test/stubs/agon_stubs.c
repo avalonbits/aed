@@ -45,12 +45,16 @@ static int  stub_len;
 static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
+static const char* stub_content;
+static int         stub_content_len;
 
 void stub_file_reset(void) {
     stub_len = 0;
     stub_opens = 0;
     stub_closes = 0;
     stub_fail_open = 0;
+    stub_content = NULL;
+    stub_content_len = 0;
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
@@ -58,6 +62,11 @@ int         stub_file_size(void)   { return stub_len; }
 int         stub_file_opens(void)  { return stub_opens; }
 int         stub_file_closes(void) { return stub_closes; }
 void        stub_file_fail_open(int fail) { stub_fail_open = fail; }
+
+void stub_file_set_content(const char* data, int len) {
+    stub_content = data;
+    stub_content_len = len;
+}
 
 uint8_t mos_fopen(const char* filename, uint8_t mode) {
     (void)filename; (void)mode;
@@ -77,9 +86,18 @@ uint8_t mos_fclose(uint8_t fh) {
 }
 
 unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
-    (void)fh; (void)buffer;
+    (void)fh;
+    /* Actually fill the caller's buffer: a short read would hide an
+     * out-of-bounds destination from the sanitizer. */
+    unsigned n = numbytes;
+    if ((int) n > stub_content_len) {
+        n = (unsigned) stub_content_len;
+    }
+    if (stub_content != NULL && n > 0) {
+        memcpy(buffer, stub_content, n);
+    }
 
-    return numbytes;
+    return n;
 }
 
 unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
@@ -96,7 +114,7 @@ unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
 FIL* mos_getfil(uint8_t fh) {
     (void)fh;
     static FIL fil;
-    fil.obj.objsize = 0;
+    fil.obj.objsize = (uint32_t) stub_content_len;
 
     return &fil;
 }
