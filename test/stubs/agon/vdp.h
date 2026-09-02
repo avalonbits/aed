@@ -8,11 +8,11 @@
 
 #define VDP_PUTS(S) mos_puts((char*)&(S), sizeof(S), 0)
 
-static inline void vdp_cursor_left(void) {}
-static inline void vdp_cursor_home(void) {}
-static inline void vdp_clear_screen(void) {}
-static inline void vdp_cursor_enable(bool f)         { (void)f; }
-static inline void vdp_set_text_colour(int c)        { (void)c; }
-static inline void vdp_cursor_tab(int x, int y)      { (void)x; (void)y; }
+void vdp_cursor_left(void);
+void vdp_cursor_home(void);
+void vdp_clear_screen(void);
+void vdp_cursor_enable(bool flag);
+void vdp_set_text_colour(int colour);
+void vdp_cursor_tab(int xpos, int ypos);
 
 #endif
