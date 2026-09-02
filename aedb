@@ -1,5 +1,30 @@
 #!/bin/bash
-make V=1 && \
-    \ls -l ~/fab-agon-emulator/sdcard/mos/aed.bin && \
-    cp bin/aed.bin ~/fab-agon-emulator/sdcard/mos && \
-    \ls -l ~/fab-agon-emulator/sdcard/mos/aed.bin
+# Build AED and install it into the fab-agon-emulator sdcard as /mos/aed.bin,
+# so it runs as `aed` at the emulator command line.
+#
+# Do NOT use `make V=1` here. AgonDev's makefile uses V as the command-silencer
+# prefix (V = @), so V=1 prepends a literal 1 to every command and the build
+# dies with "Error 127". A verbose build is `make V=` (empty).
+set -euo pipefail
+
+SDCARD="${SDCARD:-$HOME/fab-agon-emulator/sdcard}"
+DEST="$SDCARD/mos/aed.bin"
+
+if ! command -v agondev-config >/dev/null; then
+    echo "aedb: agondev-config not on PATH; add ~/agondev/bin to it" >&2
+
+    exit 1
+fi
+
+make
+
+# The Makefile's NAME is aed-AgonDev, but install as aed.bin so the command
+# stays `aed` on the Agon.
+if [[ -e "$DEST" ]]; then
+    \ls -l "$DEST"
+else
+    echo "$DEST: not present, installing for the first time"
+fi
+
+cp bin/aed-AgonDev.bin "$DEST"
+\ls -l "$DEST"
