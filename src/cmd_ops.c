@@ -262,13 +262,11 @@ void cmd_bksp(editor* ed) {
         return;
     }
 
-    int sz = 0;
-    char* suffix = tb_suffix(tb, &sz);
-
     if (!tb_bksp(tb)) {
         return;
     }
-    scr_bksp(scr, suffix, sz);
+    split_line ln = tb_curr_line(tb);
+    scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_newl(editor* ed) {
@@ -323,9 +321,8 @@ void cmd_left(editor* ed) {
     char from_ch = tb_peek(tb);
     char to_ch = tb_prev(tb);
 
-    int sz = 0;
-    char* suffix = tb_suffix(tb, &sz);
-    scr_left(scr, from_ch, to_ch, 1, suffix, sz);
+    split_line ln = tb_curr_line(tb);
+    scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_w_left(editor* ed) {
@@ -340,14 +337,11 @@ void cmd_w_left(editor* ed) {
         return;
     }
 
-    const int from_x = tb_xpos(tb);
     const char from_ch = tb_peek(tb);
     const char to_ch = tb_w_prev(tb, from_ch);
-    const int deltaX = from_x - tb_xpos(tb);
 
-    int sz = 0;
-    char* suffix = tb_suffix(tb, &sz);
-    scr_left(scr, from_ch, to_ch, deltaX, suffix, sz);
+    split_line ln = tb_curr_line(tb);
+    scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_right(editor* ed) {
@@ -369,9 +363,9 @@ void cmd_right(editor* ed) {
     }
 
     const char to_ch = tb_next(tb);
-    int sz = 0;
-    char* prefix = tb_prefix(tb, &sz);
-    scr_right(scr, from_ch, to_ch, 1, prefix, sz);
+
+    split_line ln = tb_curr_line(tb);
+    scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_w_right(editor* ed) {
@@ -387,14 +381,11 @@ void cmd_w_right(editor* ed) {
         return;
     }
 
-    const int from_x = tb_xpos(tb);
     const char from_ch = tb_peek(tb);
     const char to_ch = tb_w_next(tb, from_ch);
-    const int deltaX = tb_xpos(tb) - from_x;
 
-    int sz = 0;
-    char* prefix = tb_prefix(tb, &sz);
-    scr_right(scr, from_ch, to_ch, deltaX, prefix, sz);
+    split_line ln = tb_curr_line(tb);
+    scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_up(editor* ed) {
@@ -491,12 +482,10 @@ void cmd_home(editor* ed) {
     }
 
     char from_ch = tb_peek(tb);
-    char to_ch = tb_home(tb);
-    if (to_ch != 0) {
-        int sz = 0;
-        char* suffix = tb_suffix(tb, &sz);
-        scr_home(scr, from_ch, tb_peek(tb), suffix, sz);
-    }
+    tb_home(tb);
+
+    split_line ln = tb_curr_line(tb);
+    scr_move_cursor(scr, from_ch, tb_peek(tb), ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_end(editor* ed) {
@@ -506,11 +495,9 @@ void cmd_end(editor* ed) {
     const int from_x = tb_xpos(tb);
     char from_ch = tb_peek(tb);
     char to_ch = tb_end(tb);
-    const int deltaX = tb_xpos(tb) - from_x;
-    if (deltaX > 0) {
-        int sz = 0;
-        char* prefix = tb_prefix(tb, &sz);
-        scr_end(scr, from_ch, to_ch, deltaX, prefix, sz);
+    if (tb_xpos(tb) != from_x) {
+        split_line ln = tb_curr_line(tb);
+        scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     }
 }
 
