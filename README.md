@@ -63,6 +63,12 @@ If at the end of the line, `DELETE` will merge the next line with the current on
 
 You can press `CTRL+D` or `CTRL+DELETE` to delete a whole line.
 
+`TAB` inserts a real tab. Tabs are stored in the file as tab characters and are only
+expanded to the next tab stop when drawn, so a file's tabs survive being opened and
+saved. The default tab width is 4 columns. `LEFT/RIGHT` move over a tab in one step,
+since it is a single character, and the cursor sits at the column where the tab
+begins.
+
 `CTRL+Q` will save the buffer to the specified file on startup (or `/aed.txt` of none was specified) and exit the editor.
 If no file was specified on startup, it will prompt for a file name to save the text buffer.
 
@@ -83,7 +89,8 @@ The following features will be implemented before releasing v1.0 of the editor:
 ## Roadmap after v1.0
 
 - [ ] Undo / Redo.
-- [ ] Native tabs / tab-size / tab-to-space.
+- [x] ~~Native tabs / tab-size.~~
+- [ ] Tab-to-space conversion.
 - [ ] Syntax highlighting for BBCBasic and assembly files.
 - [ ] Unlimted file size support.
 - [ ] Console8 mouse support (need to get one).
