@@ -51,7 +51,7 @@ int main(void) {
 
     /* A model with no backing file cannot be saved. */
     stub_file_reset();
-    if (!tb_init(&tb, 4, 8, NULL)) {
+    if (!tb_init(&tb, 8, NULL)) {
         fprintf(stderr, "tb_init failed\n");
 
         return 2;

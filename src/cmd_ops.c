@@ -145,17 +145,6 @@ void cmd_putc(editor* ed, key k) {
     TB(ed);
     SCR(ed);
 
-    if (k.key == '\t') {
-        // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
-        k.key = ' ';
-        const char tab = scr_tab_size(scr);
-        const char spaces = tab - ((tb_xpos(tb)-1) % tab);
-        for (char i = 0; i < spaces; i++) {
-            cmd_putc(ed, k);
-        }
-        return;
-    }
-
     if (!tb_put(tb, k.key)) {
         return;
     }
@@ -392,85 +381,79 @@ void cmd_up(editor* ed) {
     TB(ed);
     SCR(ed);
 
+    // Remember the column, not the byte offset: a tab is one byte but several
+    // columns, so carrying x_ across would slide the cursor sideways.
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
+    const int want_col = scr_column_of(scr, prefix, psz);
 
-    int ypos = tb_ypos(tb);
-    char from_ch = tb_peek(tb);
-    char to_ch = tb_up(tb);
+    const int ypos = tb_ypos(tb);
+    const char from_ch = tb_peek(tb);
+    tb_up(tb);
     if (ypos == tb_ypos(tb)) {
         return;
     }
 
+    // Land on the byte of the new line that renders at that column.
+    tb_home(tb);
+    int lsz = 0;
+    char* row = tb_suffix(tb, &lsz);
+    const char to_ch = tb_goto_offset(tb, scr_byte_at(scr, row, lsz, want_col));
+
     if (scr->currY_ == scr->topY_) {
         scr_hide_cursor_ch(scr, from_ch);
-        scr_place_cursor(scr, NULL, 0);
-        scr_sync_cursor(scr);
+        split_line top = tb_curr_line(tb);
+        (void) scr_place_cursor(scr, top.prefix_, top.psz_);
 
-        tb_home(tb);
-        to_ch = tb_peek(tb);
-
-        char* suffix = tb_suffix(tb, &psz);
-        scr_scroll_down(scr, scr->topY_, scr->bottomY_-1, suffix, psz, to_ch);
+        text_buffer cp;
+        tb_copy(&cp, tb);
+        tb_home(&cp);
+        int sz = 0;
+        char* line = tb_suffix(&cp, &sz);
+        scr_scroll_down(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
 
-    if (scr->currX_ >= scr->cols_-1) {
-        scr_write_line(scr, scr->currY_, prefix, psz);
-        if (tb_xpos(tb) >= scr->cols_) {
-            psz = 0;
-            prefix = tb_prefix(tb, &psz);
-            int pad = (tb_xpos(tb)-1) - scr->currX_;
-            scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
-        }
-    }
-
-    psz = 0;
-    prefix = tb_prefix(tb, &psz);
-    scr_up(scr, from_ch, to_ch, prefix, psz);
+    split_line ln = tb_curr_line(tb);
+    scr_up(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_down(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    int ypos = tb_ypos(tb);
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
-    char from_ch = tb_peek(tb);
-    char to_ch = tb_down(tb);
+    const int want_col = scr_column_of(scr, prefix, psz);
+
+    const int ypos = tb_ypos(tb);
+    const char from_ch = tb_peek(tb);
+    tb_down(tb);
     if (ypos == tb_ypos(tb)) {
         return;
     }
+
+    tb_home(tb);
+    int lsz = 0;
+    char* row = tb_suffix(tb, &lsz);
+    const char to_ch = tb_goto_offset(tb, scr_byte_at(scr, row, lsz, want_col));
+
     if (scr->currY_ >= scr->bottomY_-1) {
         scr_hide_cursor_ch(scr, from_ch);
-        int dsz = 0;
-        char* dprefix = tb_prefix(tb, &dsz);
-        scr_place_cursor(scr, dprefix, dsz);
+        split_line bot = tb_curr_line(tb);
+        (void) scr_place_cursor(scr, bot.prefix_, bot.psz_);
 
         text_buffer cp;
         tb_copy(&cp, tb);
         tb_home(&cp);
-
         int sz = 0;
         char* line = tb_suffix(&cp, &sz);
         scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
 
-    if (scr->currX_ >= scr->cols_-1) {
-        scr_write_line(scr, scr->currY_, prefix, psz);
-        if (tb_xpos(tb) >= scr->cols_) {
-            psz = 0;
-            prefix = tb_prefix(tb, &psz);
-            int pad = (tb_xpos(tb)-1) - scr->currX_;
-            scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
-        }
-    }
-
-    psz = 0;
-    prefix = tb_prefix(tb, &psz);
-    scr_down(scr, from_ch, to_ch, prefix, psz);
+    split_line ln = tb_curr_line(tb);
+    scr_down(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_home(editor* ed) {

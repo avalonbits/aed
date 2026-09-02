@@ -41,7 +41,7 @@ int main(void) {
     stub_file_reset();
     static const char small[] = "one\ntwo\nthree\n";
     stub_file_set_content(small, (int) sizeof(small) - 1);
-    check("small file loads", tb_init(&tb, 4, 1, "small.txt") != NULL, 1);
+    check("small file loads", tb_init(&tb, 1, "small.txt") != NULL, 1);
     check("bare LFs became lines", tb_ymax(&tb), 4);
     check("normalising marks the buffer dirty", tb_changed(&tb) ? 1 : 0, 1);
     tb_destroy(&tb);
@@ -50,7 +50,7 @@ int main(void) {
      * the allocation. Under ASan the unfixed code dies here. */
     stub_file_reset();
     text_buffer probe;
-    if (!tb_init(&probe, 4, 1, NULL)) {
+    if (!tb_init(&probe, 1, NULL)) {
         fprintf(stderr, "probe init failed\n");
 
         return 2;
@@ -67,7 +67,7 @@ int main(void) {
     }
     memset(big, 'a', toobig);
     stub_file_set_content(big, toobig);
-    check("oversized file is refused", tb_init(&tb, 4, 1, "big.txt") == NULL, 1);
+    check("oversized file is refused", tb_init(&tb, 1, "big.txt") == NULL, 1);
     free(big);
 
     /* Exactly at capacity is still fine -- the refusal must not be off by one. */
@@ -80,7 +80,7 @@ int main(void) {
     }
     memset(exact, 'a', cap);
     stub_file_set_content(exact, cap);
-    const int ok = tb_init(&tb, 4, 1, "exact.txt") != NULL;
+    const int ok = tb_init(&tb, 1, "exact.txt") != NULL;
     check("a file exactly filling the buffer loads", ok, 1);
     if (ok) {
         check("and it is completely full", tb_available(&tb), 0);
@@ -101,7 +101,7 @@ int main(void) {
     }
     memset(lfs, '\n', cap);
     stub_file_set_content(lfs, cap);
-    const int loaded = tb_init(&tb, 4, 1, "lfs.txt") != NULL;
+    const int loaded = tb_init(&tb, 1, "lfs.txt") != NULL;
     check("all-LF file at capacity still loads", loaded, 1);
     if (loaded) {
         check("no CRLF room -> no line boundaries recorded", tb_ymax(&tb), 1);

@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-text_buffer* tb_init(text_buffer* tb, char tab_size, int mem_kb, const char* fname) {
+text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
     if (!cb_init(&tb->cb_, char_count)) {
@@ -38,7 +38,7 @@ text_buffer* tb_init(text_buffer* tb, char tab_size, int mem_kb, const char* fna
     tb->fname_[0] = 0;
     tb->dirty_ = false;
 
-    if (fname != NULL && !tb_load(tb, tab_size, fname)) {
+    if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
         cb_destroy(&tb->cb_);
         return NULL;
@@ -289,6 +289,20 @@ char tb_home(text_buffer* tb) {
     return cb_prev(&tb->cb_, back);
 }
 
+char tb_goto_offset(text_buffer* tb, int off) {
+    if (off < 0) {
+        off = 0;
+    }
+    if (off < tb->x_) {
+        cb_prev(&tb->cb_, tb->x_ - off);
+    } else if (off > tb->x_) {
+        cb_next(&tb->cb_, off - tb->x_);
+    }
+    tb->x_ = off;
+
+    return cb_peek(&tb->cb_);
+}
+
 char tb_end(text_buffer* tb) {
     char ch = cb_peek(&tb->cb_);
     while (!IS_EOL(ch)) {
@@ -369,29 +383,6 @@ static void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, 
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
-// Replaces the tab under the cursor with spaces. Returns how many spaces were
-// actually added beyond the one standing in for the tab, which may be short of
-// `spaces` if the buffer filled up.
-static int convert_tabs(char_buffer* cb, line_buffer* lb, int spaces){
-    if (!cb_del(cb)) {
-        return 0;
-    }
-    // cb_del just widened the gap by one, so this put always fits.
-    (void) cb_put(cb, ' ');
-    cb_prev(cb, 1);
-
-    int added = 0;
-    for (int i = 0; i < spaces; i++) {
-        if (!cb_put(cb, ' ')) {
-            break;
-        }
-        lb_cinc(lb);
-        added++;
-    }
-
-    return added;
-}
-
 static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     int added = 0;
     const char pch = cb_prev(cb, 1);
@@ -414,43 +405,27 @@ static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     return added;
 }
 
-static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
+static bool tb_read(char fh, text_buffer* tb, int sz) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
     char_buffer* cb = &tb->cb_;
     cb->cend_ -= sz;
     mos_fread(fh, (char*)cb->cend_, sz);
 
-    //  Now I need to update lb_ line buffer with the correct values.
-    //  There might be cases where the line endings are not \r\n so we correct for them.
-    int xpos = 0;
+    //  Now update the line buffer. Tabs are kept as-is -- they are one byte in
+    //  the document and the view decides how wide they render. Only line
+    //  endings are normalised, since the line index assumes a two-byte CRLF.
     int added = 0;
     for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
-        const char ch = cb_peek(cb);
-        if (ch == '\n') {
+        if (cb_peek(cb) == '\n') {
             added += ensure_newline(&tb->cb_, &tb->lb_);
-            xpos = 0;
-        }
-        if (ch == '\t') {
-            const char spaces = tab_size - (xpos % tab_size);
-            const int put = convert_tabs(&tb->cb_, &tb->lb_, spaces);
-            xpos += put;
-            added += put;
         }
         cb_next(cb, 1);
-        xpos++;
     }
 
-    const char ch = cb_peek(cb);
-    if (ch == '\n') {
+    if (cb_peek(cb) == '\n') {
         added += ensure_newline(&tb->cb_, &tb->lb_);
-        xpos = 0;
-    } else if (ch == '\t') {
-        const char spaces = tab_size - (xpos % tab_size);
-        const int put = convert_tabs(&tb->cb_, &tb->lb_, spaces);
-        xpos += put;
-        added += put;
     }
 
     cb_prev(cb, sz+added);
@@ -462,7 +437,7 @@ static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
 }
 
 
-bool tb_load(text_buffer* tb, char tab_size, const char* fname) {
+bool tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
         return false;
     }
@@ -502,7 +477,7 @@ bool tb_load(text_buffer* tb, char tab_size, const char* fname) {
         return false;
     }
     if (sz > 0) {
-       ok = tb_read(fh, tab_size, tb, sz);
+       ok = tb_read(fh, tb, sz);
     }
     mos_fclose(fh);
 

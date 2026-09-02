@@ -63,8 +63,10 @@ void scr_del(screen* scr, char* suffix, int sz);
 void scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz);
 
 // Navigation.
-void scr_up(screen* scr, char from_ch, char to_ch, const char* line, int len);
-void scr_down(screen* scr, char from_ch, char to_ch, const char* line, int len);
+void scr_up(screen* scr, char from_ch, char to_ch,
+            const char* pre, int presz, const char* suf, int sufsz);
+void scr_down(screen* scr, char from_ch, char to_ch,
+              const char* pre, int presz, const char* suf, int sufsz);
 
 // Column projection. `line` is the current line from its start and `len` is how
 // many of its bytes precede the cursor.
@@ -84,6 +86,11 @@ bool scr_place_cursor(screen* scr, const char* line, int len);
 // padding to the full width.
 void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
                    const char* suf, int sufsz);
+
+// As above, but starting at an arbitrary document column -- used after an
+// insertion, which must repaint from the inserted character, not the cursor.
+void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
+                    const char* suf, int sufsz, int from_col);
 
 // Repaints from the cursor's column to the right edge. Used after an edit,
 // where nothing to the left of the cursor can have changed.
