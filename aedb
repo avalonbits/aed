@@ -32,7 +32,7 @@ else
     echo "$DEST: not present, installing for the first time"
 fi
 
-cp bin/aed-AgonDev.bin "$DEST"
+cp bin/aed.bin "$DEST"
 \ls -l "$DEST"
 
 # A stale moslet copy shadows /bin and would crash on launch.
