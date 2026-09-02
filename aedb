@@ -1,14 +1,21 @@
 #!/bin/bash
-# Build AED and install it into the fab-agon-emulator sdcard as /mos/aed.bin,
-# so it runs as `aed` at the emulator command line.
+# Build AED and install it into the fab-agon-emulator sdcard.
 #
-# Do NOT use `make V=1` here. AgonDev's makefile uses V as the command-silencer
+# Destination is /bin, NOT /mos. Files in /mos are loaded by MOS as "moslets"
+# at 0x0B0000, but AgonDev links this binary for RAM_START=0x40000 (see the
+# `jp $040045` at offset 0 of the .bin), so a copy in /mos jumps into unloaded
+# memory and dies instantly with "RST $38 panic. Guru meditation" at PC:040046.
+# Relinking as a moslet is not an option either: the moslet region is 64KB and
+# AED allocates ~272KB of buffers. MOS searches /bin, so `aed` still works as a
+# bare command. (AgonDev's own default is FAE_DEST ?= /bin, for the same reason.)
+#
+# Do NOT use `make V=1`: AgonDev's makefile uses V as the command-silencer
 # prefix (V = @), so V=1 prepends a literal 1 to every command and the build
 # dies with "Error 127". A verbose build is `make V=` (empty).
 set -euo pipefail
 
 SDCARD="${SDCARD:-$HOME/fab-agon-emulator/sdcard}"
-DEST="$SDCARD/mos/aed.bin"
+DEST="$SDCARD/bin/aed.bin"
 
 if ! command -v agondev-config >/dev/null; then
     echo "aedb: agondev-config not on PATH; add ~/agondev/bin to it" >&2
@@ -18,8 +25,7 @@ fi
 
 make
 
-# The Makefile's NAME is aed-AgonDev, but install as aed.bin so the command
-# stays `aed` on the Agon.
+mkdir -p "$(dirname "$DEST")"
 if [[ -e "$DEST" ]]; then
     \ls -l "$DEST"
 else
@@ -28,3 +34,9 @@ fi
 
 cp bin/aed-AgonDev.bin "$DEST"
 \ls -l "$DEST"
+
+# A stale moslet copy shadows /bin and would crash on launch.
+if [[ -e "$SDCARD/mos/aed.bin" ]]; then
+    echo "aedb: WARNING $SDCARD/mos/aed.bin exists and will shadow this install;" >&2
+    echo "      MOS loads it as a moslet at 0x0B0000 and it will panic. Remove it." >&2
+fi
