@@ -4,7 +4,7 @@ AED is a text editor for the Agon platform (Agon light, Agon light2, Agon Origin
 It's screen navigation was inspired by various text editors I have used (notepad / nano / kate / vim) and
 that inspiration drove the design and choices of navigation keys.
 
-Currently it is limited to reading and writing files up to 256KB long with up to 8k lines.
+Currently it is limited to reading and writing files up to 248KB long with up to 8k lines.
 
 The editor can work in any Agon supported resolution and will use whatever color scheme you've configured
 your Agon.
