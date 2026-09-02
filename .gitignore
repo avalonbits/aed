@@ -4,3 +4,4 @@
 # Build artifacts.
 obj/
 bin/*.map
+bin/*.noname.bin
