@@ -19,6 +19,7 @@
 #include "conv.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 static void reverse(char* buf, int sz) {
     int start = 0;

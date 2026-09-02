@@ -411,7 +411,7 @@ void cmd_w_left(editor* ed) {
     const int from_x = tb_xpos(tb);
     const char from_ch = tb_peek(tb);
     const char to_ch = tb_w_prev(tb, from_ch);
-    const char deltaX = from_x - tb_xpos(tb);
+    const int deltaX = from_x - tb_xpos(tb);
 
     int sz = 0;
     char* suffix = tb_suffix(tb, &sz);
@@ -458,7 +458,7 @@ void cmd_w_right(editor* ed) {
     const int from_x = tb_xpos(tb);
     const char from_ch = tb_peek(tb);
     const char to_ch = tb_w_next(tb, from_ch);
-    const char deltaX = tb_xpos(tb) - from_x;
+    const int deltaX = tb_xpos(tb) - from_x;
 
     int sz = 0;
     char* prefix = tb_prefix(tb, &sz);

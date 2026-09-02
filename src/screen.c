@@ -272,7 +272,7 @@ void scr_bksp(screen* scr, char* suffix, int sz) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void scr_left(screen* scr, char from_ch, char to_ch, char deltaX, char* suffix, int sz) {
+void scr_left(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz) {
     int x = scr->currX_ - deltaX;
     if (x >= 0) {
         scr->currX_ -= deltaX;
@@ -291,7 +291,7 @@ void scr_left(screen* scr, char from_ch, char to_ch, char deltaX, char* suffix, 
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_right(screen* scr, char from_ch, char to_ch, char deltaX, char* prefix, int sz) {
+void scr_right(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, int sz) {
     int x = scr->currX_ + deltaX;
     if (x < scr->cols_) {
         scr->currX_ = x;

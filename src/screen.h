@@ -51,8 +51,8 @@ void scr_del(screen* scr, char* suffix, int sz);
 void scr_bksp(screen* scr, char* suffix, int sz);
 
 // Navigation.
-void scr_left(screen* scr, char from_ch, char to_ch, char deltaX, char* suffix, int sz);
-void scr_right(screen* scr, char from_ch, char to_c, char deltaX, char* prefix, int sz);
+void scr_left(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz);
+void scr_right(screen* scr, char from_ch, char to_c, int deltaX, char* prefix, int sz);
 void scr_up(screen* scr, char from_ch, char to_ch, char currX);
 void scr_down(screen* scr, char from_ch, char to_ch, char currX);
 void scr_home(screen* scr, char from_ch, char to_ch, char* prefix, int sz);
