@@ -9,13 +9,32 @@ Currently it is limited to reading and writing files up to 256KB long with up to
 The editor can work in any Agon supported resolution and will use whatever color scheme you've configured
 your Agon.
 
-`NOTE: Since release v0.13.0, VDP 1.04 or above is required.`
+`NOTE: VDP 1.04 or above is required (since v0.13.0), and MOS 2.2.0 or above.`
 
 # Installation
 
-Copy the `aed.bin` file to your sdcard's `/mos` directory, You should now be able to run it just typing `aed` at the command line.
+Copy the `aed.bin` file to your sdcard's `/bin` directory. You should now be able to run it just
+typing `aed` at the command line.
 
 > NOTE: The editor uses most of the memory available, so do not start it if you are in BBCBasic.
+
+### Upgrading from an older release
+
+**Delete any old `/mos/aed.bin`.** Earlier releases were installed into `/mos`, and MOS searches
+`/mos` before `/bin`, so a leftover copy there will shadow the new one.
+
+`/mos` is no longer supported, and a current build placed there will not merely fail to start — it
+will panic immediately:
+
+```
+== RST $38 panic. Guru meditation ==
+PC:040046
+```
+
+MOS treats files in `/mos` as *moslets* and loads them at `0x0B0000`, whereas AED is now linked to
+run from `0x040000`. It cannot be built as a moslet either: the moslet area is 64KB and AED needs
+about 272KB for its buffers. `/bin` is loaded at `0x040000`, which is why the editor lives there
+now. MOS has searched `/bin` since version 2.2.0, hence the version requirement above.
 
 # Running the editor.
 If you run it just as `aed` it will start the editor using `/aed.txt` as its backing file. If the file can't be created,
