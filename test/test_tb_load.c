@@ -33,6 +33,8 @@ static void check(const char* name, int got, int want) {
 }
 
 int main(void) {
+    stub_discard_output();
+
     text_buffer tb;
 
     /* A file that comfortably fits still loads, and bare LFs become CRLF. */

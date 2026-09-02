@@ -69,6 +69,12 @@ int         stub_file_opens(void)  { return stub_opens; }
 int         stub_file_closes(void) { return stub_closes; }
 void        stub_file_fail_open(int fail) { stub_fail_open = fail; }
 
+void stub_discard_output(void) {
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "warning: could not discard stdout\n");
+    }
+}
+
 void stub_file_set_content(const char* data, int len) {
     stub_content = data;
     stub_content_len = len;

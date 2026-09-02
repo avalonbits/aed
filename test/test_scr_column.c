@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <agon/mos.h>
+
 #include "screen.h"
 
 static int failures = 0;
@@ -42,6 +44,8 @@ static screen mkscreen(char cols) {
 }
 
 int main(void) {
+    stub_discard_output();
+
     screen scr = mkscreen(80);
 
     /* --- tab width is configuration, with a sane default and bounds --- */

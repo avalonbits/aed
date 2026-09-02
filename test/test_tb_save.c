@@ -45,6 +45,8 @@ static void put_str(text_buffer* tb, const char* s) {
 }
 
 int main(void) {
+    stub_discard_output();
+
     text_buffer tb;
 
     /* A model with no backing file cannot be saved. */
