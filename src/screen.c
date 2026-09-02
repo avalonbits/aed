@@ -402,18 +402,25 @@ void scr_down(screen* scr, char from_ch, char to_ch, const char* line, int len) 
     scr_show_cursor_ch(scr, to_ch);
 }
 
-static void define_viewport(screen* scr, char top, char bottom) {
+// VDU 28, left, bottom, right, top -- define a text viewport.
+static void define_viewport(char left, char bottom, char right, char top) {
     static char viewport[5] = {28, 0, 0, 0, 0};
+    viewport[1] = left;
     viewport[2] = bottom;
-    viewport[3] = scr->cols_;
+    viewport[3] = right;
     viewport[4] = top;
     VDP_PUTS(viewport);
 }
 
+// VDU 26 -- restore the default viewport.
+static void reset_viewport(void) {
+    putchar(26);
+}
+
 void scr_clear_textarea(screen* scr, char top, char bottom) {
-    define_viewport(scr, top, bottom);
+    define_viewport(0, bottom, scr->cols_, top);
     vdp_clear_screen();
-    putchar(26);  // Reset viewport.
+    reset_viewport();
 }
 
 void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
@@ -430,6 +437,35 @@ void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
         putchar(' ');
     }
     vdp_cursor_tab(scr->currX_, scr->currY_);
+}
+
+void scr_sync_cursor(screen* scr) {
+    vdp_cursor_tab(scr->currX_, scr->currY_);
+}
+
+// VDU 23,7,extent,direction,movement -- scroll the current text viewport by one
+// character row. Direction 2 is down, 3 is up.
+static void scroll_region(
+        screen* scr, char topY, char bottomY, const char* vdu, char sz,
+        char* line, int lsz, char ch) {
+    define_viewport(0, bottomY, scr->cols_, topY);
+    mos_puts((char*) vdu, sz, 0);
+    reset_viewport();
+    scr_write_line(scr, scr->currY_, line, lsz);
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, ch);
+}
+
+void scr_scroll_down(
+        screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
+    static const char down[] = {23, 7, 0, 2, 8};
+    scroll_region(scr, topY, bottomY, down, sizeof(down), line, sz, ch);
+}
+
+void scr_scroll_up(
+        screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
+    static const char up[] = {23, 7, 0, 3, 8};
+    scroll_region(scr, topY, bottomY, up, sizeof(up), line, sz, ch);
 }
 
 void scr_erase(screen* scr, int sz) {
