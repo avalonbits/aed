@@ -45,4 +45,10 @@ void        stub_file_fail_open(int fail);  /* make the next mos_fopen return 0 
 /* Content mos_fread serves, and the size mos_getfil reports. */
 void        stub_file_set_content(const char* data, int len);
 
+/* Sends VDU bytes and MOS diagnostics to /dev/null. Tests that assert on state
+ * rather than on what reached the screen should call this first, so the suite's
+ * stdout stays clean for anything parsing it. Tests that read the VDU stream
+ * back redirect stdout themselves instead. */
+void        stub_discard_output(void);
+
 #endif

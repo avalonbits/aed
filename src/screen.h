@@ -74,6 +74,15 @@ void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, in
 
 // Screen management.
 void set_colours(char fg, char bg);
+
+// Scrolls one row of the text area and paints the newly exposed line. The
+// caller decides which region moves and what belongs on the new row; the VDU
+// sequences that make it happen live in the view.
+void scr_scroll_up(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
+void scr_scroll_down(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
+
+// Moves the hardware cursor to the position the screen already records.
+void scr_sync_cursor(screen* scr);
 void scr_clear_textarea(screen* scr, char top, char bottom);
 void scr_write_line(screen* scr, char ypos, char* buf, int sz);
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz);

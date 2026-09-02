@@ -18,8 +18,7 @@
 
 #include "cmd_ops.h"
 
-#include <agon/vdp.h>
-#include <stdio.h>
+#include <stddef.h>
 
 #include "editor.h"
 #include "text_buffer.h"
@@ -62,9 +61,9 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
     }
     fill_screen(scr, &cp);
 
-    vdp_cursor_tab(currX, currY);
     scr->currY_ = currY;
     scr->currX_ = currX;
+    scr_sync_cursor(scr);
 }
 
 static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, char* prefill) {
@@ -164,45 +163,10 @@ void cmd_putc(editor* ed, key k) {
     scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
-static inline void reset_viewport() {
-    putchar(26);
-}
-
-static void define_viewport(char left, char bottom, char right, char top) {
-    static char viewport[5] = {28, 0, 0, 0, 0};
-    viewport[1] = left;
-    viewport[2] = bottom;
-    viewport[3] = right;
-    viewport[4] = top;
-    VDP_PUTS(viewport);
-}
-
-static void scroll_down(
-        screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
-    static const char down[] = {23, 7, 0, 2, 8};
-    define_viewport(0, bottomY, scr->cols_, topY);
-    VDP_PUTS(down);
-    reset_viewport();
-    scr_write_line(scr, scr->currY_, line, sz);
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, ch);
-}
-
-static void scroll_up(
-        screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
-    static const char up[] = {23, 7, 0, 3, 8};
-    define_viewport(0, bottomY, scr->cols_, topY);
-    VDP_PUTS(up);
-    reset_viewport();
-    scr_write_line(scr, scr->currY_, line, sz);
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, ch);
-}
-
 static void region_up(screen* scr, text_buffer* tb, char ch) {
     int sz = 0;
     char* line = tb_suffix(tb, &sz);
-    scroll_up(scr, scr->currY_, scr->bottomY_-1, line, sz, ch);
+    scr_scroll_up(scr, scr->currY_, scr->bottomY_-1, line, sz, ch);
 
     int diff = scr->bottomY_ - scr->currY_ - 1;
     int last = 0;
@@ -225,7 +189,7 @@ void cmd_show(editor* ed) {
     text_buffer cb;
     tb_copy(&cb, tb);
     fill_screen(scr, &cb);
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_sync_cursor(scr);
 
     const char to_ch = tb_peek(tb);
     scr_show_cursor_ch(scr, to_ch);
@@ -322,9 +286,9 @@ void cmd_newl(editor* ed) {
     scr_place_cursor(scr, NULL, 0);
     if  (scr->currY_ < scr->bottomY_-1) {
         scr->currY_++;
-        scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
+        scr_scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     } else {
-        scroll_up(scr, scr->topY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
+        scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     }
 }
 
@@ -450,13 +414,13 @@ void cmd_up(editor* ed) {
     if (scr->currY_ == scr->topY_) {
         scr_hide_cursor_ch(scr, from_ch);
         scr_place_cursor(scr, NULL, 0);
-        vdp_cursor_tab(scr->currX_, scr->currY_);
+        scr_sync_cursor(scr);
 
         tb_home(tb);
         to_ch = tb_peek(tb);
 
         char* suffix = tb_suffix(tb, &psz);
-        scroll_down(scr, scr->topY_, scr->bottomY_-1, suffix, psz, to_ch);
+        scr_scroll_down(scr, scr->topY_, scr->bottomY_-1, suffix, psz, to_ch);
         return;
     }
 
@@ -499,7 +463,7 @@ void cmd_down(editor* ed) {
 
         int sz = 0;
         char* line = tb_suffix(&cp, &sz);
-        scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
+        scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
 
@@ -644,7 +608,7 @@ void cmd_goto(editor* ed) {
     } else {
         scr->currY_ = diff;
     }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_sync_cursor(scr);
 
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);

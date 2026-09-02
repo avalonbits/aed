@@ -6,6 +6,7 @@
  * can be checked without touching the filesystem.
  */
 
+#include <stdio.h>
 #include <string.h>
 
 #include <agon/mos.h>
@@ -22,8 +23,13 @@ void vdp_cursor_tab(int x, int y)    { (void)x; (void)y; }
 /* --- MOS: screen/system --- */
 void waitvblank(void) {}
 
+// Writes to stdout so that VDU bytes sent via mos_puts and via putchar land in
+// one ordered stream, which is what the scroll tests read back.
 void mos_puts(const char* b, unsigned size, char d) {
-    (void)b; (void)size; (void)d;
+    (void)d;
+    if (b != NULL && size > 0) {
+        fwrite(b, 1, size, stdout);
+    }
 }
 
 uint8_t* mos_sysvars(void) {
@@ -62,6 +68,12 @@ int         stub_file_size(void)   { return stub_len; }
 int         stub_file_opens(void)  { return stub_opens; }
 int         stub_file_closes(void) { return stub_closes; }
 void        stub_file_fail_open(int fail) { stub_fail_open = fail; }
+
+void stub_discard_output(void) {
+    if (freopen("/dev/null", "w", stdout) == NULL) {
+        fprintf(stderr, "warning: could not discard stdout\n");
+    }
+}
 
 void stub_file_set_content(const char* data, int len) {
     stub_content = data;

@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <agon/mos.h>
+
 #include "char_buffer.h"
 #include "line_buffer.h"
 #include "text_buffer.h"
@@ -33,6 +35,8 @@ static void check(const char* name, int got, int want) {
 }
 
 int main(void) {
+    stub_discard_output();
+
     /* --- char_buffer --- */
     char_buffer cb;
     if (!cb_init(&cb, 8)) {
