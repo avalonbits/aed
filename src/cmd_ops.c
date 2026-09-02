@@ -19,10 +19,7 @@
 #include "cmd_ops.h"
 
 #include <agon/vdp.h>
-#include <agon/mos.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include "editor.h"
 #include "text_buffer.h"
@@ -77,40 +74,10 @@ static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, char* pre
     if (res == CANCEL_OPT) {
         return false;
     } else if (res == YES_OPT) {
-        strncpy(tb->fname_, fname, sz);
-        tb->fname_[(int)sz] = 0;
+        tb_set_fname(tb, fname, sz);
         return true;
     }
     return false;
-}
-
-static bool save_file(text_buffer* tb) {
-    if (!tb_valid_file(tb)) {
-        return false;
-    }
-
-    char fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
-    if (fh == 0) {
-        return false;;
-    }
-
-    char* prefix = NULL;
-    char* suffix = NULL;
-    int psz = 0;
-    int ssz = 0;
-    tb_content(tb, &prefix, &psz, &suffix, &ssz);
-
-    if (prefix != NULL && psz > 0) {
-        mos_fwrite(fh, (char*) prefix, psz);
-    }
-    if (suffix != NULL && ssz > 0) {
-        mos_fwrite(fh, (char*) suffix, ssz);
-    }
-
-    mos_fclose(fh);
-    tb_saved(tb);
-
-    return true;
 }
 
 bool cmd_save(editor* ed) {
@@ -126,7 +93,7 @@ bool cmd_save(editor* ed) {
         return false;
     }
 
-    return save_file(tb);
+    return tb_save(tb);
 }
 
 
@@ -135,8 +102,8 @@ void cmd_save_as(editor* ed) {
     SCR(ed);
     UI(ed);
 
-    if (update_fname(scr, ui, tb, tb->fname_)) {
-        save_file(tb);
+    if (update_fname(scr, ui, tb, tb_fname(tb))) {
+        tb_save(tb);
     }
 }
 

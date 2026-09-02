@@ -3,10 +3,11 @@
 # test/stubs and runs the resulting binaries natively.
 #
 # These are host tests, not target tests: they cover logic that is independent
-# of the eZ80 (buffer arithmetic, cursor bookkeeping). `char` is 1 byte and
-# signed on both targets -- -fsigned-char makes that explicit rather than
-# relying on the host default -- so truncation behaviour matches the device.
-# Anything that depends on the eZ80's 3-byte int still needs a real Agon.
+# of the eZ80 (buffer arithmetic, cursor bookkeeping, the save path). `char` is
+# 1 byte and signed on both targets -- -fsigned-char makes that explicit rather
+# than relying on the host default -- so truncation behaviour matches the device.
+# Anything that depends on the eZ80's 3-byte int, or on real VDP/MOS behaviour,
+# still needs a real Agon or the emulator.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,11 +16,16 @@ trap 'rm -rf "$OUT"' EXIT
 
 CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -Isrc -Itest/stubs)
 
+# Model + View, plus the stubbed platform layer. No controller: cmd_ops.c and
+# editor.c drive blocking input, which is not meaningful to link here.
+SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
+      src/conv.c test/stubs/agon_stubs.c)
+
 status=0
 for t in test/test_*.c; do
     name=$(basename "$t" .c)
     echo "=== $name ==="
-    cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" src/screen.c src/conv.c
+    cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${SRCS[@]}"
     "$OUT/$name" || status=$?
 done
 

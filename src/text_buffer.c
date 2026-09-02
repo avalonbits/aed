@@ -83,8 +83,16 @@ bool tb_changed(text_buffer* tb) {
    return tb->dirty_;
 }
 
-void tb_saved(text_buffer* tb) {
+static void tb_saved(text_buffer* tb) {
     tb->dirty_ = false;
+}
+
+void tb_set_fname(text_buffer* tb, const char* fname, int sz) {
+    if (sz >= (int) sizeof(tb->fname_)) {
+        sz = sizeof(tb->fname_) - 1;
+    }
+    strncpy(tb->fname_, fname, sz);
+    tb->fname_[sz] = 0;
 }
 
 // Character ops.
@@ -347,7 +355,7 @@ split_line tb_curr_line(text_buffer* tb) {
     return ln;
 }
 
-void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, int* ssz) {
+static void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, int* ssz) {
     *prefix = cb_prefix(&tb->cb_, psz);
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
@@ -461,6 +469,37 @@ bool tb_load(text_buffer* tb, char tab_size, const char* fname) {
     mos_fclose(fh);
 
     return ok;
+}
+
+bool tb_save(text_buffer* tb) {
+    if (!tb_valid_file(tb)) {
+        return false;
+    }
+
+    char fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
+    if (fh == 0) {
+        return false;
+    }
+
+    // The prefix and the suffix are the document, in order: the gap between
+    // them holds no live text, so saving is just the two segments back to back.
+    char* prefix = NULL;
+    char* suffix = NULL;
+    int psz = 0;
+    int ssz = 0;
+    tb_content(tb, &prefix, &psz, &suffix, &ssz);
+
+    if (prefix != NULL && psz > 0) {
+        mos_fwrite(fh, prefix, psz);
+    }
+    if (suffix != NULL && ssz > 0) {
+        mos_fwrite(fh, suffix, ssz);
+    }
+
+    mos_fclose(fh);
+    tb_saved(tb);
+
+    return true;
 }
 
 bool tb_valid_file(text_buffer* tb) {

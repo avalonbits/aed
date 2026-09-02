@@ -42,7 +42,7 @@ bool tb_eol(text_buffer* tb);
 bool tb_bol(text_buffer* tb);
 char* tb_fname(text_buffer* tb);
 bool tb_changed(text_buffer* tb);
-void tb_saved(text_buffer* tb);
+void tb_set_fname(text_buffer* tb, const char* fname, int sz);
 
 // Character ops.
 void tb_put(text_buffer* tb, char ch);
@@ -80,7 +80,7 @@ typedef struct _split_line {
 split_line tb_curr_line(text_buffer* tb);
 
 bool tb_load(text_buffer* tb, char tab_size, const char* fname);
-void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, int* ssz);
+bool tb_save(text_buffer* tb);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
 
