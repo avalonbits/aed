@@ -65,7 +65,8 @@ You can press `CTRL+D` or `CTRL+DELETE` to delete a whole line.
 
 `TAB` inserts a real tab. Tabs are stored in the file as tab characters and are only
 expanded to the next tab stop when drawn, so a file's tabs survive being opened and
-saved. The default tab width is 4 columns. `LEFT/RIGHT` move over a tab in one step,
+saved. The tab width is 4 columns; making it configurable is planned for a later
+release. `LEFT/RIGHT` move over a tab in one step,
 since it is a single character, and the cursor sits at the column where the tab
 begins.
 
@@ -89,7 +90,8 @@ The following features will be implemented before releasing v1.0 of the editor:
 ## Roadmap after v1.0
 
 - [ ] Undo / Redo.
-- [x] ~~Native tabs / tab-size.~~
+- [x] ~~Native tabs.~~
+- [ ] Configurable tab size.
 - [ ] Tab-to-space conversion.
 - [ ] Syntax highlighting for BBCBasic and assembly files.
 - [ ] Unlimted file size support.
