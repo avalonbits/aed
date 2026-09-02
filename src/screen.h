@@ -39,8 +39,16 @@ typedef struct _screen {
     char bg_;
 } screen;
 
+// Tab width used when projecting a byte offset onto a screen column. Tabs are
+// currently expanded to spaces before they reach the buffer, so nothing renders
+// a tab yet; the width is threaded through so that stops being true.
+#define SCR_DEFAULT_TAB_SIZE 4
+#define SCR_MAX_TAB_SIZE     16
+
 // Setup.
 screen* scr_init(screen* scr, char cursor);
+void scr_set_tab_size(screen* scr, char tab_size);
+char scr_tab_size(screen* scr);
 void scr_destroy(screen* scr);
 void scr_clear(screen* scr);
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y);
@@ -53,8 +61,14 @@ void scr_bksp(screen* scr, char* suffix, int sz);
 // Navigation.
 void scr_left(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz);
 void scr_right(screen* scr, char from_ch, char to_c, int deltaX, char* prefix, int sz);
-void scr_up(screen* scr, char from_ch, char to_ch, char currX);
-void scr_down(screen* scr, char from_ch, char to_ch, char currX);
+void scr_up(screen* scr, char from_ch, char to_ch, const char* line, int len);
+void scr_down(screen* scr, char from_ch, char to_ch, const char* line, int len);
+
+// Column projection. `line` is the current line from its start and `len` is how
+// many of its bytes precede the cursor. scr_place_cursor is the single owner of
+// the rule that currX_ is the clamped projection of the document column.
+int  scr_column_of(screen* scr, const char* line, int len);
+void scr_place_cursor(screen* scr, const char* line, int len);
 void scr_home(screen* scr, char from_ch, char to_ch, char* prefix, int sz);
 void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz);
 

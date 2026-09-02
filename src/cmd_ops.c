@@ -149,7 +149,8 @@ void cmd_putc(editor* ed, key k) {
     if (k.key == '\t') {
         // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
         k.key = ' ';
-        const char spaces = scr->tab_size_ - ((tb_xpos(tb)-1) % scr->tab_size_);
+        const char tab = scr_tab_size(scr);
+        const char spaces = tab - ((tb_xpos(tb)-1) % tab);
         for (char i = 0; i < spaces; i++) {
             cmd_putc(ed, k);
         }
@@ -274,11 +275,9 @@ static void cmd_bksp_merge(editor* ed) {
     if (scr->currY_ > scr->topY_) {
         scr->currY_--;
     }
-    if (tb->x_ > scr->cols_-1) {
-        scr->currX_ = scr->cols_-1;
-    } else {
-        scr->currX_ = tb->x_;
-    }
+    int bsz = 0;
+    char* bprefix = tb_prefix(tb, &bsz);
+    scr_place_cursor(scr, bprefix, bsz);
 
     char ch = tb_peek(tb);
     text_buffer cp;
@@ -320,7 +319,7 @@ void cmd_newl(editor* ed) {
     }
     scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
-    scr->currX_ = 0;
+    scr_place_cursor(scr, NULL, 0);
     if  (scr->currY_ < scr->bottomY_-1) {
         scr->currY_++;
         scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
@@ -336,7 +335,7 @@ void cmd_del_line(editor* ed) {
     if (!tb_del_line(tb)) {
         return;
     }
-    scr->currX_ = 0;
+    scr_place_cursor(scr, NULL, 0);
 
     const char ch = tb_peek(tb);
     text_buffer cp;
@@ -450,7 +449,7 @@ void cmd_up(editor* ed) {
 
     if (scr->currY_ == scr->topY_) {
         scr_hide_cursor_ch(scr, from_ch);
-        scr->currX_ = 0;
+        scr_place_cursor(scr, NULL, 0);
         vdp_cursor_tab(scr->currX_, scr->currY_);
 
         tb_home(tb);
@@ -471,11 +470,9 @@ void cmd_up(editor* ed) {
         }
     }
 
-    int xpos = tb_xpos(tb)-1;
-    if (xpos > scr->cols_-1) {
-        xpos = scr->cols_-1;
-    }
-    scr_up(scr, from_ch, to_ch, xpos);
+    psz = 0;
+    prefix = tb_prefix(tb, &psz);
+    scr_up(scr, from_ch, to_ch, prefix, psz);
 }
 
 void cmd_down(editor* ed) {
@@ -492,10 +489,9 @@ void cmd_down(editor* ed) {
     }
     if (scr->currY_ >= scr->bottomY_-1) {
         scr_hide_cursor_ch(scr, from_ch);
-        scr->currX_ = tb_xpos(tb)-1;
-        if (scr->currX_ > scr->cols_-1) {
-            scr->currX_ = scr->cols_-1;
-        }
+        int dsz = 0;
+        char* dprefix = tb_prefix(tb, &dsz);
+        scr_place_cursor(scr, dprefix, dsz);
 
         text_buffer cp;
         tb_copy(&cp, tb);
@@ -517,11 +513,9 @@ void cmd_down(editor* ed) {
         }
     }
 
-    int xpos = tb_xpos(tb)-1;
-    if (xpos > scr->cols_-1) {
-        xpos = scr->cols_-1;
-    }
-    scr_down(scr, from_ch, to_ch, xpos);
+    psz = 0;
+    prefix = tb_prefix(tb, &psz);
+    scr_down(scr, from_ch, to_ch, prefix, psz);
 }
 
 void cmd_home(editor* ed) {
@@ -573,7 +567,9 @@ void cmd_page_up(editor* ed) {
     }
 
     char ch = tb_peek(tb);
-    scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, ch);
 }
@@ -594,7 +590,9 @@ void cmd_page_down(editor* ed) {
         tb_down(tb);
     }
     char ch = tb_peek(tb);
-    scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, ch);
 }
@@ -648,7 +646,9 @@ void cmd_goto(editor* ed) {
     }
     vdp_cursor_tab(scr->currX_, scr->currY_);
 
-    scr->currX_ = tb_xpos(tb) < scr->cols_ ? tb_xpos(tb)-1 : scr->cols_-1;
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, tb_peek(tb));
 }

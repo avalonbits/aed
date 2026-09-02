@@ -113,9 +113,55 @@ screen *scr_init(screen* scr, char cursor) {
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
-    scr->tab_size_ = 4;
+    scr->tab_size_ = SCR_DEFAULT_TAB_SIZE;
 
     return scr;
+}
+
+void scr_set_tab_size(screen* scr, char tab_size) {
+    if (tab_size < 1) {
+        tab_size = 1;
+    } else if (tab_size > SCR_MAX_TAB_SIZE) {
+        tab_size = SCR_MAX_TAB_SIZE;
+    }
+    scr->tab_size_ = tab_size;
+}
+
+char scr_tab_size(screen* scr) {
+    return scr->tab_size_;
+}
+
+// Maps a byte offset within a line onto the screen column it renders at. A tab
+// advances to the next multiple of the tab width; every other byte is one
+// column wide. With no tabs in the line this is simply `len`, which is why this
+// is behaviour-preserving today.
+int scr_column_of(screen* scr, const char* line, int len) {
+    if (line == NULL || len <= 0) {
+        return 0;
+    }
+
+    const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
+    int col = 0;
+    for (int i = 0; i < len; i++) {
+        if (line[i] == '\t') {
+            col += tab - (col % tab);
+        } else {
+            col++;
+        }
+    }
+
+    return col;
+}
+
+void scr_place_cursor(screen* scr, const char* line, int len) {
+    int col = scr_column_of(scr, line, len);
+    if (col > scr->cols_ - 1) {
+        col = scr->cols_ - 1;
+    }
+    if (col < 0) {
+        col = 0;
+    }
+    scr->currX_ = col;
 }
 
 void scr_destroy(screen* scr) {
@@ -340,18 +386,18 @@ void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, in
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_up(screen* scr, char from_ch, char to_ch, char currX) {
+void scr_up(screen* scr, char from_ch, char to_ch, const char* line, int len) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
-    scr->currX_ = currX;
+    scr_place_cursor(scr, line, len);
     vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
 
-void scr_down(screen* scr, char from_ch, char to_ch, char currX) {
+void scr_down(screen* scr, char from_ch, char to_ch, const char* line, int len) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
-    scr->currX_ = currX;
+    scr_place_cursor(scr, line, len);
     vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
 }
