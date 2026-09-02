@@ -63,7 +63,7 @@ int main(void) {
 
     /* --- text_buffer: a refused put must not move the cursor --- */
     text_buffer tb;
-    if (!tb_init(&tb, 4, 1, NULL)) {   /* 1KB budget -> small char buffer */
+    if (!tb_init(&tb, 1, NULL)) {   /* 1KB budget -> small char buffer */
         fprintf(stderr, "tb_init failed\n");
 
         return 2;

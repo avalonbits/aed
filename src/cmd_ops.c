@@ -66,6 +66,15 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
     scr_sync_cursor(scr);
 }
 
+// The horizontal origin is screen-wide, so a scroll invalidates every visible
+// row, not just the one the cursor is on. Only the controller can repaint them:
+// the view has no way to walk the document.
+static void resync_after_scroll(screen* scr, text_buffer* tb, char to_ch) {
+    refresh_screen(scr, tb);
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, to_ch);
+}
+
 static bool update_fname(screen* scr, user_input* ui, text_buffer* tb, char* prefill) {
     char* fname;
     int sz;
@@ -145,22 +154,13 @@ void cmd_putc(editor* ed, key k) {
     TB(ed);
     SCR(ed);
 
-    if (k.key == '\t') {
-        // Convert tab to spaces because it is too damn hard to get it working correctly with line scrolling.
-        k.key = ' ';
-        const char tab = scr_tab_size(scr);
-        const char spaces = tab - ((tb_xpos(tb)-1) % tab);
-        for (char i = 0; i < spaces; i++) {
-            cmd_putc(ed, k);
-        }
-        return;
-    }
-
     if (!tb_put(tb, k.key)) {
         return;
     }
     split_line ln = tb_curr_line(tb);
-    scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
+    if (scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, tb_peek(tb));
+    }
 }
 
 static void region_up(screen* scr, text_buffer* tb, char ch) {
@@ -262,13 +262,13 @@ void cmd_bksp(editor* ed) {
         return;
     }
 
-    int sz = 0;
-    char* suffix = tb_suffix(tb, &sz);
-
     if (!tb_bksp(tb)) {
         return;
     }
-    scr_bksp(scr, suffix, sz);
+    split_line ln = tb_curr_line(tb);
+    if (scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, tb_peek(tb));
+    }
 }
 
 void cmd_newl(editor* ed) {
@@ -323,9 +323,10 @@ void cmd_left(editor* ed) {
     char from_ch = tb_peek(tb);
     char to_ch = tb_prev(tb);
 
-    int sz = 0;
-    char* suffix = tb_suffix(tb, &sz);
-    scr_left(scr, from_ch, to_ch, 1, suffix, sz);
+    split_line ln = tb_curr_line(tb);
+    if (scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, to_ch);
+    }
 }
 
 void cmd_w_left(editor* ed) {
@@ -340,14 +341,13 @@ void cmd_w_left(editor* ed) {
         return;
     }
 
-    const int from_x = tb_xpos(tb);
     const char from_ch = tb_peek(tb);
     const char to_ch = tb_w_prev(tb, from_ch);
-    const int deltaX = from_x - tb_xpos(tb);
 
-    int sz = 0;
-    char* suffix = tb_suffix(tb, &sz);
-    scr_left(scr, from_ch, to_ch, deltaX, suffix, sz);
+    split_line ln = tb_curr_line(tb);
+    if (scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, to_ch);
+    }
 }
 
 void cmd_right(editor* ed) {
@@ -369,9 +369,11 @@ void cmd_right(editor* ed) {
     }
 
     const char to_ch = tb_next(tb);
-    int sz = 0;
-    char* prefix = tb_prefix(tb, &sz);
-    scr_right(scr, from_ch, to_ch, 1, prefix, sz);
+
+    split_line ln = tb_curr_line(tb);
+    if (scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, to_ch);
+    }
 }
 
 void cmd_w_right(editor* ed) {
@@ -387,99 +389,96 @@ void cmd_w_right(editor* ed) {
         return;
     }
 
-    const int from_x = tb_xpos(tb);
     const char from_ch = tb_peek(tb);
     const char to_ch = tb_w_next(tb, from_ch);
-    const int deltaX = tb_xpos(tb) - from_x;
 
-    int sz = 0;
-    char* prefix = tb_prefix(tb, &sz);
-    scr_right(scr, from_ch, to_ch, deltaX, prefix, sz);
+    split_line ln = tb_curr_line(tb);
+    if (scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, to_ch);
+    }
 }
 
 void cmd_up(editor* ed) {
     TB(ed);
     SCR(ed);
 
+    // Remember the column, not the byte offset: a tab is one byte but several
+    // columns, so carrying x_ across would slide the cursor sideways.
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
+    const int want_col = scr_column_of(scr, prefix, psz);
 
-    int ypos = tb_ypos(tb);
-    char from_ch = tb_peek(tb);
-    char to_ch = tb_up(tb);
+    const int ypos = tb_ypos(tb);
+    const char from_ch = tb_peek(tb);
+    tb_up(tb);
     if (ypos == tb_ypos(tb)) {
         return;
     }
 
+    // Land on the byte of the new line that renders at that column.
+    tb_home(tb);
+    int lsz = 0;
+    char* row = tb_suffix(tb, &lsz);
+    const char to_ch = tb_goto_offset(tb, scr_byte_at(scr, row, lsz, want_col));
+
     if (scr->currY_ == scr->topY_) {
         scr_hide_cursor_ch(scr, from_ch);
-        scr_place_cursor(scr, NULL, 0);
-        scr_sync_cursor(scr);
+        split_line top = tb_curr_line(tb);
+        (void) scr_place_cursor(scr, top.prefix_, top.psz_);
 
-        tb_home(tb);
-        to_ch = tb_peek(tb);
-
-        char* suffix = tb_suffix(tb, &psz);
-        scr_scroll_down(scr, scr->topY_, scr->bottomY_-1, suffix, psz, to_ch);
+        text_buffer cp;
+        tb_copy(&cp, tb);
+        tb_home(&cp);
+        int sz = 0;
+        char* line = tb_suffix(&cp, &sz);
+        scr_scroll_down(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
 
-    if (scr->currX_ >= scr->cols_-1) {
-        scr_write_line(scr, scr->currY_, prefix, psz);
-        if (tb_xpos(tb) >= scr->cols_) {
-            psz = 0;
-            prefix = tb_prefix(tb, &psz);
-            int pad = (tb_xpos(tb)-1) - scr->currX_;
-            scr_write_line(scr, scr->currY_-1, prefix+pad, psz-pad);
-        }
+    split_line ln = tb_curr_line(tb);
+    if (scr_up(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, to_ch);
     }
-
-    psz = 0;
-    prefix = tb_prefix(tb, &psz);
-    scr_up(scr, from_ch, to_ch, prefix, psz);
 }
 
 void cmd_down(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    int ypos = tb_ypos(tb);
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
-    char from_ch = tb_peek(tb);
-    char to_ch = tb_down(tb);
+    const int want_col = scr_column_of(scr, prefix, psz);
+
+    const int ypos = tb_ypos(tb);
+    const char from_ch = tb_peek(tb);
+    tb_down(tb);
     if (ypos == tb_ypos(tb)) {
         return;
     }
+
+    tb_home(tb);
+    int lsz = 0;
+    char* row = tb_suffix(tb, &lsz);
+    const char to_ch = tb_goto_offset(tb, scr_byte_at(scr, row, lsz, want_col));
+
     if (scr->currY_ >= scr->bottomY_-1) {
         scr_hide_cursor_ch(scr, from_ch);
-        int dsz = 0;
-        char* dprefix = tb_prefix(tb, &dsz);
-        scr_place_cursor(scr, dprefix, dsz);
+        split_line bot = tb_curr_line(tb);
+        (void) scr_place_cursor(scr, bot.prefix_, bot.psz_);
 
         text_buffer cp;
         tb_copy(&cp, tb);
         tb_home(&cp);
-
         int sz = 0;
         char* line = tb_suffix(&cp, &sz);
         scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
         return;
     }
 
-    if (scr->currX_ >= scr->cols_-1) {
-        scr_write_line(scr, scr->currY_, prefix, psz);
-        if (tb_xpos(tb) >= scr->cols_) {
-            psz = 0;
-            prefix = tb_prefix(tb, &psz);
-            int pad = (tb_xpos(tb)-1) - scr->currX_;
-            scr_write_line(scr, scr->currY_+1, prefix+pad, psz-pad);
-        }
+    split_line ln = tb_curr_line(tb);
+    if (scr_down(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, to_ch);
     }
-
-    psz = 0;
-    prefix = tb_prefix(tb, &psz);
-    scr_down(scr, from_ch, to_ch, prefix, psz);
 }
 
 void cmd_home(editor* ed) {
@@ -491,11 +490,11 @@ void cmd_home(editor* ed) {
     }
 
     char from_ch = tb_peek(tb);
-    char to_ch = tb_home(tb);
-    if (to_ch != 0) {
-        int sz = 0;
-        char* suffix = tb_suffix(tb, &sz);
-        scr_home(scr, from_ch, tb_peek(tb), suffix, sz);
+    tb_home(tb);
+
+    split_line ln = tb_curr_line(tb);
+    if (scr_move_cursor(scr, from_ch, tb_peek(tb), ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+        resync_after_scroll(scr, tb, tb_peek(tb));
     }
 }
 
@@ -506,11 +505,11 @@ void cmd_end(editor* ed) {
     const int from_x = tb_xpos(tb);
     char from_ch = tb_peek(tb);
     char to_ch = tb_end(tb);
-    const int deltaX = tb_xpos(tb) - from_x;
-    if (deltaX > 0) {
-        int sz = 0;
-        char* prefix = tb_prefix(tb, &sz);
-        scr_end(scr, from_ch, to_ch, deltaX, prefix, sz);
+    if (tb_xpos(tb) != from_x) {
+        split_line ln = tb_curr_line(tb);
+        if (scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_)) {
+            resync_after_scroll(scr, tb, to_ch);
+        }
     }
 }
 

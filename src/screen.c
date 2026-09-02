@@ -32,10 +32,19 @@ void set_colours(char fg, char bg) {
     vdp_set_text_colour(bg+128);
 }
 
-void scr_show_cursor_ch(screen* scr, char ch) {
-    if (ch == 0 || ch == '\r' || ch == '\n') {
-        ch = scr->cursor_;
+// The cursor cell shows the character under it, but a control byte cannot be
+// drawn -- sending a tab to the VDP moves the cursor instead of painting it,
+// which left the cursor invisible whenever it sat on one.
+static char cursor_glyph(screen* scr, char ch) {
+    if (ch == 0 || ch == '\r' || ch == '\n' || ch == '\t') {
+        return scr->cursor_;
     }
+
+    return ch;
+}
+
+void scr_show_cursor_ch(screen* scr, char ch) {
+    ch = cursor_glyph(scr, ch);
 
     // First reverse colors
     set_colours(scr->bg_, scr->fg_);
@@ -108,6 +117,7 @@ screen *scr_init(screen* scr, char cursor) {
     scr->colors_ = getsysvar_scrColours();
     scr->cursor_ = cursor;
     scr->topY_ = 1;
+    scr->originX_ = 0;
     scr->bottomY_ = scr->rows_-1;
     get_active_colours(scr);
     scr_clear(scr);
@@ -153,15 +163,53 @@ int scr_column_of(screen* scr, const char* line, int len) {
     return col;
 }
 
-void scr_place_cursor(screen* scr, const char* line, int len) {
-    int col = scr_column_of(scr, line, len);
-    if (col > scr->cols_ - 1) {
-        col = scr->cols_ - 1;
+int scr_byte_at(screen* scr, const char* line, int len, int column) {
+    if (line == NULL || len <= 0 || column <= 0) {
+        return 0;
     }
-    if (col < 0) {
-        col = 0;
+
+    const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
+    int col = 0;
+    for (int i = 0; i < len; i++) {
+        if (col >= column) {
+            return i;
+        }
+        if (line[i] == '\t') {
+            col += tab - (col % tab);
+        } else {
+            col++;
+        }
     }
-    scr->currX_ = col;
+
+    return len;
+}
+
+bool scr_place_cursor(screen* scr, const char* line, int len) {
+    const int col = scr_column_of(scr, line, len);
+    const int width = scr->cols_ > 0 ? scr->cols_ : 1;
+    const int origin = scr->originX_;
+
+    // Keep the cursor inside the window by moving the window, not by pinning
+    // the cursor to an edge and losing track of where it really is.
+    if (col < origin) {
+        // Scrolling left: if everything up to the cursor already fits, show the
+        // line from its start rather than leaving the window parked mid-line,
+        // which would blank out every shorter row on screen.
+        scr->originX_ = col < width ? 0 : col;
+    } else if (col > origin + width - 1) {
+        scr->originX_ = col - (width - 1);
+    }
+
+    int x = col - scr->originX_;
+    if (x > width - 1) {
+        x = width - 1;
+    }
+    if (x < 0) {
+        x = 0;
+    }
+    scr->currX_ = (char) x;
+
+    return scr->originX_ != origin;
 }
 
 void scr_destroy(screen* scr) {
@@ -236,13 +284,12 @@ void scr_clear(screen* scr) {
     }
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
+    scr->originX_ = 0;
     vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
 void scr_hide_cursor_ch(screen* scr, char ch) {
-    if (ch == 0 || ch == '\r' || ch == '\n') {
-        ch = scr->cursor_;
-    }
+    ch = cursor_glyph(scr, ch);
 
     set_colours(scr->fg_, scr->bg_);
     putchar(ch);
@@ -253,153 +300,78 @@ static void scr_hide_cursor(screen* scr) {
     scr_hide_cursor_ch(scr, scr->cursor_);
 }
 
-void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
+// `prefix`/`psz` describe the line up to and including the character just
+// inserted, so the cursor lands after it.
+bool scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz) {
+    (void) ch;
     scr_hide_cursor(scr);
-    if (scr->currX_ < scr->cols_-1) {
-        putchar(ch);
-        scr->currX_++;
-        if (suffix != NULL && ssz > 0) {
-            int max = scr->cols_ - scr->currX_;
-            for (int i = 0; i < ssz && i < max; i++) {
-                putchar(suffix[i]);
-            }
-            vdp_cursor_tab(scr->currX_, scr->currY_);
-            scr_show_cursor_ch(scr, suffix[0]);
-        } else {
-            scr_show_cursor(scr);
-        }
-    } else {
-        int pad = psz - scr->cols_+1;
-        scr_write_line(scr, scr->currY_, prefix+pad, psz-pad-1);
-        vdp_cursor_tab(scr->currX_ -1, scr->currY_);
-        putchar(ch);
-        if (ssz > 0) {
-            scr_show_cursor_ch(scr, suffix[0]);
-        } else {
-            scr_show_cursor(scr);
-        }
-    }
-}
 
-static void print_suffix(screen* scr, char* suffix, int sz) {
-    int i = 0;
-    const int limit = scr->cols_ - scr->currX_;
-    for (; i < sz && i < limit; i++) {
-        putchar(suffix[i]);
+    // Repaint from where the inserted character starts, not from the cursor:
+    // the cursor now sits after it, and a tab starts several columns back.
+    const int at = scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
+    const bool scrolled = scr_place_cursor(scr, prefix, psz);
+    if (scrolled) {
+        scr_paint_row(scr, scr->currY_, prefix, psz, suffix, ssz);
+    } else {
+        scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz, at);
     }
-    if (i < limit) {
-        putchar(' ');
-    }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, (suffix != NULL && ssz > 0) ? suffix[0] : scr->cursor_);
+
+    return scrolled;
 }
 
 void scr_del(screen* scr, char* suffix, int sz) {
-    char ch = scr->cursor_;
-    if (sz > 0) {
-        ch = suffix[0];
-        print_suffix(scr, suffix, sz);
-    }
-    scr_show_cursor_ch(scr, ch);
+    scr_paint_tail(scr, suffix, sz);
+    scr_show_cursor_ch(scr, sz > 0 ? suffix[0] : scr->cursor_);
 }
 
-void scr_bksp(screen* scr, char* suffix, int sz) {
-    if (scr->currX_ == 0) {
-        return;
-    }
-    scr->currX_--;
+// `prefix`/`psz` describe the line after the deletion, so the cursor lands on
+// the character that moved into the deleted position.
+bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-
-    char ch = scr->cursor_;
-    if (sz > 0) {
-        ch = suffix[0];
-        print_suffix(scr, suffix, sz);
-    }
-    scr_show_cursor_ch(scr, ch);
-}
-
-void scr_left(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz) {
-    int x = scr->currX_ - deltaX;
-    if (x >= 0) {
-        scr->currX_ -= deltaX;
-    } else if (sz > 0) {
-        scr->currX_ = 0;
-        int max = scr->cols_ - scr->currX_;
-        vdp_cursor_tab(0, scr->currY_);
-        for (int i = 0; i < max; i++) {
-            putchar(suffix[i]);
-        }
-        vdp_cursor_tab(scr->currX_, scr->currY_);
-
-    }
-    scr_hide_cursor_ch(scr, from_ch);
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, to_ch);
-}
-
-void scr_right(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, int sz) {
-    int x = scr->currX_ + deltaX;
-    if (x < scr->cols_) {
-        scr->currX_ = x;
-    } else if (sz > 0) {
-        scr->currX_ = scr->cols_-1;
-        int pad = sz - scr->cols_ + 1;
-
-        vdp_cursor_tab(0, scr->currY_);
-        for (int i = 0; i < scr->cols_; i++) {
-            putchar(prefix[i+pad]);
-        }
-        vdp_cursor_tab(scr->currX_, scr->currY_);
-
-    }
-    scr_hide_cursor_ch(scr, from_ch);
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, to_ch);
-}
-
-void scr_home(screen* scr, char from_ch, char to_ch, char* suffix, int sz) {
-    scr_hide_cursor_ch(scr, from_ch);
-    scr->currX_ = 0;
-    if (sz > 0) {
-        scr_write_line(scr, scr->currY_, suffix, sz);
-    }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, to_ch);
-}
-
-void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* prefix, int sz) {
-    scr_hide_cursor_ch(scr, from_ch);
-    int x = (scr->currX_) + deltaX;
-    if (x >= scr->cols_) {
-        scr->currX_ = scr->cols_-1;
+    const bool scrolled = scr_place_cursor(scr, prefix, psz);
+    if (scrolled) {
+        scr_paint_row(scr, scr->currY_, prefix, psz, suffix, ssz);
     } else {
-        scr->currX_ = x;
+        scr_paint_tail(scr, suffix, ssz);
     }
-    if (sz > 0) {
-        int pad = 0;
-        if (sz >= scr->cols_) {
-            pad = sz - scr->cols_+1;
-        }
-        scr_write_line(scr, scr->currY_, prefix+pad, sz-pad);
-    }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
-    scr_show_cursor_ch(scr, to_ch);
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, ssz > 0 ? suffix[0] : scr->cursor_);
+
+    return scrolled;
 }
 
-void scr_up(screen* scr, char from_ch, char to_ch, const char* line, int len) {
+
+
+
+
+bool scr_up(screen* scr, char from_ch, char to_ch,
+            const char* pre, int presz, const char* suf, int sufsz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_--;
-    scr_place_cursor(scr, line, len);
+    const bool scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled) {
+        scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    }
     vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
+
+    return scrolled;
 }
 
-void scr_down(screen* scr, char from_ch, char to_ch, const char* line, int len) {
+bool scr_down(screen* scr, char from_ch, char to_ch,
+            const char* pre, int presz, const char* suf, int sufsz) {
     scr_hide_cursor_ch(scr, from_ch);
     scr->currY_++;
-    scr_place_cursor(scr, line, len);
+    const bool scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled) {
+        scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    }
     vdp_cursor_tab(scr->currX_, scr->currY_);
     scr_show_cursor_ch(scr, to_ch);
+
+    return scrolled;
 }
 
 // VDU 28, left, bottom, right, top -- define a text viewport.
@@ -423,20 +395,95 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
     reset_viewport();
 }
 
+// Emits one line's worth of cells starting at document column `from_col`,
+// expanding tabs, stopping after `budget` screen columns. Returns the document
+// column reached, so a caller can continue across the gap split.
+static int emit_span(screen* scr, const char* buf, int sz, int col,
+                     int from_col, int stop_col) {
+    const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
+
+    for (int i = 0; i < sz && col < stop_col; i++) {
+        int width = 1;
+        if (buf[i] == '\t') {
+            width = tab - (col % tab);
+        }
+        for (int w = 0; w < width && col < stop_col; w++, col++) {
+            if (col >= from_col) {
+                putchar(buf[i] == '\t' ? ' ' : buf[i]);
+            }
+        }
+        continue;
+    }
+
+    return col;
+}
+
+// Paints the row from document column `from_col` rightwards. Columns left of
+// the window, or left of from_col, are skipped rather than redrawn.
+void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
+                    const char* suf, int sufsz, int from_col) {
+    const int from = from_col > scr->originX_ ? from_col : scr->originX_;
+    const int stop = scr->originX_ + scr->cols_;
+
+    vdp_cursor_tab((char)(from - scr->originX_), ypos);
+    int col = 0;
+    if (pre != NULL && presz > 0) {
+        col = emit_span(scr, pre, presz, col, from, stop);
+    }
+    if (suf != NULL && sufsz > 0) {
+        col = emit_span(scr, suf, sufsz, col, from, stop);
+    }
+    for (; col < stop; col++) {
+        if (col >= from) {
+            putchar(' ');
+        }
+    }
+    scr_sync_cursor(scr);
+}
+
+void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
+                   const char* suf, int sufsz) {
+    scr_paint_from(scr, ypos, pre, presz, suf, sufsz, scr->originX_);
+}
+
+void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
+    const int at = scr->originX_ + scr->currX_;
+    const int stop = scr->originX_ + scr->cols_;
+
+    vdp_cursor_tab(scr->currX_, scr->currY_);
+    int col = at;
+    if (suf != NULL && sufsz > 0) {
+        col = emit_span(scr, suf, sufsz, col, at, stop);
+    }
+    for (; col < stop; col++) {
+        putchar(' ');
+    }
+    scr_sync_cursor(scr);
+}
+
+// Returns true when the horizontal origin moved. The origin is screen-wide, so
+// every other visible row is then drawn against the old one and the caller must
+// repaint the text area -- the view cannot, it has no access to the document.
+bool scr_move_cursor(screen* scr, char from_ch, char to_ch,
+                     const char* pre, int presz, const char* suf, int sufsz) {
+    scr_hide_cursor_ch(scr, from_ch);
+    const bool scrolled = scr_place_cursor(scr, pre, presz);
+    if (scrolled) {
+        scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    }
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, to_ch);
+
+    return scrolled;
+}
+
 void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
-    scr_overwrite_line(scr, ypos, buf, sz, scr->cols_);
+    scr_paint_row(scr, ypos, NULL, 0, buf, sz);
 }
 
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
-    vdp_cursor_tab(0, ypos);
-    int i = 0;
-    for (; i < sz && i < scr->cols_; i++) {
-        putchar(buf[i]);
-    }
-    for (; i < psz && i < scr->cols_; i++) {
-        putchar(' ');
-    }
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    (void) psz;   // scr_paint_row always pads to the full width
+    scr_paint_row(scr, ypos, NULL, 0, buf, sz);
 }
 
 void scr_sync_cursor(screen* scr) {
@@ -451,7 +498,7 @@ static void scroll_region(
     define_viewport(0, bottomY, scr->cols_, topY);
     mos_puts((char*) vdu, sz, 0);
     reset_viewport();
-    scr_write_line(scr, scr->currY_, line, lsz);
+    scr_paint_row(scr, scr->currY_, NULL, 0, line, lsz);
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, ch);
 }

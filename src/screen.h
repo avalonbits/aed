@@ -34,6 +34,10 @@ typedef struct _screen {
     char bottomY_;
 
     char tab_size_;
+    // Document column shown at screen column 0. The view scrolls horizontally
+    // by moving this rather than by slicing lines at a byte offset, which is
+    // what lets one byte occupy more than one column.
+    int originX_;
     char cursor_;
     char fg_;
     char bg_;
@@ -54,23 +58,50 @@ void scr_clear(screen* scr);
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y);
 
 // Input.
-void scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz);
+// These return true when the horizontal origin moved; the caller must then
+// repaint the whole text area, since every other row is drawn against the old one.
+bool scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz);
 void scr_del(screen* scr, char* suffix, int sz);
-void scr_bksp(screen* scr, char* suffix, int sz);
+bool scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz);
 
 // Navigation.
-void scr_left(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz);
-void scr_right(screen* scr, char from_ch, char to_c, int deltaX, char* prefix, int sz);
-void scr_up(screen* scr, char from_ch, char to_ch, const char* line, int len);
-void scr_down(screen* scr, char from_ch, char to_ch, const char* line, int len);
+bool scr_up(screen* scr, char from_ch, char to_ch,
+            const char* pre, int presz, const char* suf, int sufsz);
+bool scr_down(screen* scr, char from_ch, char to_ch,
+              const char* pre, int presz, const char* suf, int sufsz);
 
 // Column projection. `line` is the current line from its start and `len` is how
-// many of its bytes precede the cursor. scr_place_cursor is the single owner of
-// the rule that currX_ is the clamped projection of the document column.
+// many of its bytes precede the cursor.
 int  scr_column_of(screen* scr, const char* line, int len);
-void scr_place_cursor(screen* scr, const char* line, int len);
-void scr_home(screen* scr, char from_ch, char to_ch, char* prefix, int sz);
-void scr_end(screen* scr, char from_ch, char to_ch, int deltaX, char* suffix, int sz);
+
+// Inverse projection: the byte offset in `line` that renders at or after
+// `column`. Clamped to `len`.
+int  scr_byte_at(screen* scr, const char* line, int len, int column);
+
+// Places the cursor at the column `len` bytes into the line, scrolling the view
+// horizontally if that column is off screen. Returns true when the origin moved
+// and the row therefore needs repainting.
+bool scr_place_cursor(screen* scr, const char* line, int len);
+
+// Paints one row from a line held as a gap-buffer split (either half may be
+// NULL/0), starting at the current horizontal origin, expanding tabs and
+// padding to the full width.
+void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
+                   const char* suf, int sufsz);
+
+// As above, but starting at an arbitrary document column -- used after an
+// insertion, which must repaint from the inserted character, not the cursor.
+void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
+                    const char* suf, int sufsz, int from_col);
+
+// Repaints from the cursor's column to the right edge. Used after an edit,
+// where nothing to the left of the cursor can have changed.
+void scr_paint_tail(screen* scr, const char* suf, int sufsz);
+
+// The single horizontal-motion primitive: move the cursor to the given position
+// in the line, scrolling and repainting the row if required.
+bool scr_move_cursor(screen* scr, char from_ch, char to_ch,
+                     const char* pre, int presz, const char* suf, int sufsz);
 
 // Screen management.
 void set_colours(char fg, char bg);

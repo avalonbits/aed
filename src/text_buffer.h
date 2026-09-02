@@ -31,7 +31,7 @@ typedef struct _text_buffer {
     char fname_[256];
 } text_buffer;
 
-text_buffer* tb_init(text_buffer* tb, char tab_size, int mem_kb, const char* fname);
+text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
 void tb_destroy(text_buffer* tb);
 
 // Info ops.
@@ -59,6 +59,8 @@ char tb_w_next(text_buffer* tb, char from_ch);
 char tb_prev(text_buffer* tb);
 char tb_w_prev(text_buffer* tb, char from_ch);
 char tb_home(text_buffer* tb);
+// Moves to `off` bytes from the start of the current line.
+char tb_goto_offset(text_buffer* tb, int off);
 char tb_up(text_buffer* tb);
 char tb_down(text_buffer* tb);
 char tb_end(text_buffer* tb);
@@ -79,7 +81,7 @@ typedef struct _split_line {
 } split_line;
 split_line tb_curr_line(text_buffer* tb);
 
-bool tb_load(text_buffer* tb, char tab_size, const char* fname);
+bool tb_load(text_buffer* tb, const char* fname);
 bool tb_save(text_buffer* tb);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
