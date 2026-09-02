@@ -96,11 +96,15 @@ void tb_set_fname(text_buffer* tb, const char* fname, int sz) {
 }
 
 // Character ops.
-void tb_put(text_buffer* tb, char ch) {
-    cb_put(&tb->cb_, ch);
+bool tb_put(text_buffer* tb, char ch) {
+    if (!cb_put(&tb->cb_, ch)) {
+        return false;
+    }
     tb->x_++;
     lb_cinc(&tb->lb_);
     tb->dirty_ = true;
+
+    return true;
 }
 
 bool tb_del(text_buffer* tb) {
@@ -123,6 +127,11 @@ bool tb_bksp(text_buffer* tb) {
 }
 
 bool tb_newline(text_buffer* tb) {
+    // Both halves of the CRLF must fit, or the line index and the text would
+    // disagree about where the line ends.
+    if (cb_available(&tb->cb_) < 2) {
+        return false;
+    }
     tb->dirty_ = true;
     tb_put(tb, '\r');
     tb_put(tb, '\n');
@@ -360,16 +369,27 @@ static void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, 
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
-static void convert_tabs(char_buffer* cb, line_buffer* lb, int spaces){
-    cb_del(cb);
-    cb_put(cb, ' ');
-    cb_prev(cb, 1);
-    if (spaces > 0) {
-        for (char i = 0; i < spaces; i++) {
-            cb_put(cb, ' ');
-            lb_cinc(lb);
-        }
+// Replaces the tab under the cursor with spaces. Returns how many spaces were
+// actually added beyond the one standing in for the tab, which may be short of
+// `spaces` if the buffer filled up.
+static int convert_tabs(char_buffer* cb, line_buffer* lb, int spaces){
+    if (!cb_del(cb)) {
+        return 0;
     }
+    // cb_del just widened the gap by one, so this put always fits.
+    (void) cb_put(cb, ' ');
+    cb_prev(cb, 1);
+
+    int added = 0;
+    for (int i = 0; i < spaces; i++) {
+        if (!cb_put(cb, ' ')) {
+            break;
+        }
+        lb_cinc(lb);
+        added++;
+    }
+
+    return added;
 }
 
 static int ensure_newline(char_buffer* cb, line_buffer* lb) {
@@ -378,12 +398,19 @@ static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     cb_next(cb, 1);
 
     if (pch != '\r') {
-        cb_put(cb, '\r');
+        if (!cb_put(cb, '\r')) {
+            // Without the CR this ending is a bare LF, but every consumer of
+            // the line index assumes a two-byte CRLF -- tb_suffix and tb_up
+            // both subtract 2. Recording a boundary here would put navigation
+            // permanently off by one, so leave the index alone.
+            return 0;
+        }
         lb_cinc(lb);
         added++;
     }
 
     lb_new(lb, lb_csize(lb));
+
     return added;
 }
 
@@ -407,9 +434,9 @@ static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
         }
         if (ch == '\t') {
             const char spaces = tab_size - (xpos % tab_size);
-            convert_tabs(&tb->cb_, &tb->lb_, spaces);
-            xpos += spaces;
-            added += spaces;
+            const int put = convert_tabs(&tb->cb_, &tb->lb_, spaces);
+            xpos += put;
+            added += put;
         }
         cb_next(cb, 1);
         xpos++;
@@ -421,9 +448,9 @@ static bool tb_read(char fh, char tab_size, text_buffer* tb, int sz) {
         xpos = 0;
     } else if (ch == '\t') {
         const char spaces = tab_size - (xpos % tab_size);
-        convert_tabs(&tb->cb_, &tb->lb_, spaces);
-        xpos += spaces;
-        added += spaces;
+        const int put = convert_tabs(&tb->cb_, &tb->lb_, spaces);
+        xpos += put;
+        added += put;
     }
 
     cb_prev(cb, sz+added);
@@ -463,6 +490,17 @@ bool tb_load(text_buffer* tb, char tab_size, const char* fname) {
 
     bool ok = true;
     int sz = (int) fil->obj.objsize;
+
+    // tb_read carves the read out of the tail of the gap, so a file bigger than
+    // the buffer would put cend_ below buf_ and read outside the allocation.
+    if (sz > cb_available(&tb->cb_)) {
+        char* msg = "file too large";
+        mos_puts(msg, strlen(msg), 0);
+        mos_fclose(fh);
+        tb->fname_[0] = 0;
+
+        return false;
+    }
     if (sz > 0) {
        ok = tb_read(fh, tab_size, tb, sz);
     }

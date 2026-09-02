@@ -63,9 +63,10 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
         VKey vkey = getsysvar_vkeycode();
 
         if (key >= '0' && key <= '9') {
-            cb_put(cb, key);
-            putchar(key);
-            scr_show_cursor_ch(scr, cb_peek(cb));
+            if (cb_put(cb, key)) {
+                putchar(key);
+                scr_show_cursor_ch(scr, cb_peek(cb));
+            }
             continue;
         }
 
@@ -209,7 +210,9 @@ RESPONSE ui_text(
     if (prefill != NULL) {
         for (unsigned int i = 0; i < strlen(prefill); i++) {
             const char ch = prefill[i];
-            cb_put(cb, ch);
+            if (!cb_put(cb, ch)) {
+                break;
+            }
             putchar(ch);
         }
     }
@@ -220,9 +223,10 @@ RESPONSE ui_text(
         VKey vkey = getsysvar_vkeycode();
 
         if (key != 0x7F && key > 0x20) {
-            cb_put(cb, key);
-            putchar(key);
-            scr_show_cursor_ch(scr, cb_peek(cb));
+            if (cb_put(cb, key)) {
+                putchar(key);
+                scr_show_cursor_ch(scr, cb_peek(cb));
+            }
             continue;
         }
 

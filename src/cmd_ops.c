@@ -156,7 +156,9 @@ void cmd_putc(editor* ed, key k) {
         return;
     }
 
-    tb_put(tb, k.key);
+    if (!tb_put(tb, k.key)) {
+        return;
+    }
     split_line ln = tb_curr_line(tb);
     scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }

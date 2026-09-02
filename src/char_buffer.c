@@ -57,9 +57,16 @@ int cb_used(char_buffer* cb) {
     return total;
 }
 
-void cb_put(char_buffer* cb, char ch) {
+// Returns false and writes nothing when the gap is closed, i.e. the buffer is
+// full. Callers must not advance their own bookkeeping on a refused write.
+bool cb_put(char_buffer* cb, char ch) {
+    if (cb->curr_ >= cb->cend_) {
+        return false;
+    }
     *cb->curr_ = ch;
     cb->curr_++;
+
+    return true;
 }
 
 bool cb_del(char_buffer* cb) {
