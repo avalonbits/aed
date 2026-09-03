@@ -25,11 +25,40 @@
 #include <stdio.h>
 
 #include "cmd_ops.h"
+#include "config.h"
 
 #define DEFAULT_CURSOR 32
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
-    scr_init(&ed->scr_, DEFAULT_CURSOR);
+    screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
+
+    // Settings are read once at startup. The setters clamp or reject out of
+    // range values, so a bad number in the file falls back rather than
+    // rejecting the file -- there is nowhere useful to report an error to.
+    //
+    // On first run there is no file. Write one holding what AED is starting
+    // with, including the colours it just measured off the Agon, so the user
+    // has something to edit instead of a format to guess at.
+    config cfg;
+    cfg_defaults(&cfg);
+    if (cfg_load(&cfg, CFG_PATH)) {
+        if (cfg.tab_size >= 0) {
+            scr_set_tab_size(scr, (char) cfg.tab_size);
+        }
+        // Each colour applies on its own: a file that sets only fg keeps the
+        // measured bg, the same way an unset tab keeps the default.
+        if (cfg.fg >= 0 || cfg.bg >= 0) {
+            const char fg = cfg.fg >= 0 ? (char) cfg.fg : scr_fg(scr);
+            const char bg = cfg.bg >= 0 ? (char) cfg.bg : scr_bg(scr);
+            scr_set_scheme(scr, fg, bg);
+            scr_clear(scr);
+        }
+    } else {
+        cfg.tab_size = scr_tab_size(scr);
+        cfg.fg = scr_fg(scr);
+        cfg.bg = scr_bg(scr);
+        cfg_save(&cfg, CFG_PATH);
+    }
     if (!tb_init(&ed->buf_, mem_kb, fname)) {
        return NULL;
     }

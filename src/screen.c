@@ -141,6 +141,23 @@ char scr_tab_size(screen* scr) {
     return scr->tab_size_;
 }
 
+void scr_set_scheme(screen* scr, char fg, char bg) {
+    if (fg < 0 || bg < 0 || fg >= scr->colors_ || bg >= scr->colors_) {
+        return;   // outside what this screen mode can show
+    }
+    scr->fg_ = fg;
+    scr->bg_ = bg;
+    set_colours(scr->fg_, scr->bg_);
+}
+
+char scr_fg(screen* scr) {
+    return scr->fg_;
+}
+
+char scr_bg(screen* scr) {
+    return scr->bg_;
+}
+
 // Maps a byte offset within a line onto the screen column it renders at. A tab
 // advances to the next multiple of the tab width; every other byte is one
 // column wide. With no tabs in the line this is simply `len`, which is why this

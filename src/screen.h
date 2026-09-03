@@ -53,6 +53,13 @@ typedef struct _screen {
 screen* scr_init(screen* scr, char cursor);
 void scr_set_tab_size(screen* scr, char tab_size);
 char scr_tab_size(screen* scr);
+
+// The colour scheme AED starts with is whatever the Agon was already using --
+// scr_init measures it. These let it be read back for the settings file and set
+// from one, without reaching into the struct.
+void scr_set_scheme(screen* scr, char fg, char bg);
+char scr_fg(screen* scr);
+char scr_bg(screen* scr);
 void scr_destroy(screen* scr);
 void scr_clear(screen* scr);
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y);
