@@ -62,6 +62,9 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     ed->selecting_ = false;
     ed->anchor_.line = 1;
     ed->anchor_.x = 0;
+    if (clip_init(&ed->clip_, CLIP_SIZE) == NULL) {
+        return NULL;
+    }
 
     if (!tb_init(&ed->buf_, mem_kb, fname)) {
        return NULL;
@@ -78,6 +81,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
 }
 
 void ed_destroy(editor* ed) {
+    clip_destroy(&ed->clip_);
     ui_destroy(&ed->ui_);
     scr_destroy(&ed->scr_);
     tb_destroy(&ed->buf_);
@@ -88,11 +92,24 @@ key_command read_input();
 // Shift with a motion key starts a selection if there is none and extends it if
 // there is. Anything else ends it -- which is what makes the mode invisible:
 // there is nothing to leave deliberately, and no way to get stuck in it.
+// The commands that act on the selection rather than replacing or ending it.
+// They manage it themselves: copy leaves it alone, cut and paste consume it,
+// and select-all makes one.
+static bool owns_selection(cmd_op cmd) {
+    return cmd == cmd_copy || cmd == cmd_cut
+        || cmd == cmd_paste || cmd == cmd_select_all;
+}
+
 sel_action ed_selection_for(editor* ed, key_command kc) {
     // Pressing shift is not a keystroke that ends anything. MOS reports it as
     // its own event before the arrow it modifies, so treating it as an ordinary
     // key would cancel the selection a moment before extending it.
     if (ed_is_modifier(kc.k.vkey)) {
+        return SEL_NONE;
+    }
+    // Copy, cut, paste and select-all are about the selection, so they are not
+    // keys that end it. What happens to it is each command's own business.
+    if (owns_selection(kc.cmd)) {
         return SEL_NONE;
     }
     if ((kc.mods & MOD_SHFT) && ed_is_motion(kc.k.vkey)) {
@@ -104,6 +121,13 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
         return SEL_EXTEND;
     }
     if (ed->selecting_) {
+        // A key that puts something in the document or takes something out
+        // replaces the selection rather than acting next to it. selecting_ is
+        // left set so the caller can still see what to delete; deleting it is
+        // what clears it.
+        if (ed_key_edits(kc)) {
+            return SEL_REPLACE;
+        }
         ed->selecting_ = false;
 
         return SEL_DROP;
@@ -140,6 +164,27 @@ void ed_selection_repaint(editor* ed, sel_action act, char y_before,
         cmd_repaint_rows(ed, lo, hi);
     }
     scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
+bool ed_key_edits(key_command kc) {
+    // The switch is kept to itself and the command pointer tested after it.
+    // Mixing the two in one expression makes the eZ80 backend fall over with
+    // "unable to legalize instruction ... i15", which is a compiler bug rather
+    // than anything wrong with the code -- but this shape avoids it and reads
+    // no worse.
+    switch (kc.k.vkey) {
+        case VK_BACKSPACE:
+        case VK_DELETE:
+        case VK_KP_DELETE:
+        case VK_RETURN:
+        case VK_KP_ENTER:
+        case VK_TAB:
+            return true;
+        default:
+            break;
+    }
+
+    return kc.cmd == CMD_PUTC;
 }
 
 bool ed_is_modifier(VKey vkey) {
@@ -186,6 +231,16 @@ void ed_run(editor* ed) {
         const int top_before = tb_ypos(buf) - (y_before - scr->topY_);
         const int origin_before = scr->originX_;
 
+        if (act == SEL_REPLACE) {
+            cmd_delete_selection(ed);
+            // For BACKSPACE and DELETE that was the whole action: they mean
+            // "remove this", and this was the selection.
+            if (kc.k.vkey == VK_BACKSPACE || kc.k.vkey == VK_DELETE
+                || kc.k.vkey == VK_KP_DELETE) {
+                kc.cmd = NULL;
+            }
+        }
+
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
         } else if (kc.cmd == CMD_QUIT) {
@@ -198,7 +253,10 @@ void ed_run(editor* ed) {
             kc.cmd(ed);
         }
 
-        ed_selection_repaint(ed, act, y_before, top_before, origin_before);
+        // A replace leaves no selection and has moved the text below it, so it
+        // repaints like a drop: the whole area.
+        ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,
+                             y_before, top_before, origin_before);
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
@@ -236,6 +294,8 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_c:
             if (mods & MOD_ALT) {
                 kc.cmd = cmd_color_picker;
+            } else {
+                kc.cmd = cmd_copy;
             }
             break;
         case VK_G:
@@ -245,6 +305,18 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_O:
         case VK_o:
             kc.cmd = cmd_open;
+            break;
+        case VK_A:
+        case VK_a:
+            kc.cmd = cmd_select_all;
+            break;
+        case VK_X:
+        case VK_x:
+            kc.cmd = cmd_cut;
+            break;
+        case VK_V:
+        case VK_v:
+            kc.cmd = cmd_paste;
             break;
         default:
             kc.cmd = NULL;

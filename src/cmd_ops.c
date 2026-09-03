@@ -266,6 +266,197 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     scr_sync_cursor(scr);
 }
 
+void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
+    tb_pos a = ed->anchor_;
+    tb_pos b = tb_tell(&ed->buf_);
+    if (tb_cmp(a, b) > 0) {
+        const tb_pos t = a;
+        a = b;
+        b = t;
+    }
+    *from = a;
+    *to = b;
+}
+
+// Which screen row the cursor belongs on, after the document has changed by
+// more than a character. Walks back from the cursor towards the top of the
+// document, one row per line, until it runs out of either.
+static void place_cursor_row(editor* ed) {
+    SCR(ed);
+    TB(ed);
+
+    scr->currY_ = scr->topY_;
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_home(&cp);
+    while (tb_ypos(&cp) > 1 && scr->currY_ < scr->bottomY_ - 1) {
+        tb_up(&cp);
+        scr->currY_++;
+    }
+}
+
+// Puts the view back together after the document changed under it by more than
+// a character. The cursor is wherever the model left it; the screen row it
+// should appear on is worked out by walking back up from it.
+static void reshow(editor* ed) {
+    SCR(ed);
+    TB(ed);
+
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
+bool cmd_delete_selection(editor* ed) {
+    if (!ed->selecting_) {
+        return false;
+    }
+    TB(ed);
+
+    tb_pos a;
+    tb_pos b;
+    cmd_selection_range(ed, &a, &b);
+    ed->selecting_ = false;
+
+    if (!tb_range_del(tb, a, b)) {
+        return false;
+    }
+
+    // The cursor is at the start of what was deleted, which may be several rows
+    // above where it was, and the lines below have all moved up. Work out which
+    // row it belongs on by walking back from it, then rebuild the view.
+    place_cursor_row(ed);
+    reshow(ed);
+
+    return true;
+}
+
+void cmd_copy(editor* ed) {
+    if (!ed->selecting_) {
+        return;
+    }
+    TB(ed);
+    UI(ed);
+    SCR(ed);
+
+    tb_pos a;
+    tb_pos b;
+    cmd_selection_range(ed, &a, &b);
+    if (!clip_copy(&ed->clip_, tb, a, b)) {
+        // Only worth saying anything when there was something to copy: an empty
+        // selection failing is not news.
+        if (tb_range_size(tb, a, b) > 0) {
+            ui_message(ui, scr, "Selection too large to copy");
+            cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+            scr_show_cursor_ch(scr, tb_peek(tb));
+        }
+    }
+    // The selection stays. Copying does not consume it, and keeping it lets a
+    // second thought about where it ends cost one keystroke instead of all of
+    // them again.
+}
+
+void cmd_cut(editor* ed) {
+    if (!ed->selecting_) {
+        return;
+    }
+    TB(ed);
+    UI(ed);
+    SCR(ed);
+
+    tb_pos a;
+    tb_pos b;
+    cmd_selection_range(ed, &a, &b);
+
+    // Copied first, and only deleted if that worked. A cut that removed text
+    // the clipboard could not hold would be a delete wearing the wrong name.
+    if (!clip_copy(&ed->clip_, tb, a, b)) {
+        if (tb_range_size(tb, a, b) > 0) {
+            ui_message(ui, scr, "Selection too large to cut");
+            cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+            scr_show_cursor_ch(scr, tb_peek(tb));
+        }
+
+        return;
+    }
+    cmd_delete_selection(ed);
+}
+
+void cmd_paste(editor* ed) {
+    TB(ed);
+    UI(ed);
+    SCR(ed);
+
+    if (!clip_has(&ed->clip_)) {
+        return;     // nothing copied yet; not worth a complaint
+    }
+
+    // A selection is what the paste replaces, the same way typing does -- but
+    // whether the paste fits is asked before deleting it, not after. Deleting
+    // first and then finding there is no room would leave the selection gone
+    // and nothing put in its place, with no undo to get it back.
+    int free_bytes = 0;
+    int free_lines = 0;
+    if (ed->selecting_) {
+        tb_pos a;
+        tb_pos b;
+        cmd_selection_range(ed, &a, &b);
+        free_bytes = tb_range_size(tb, a, b);
+        free_lines = b.line - a.line;
+    }
+    if (!tb_can_insert(tb, clip_size(&ed->clip_), clip_lines(&ed->clip_),
+                       free_bytes, free_lines)) {
+        ui_message(ui, scr, "Not enough room to paste");
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        scr_show_cursor_ch(scr, tb_peek(tb));
+
+        return;
+    }
+
+    if (ed->selecting_) {
+        cmd_delete_selection(ed);
+    }
+
+    if (!clip_paste(&ed->clip_, tb)) {
+        ui_message(ui, scr, "Not enough room to paste");
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        scr_show_cursor_ch(scr, tb_peek(tb));
+
+        return;
+    }
+
+    // The cursor ends after the pasted text, which can be several lines further
+    // down, so the view is rebuilt rather than patched.
+    place_cursor_row(ed);
+    reshow(ed);
+}
+
+void cmd_select_all(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    ed->anchor_.line = 1;
+    ed->anchor_.x = 0;
+    ed->selecting_ = true;
+
+    // To the very end, which is where the cursor belongs after selecting
+    // everything and where a paste over the selection would leave it anyway.
+    tb_pos end;
+    end.line = tb_ymax(tb);
+    end.x = 0;
+    tb_seek(tb, end);
+    tb_end(tb);
+
+    place_cursor_row(ed);
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
+    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
 void cmd_open(editor* ed) {
     TB(ed);
     SCR(ed);

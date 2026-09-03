@@ -443,8 +443,8 @@ int main(void) {
     /* --- picking a colour writes it down --- */
     /* Drive the picker: one UP (foreground up by one) then RETURN to accept. */
     static const stub_key pick[] = {
-        { 0, VK_UP },
-        { 0, VK_RETURN },
+        { 0, VK_UP, 0 },
+        { 0, VK_RETURN, 0 },
     };
     static const char before_pick[] =
         "# keep me\r\n[editor]\r\ntab = 4\r\n"

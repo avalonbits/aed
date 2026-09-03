@@ -260,9 +260,16 @@ int main(void) {
     check("shift on a key that is not a motion ends it",
           ed_selection_for(&ed, press(VK_a, MOD_SHFT)), SEL_DROP);
 
+    /* A key that changes the document does not merely end the selection -- it
+     * takes its place, which is a different answer. */
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
-    check("so does a key with no modifier at all",
-          ed_selection_for(&ed, press(VK_RETURN, 0)), SEL_DROP);
+    check("RETURN replaces the selection rather than ending it",
+          ed_selection_for(&ed, press(VK_RETURN, 0)), SEL_REPLACE);
+    ed.selecting_ = false;
+
+    ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
+    check("so does a key with no modifier that only moves",
+          ed_selection_for(&ed, press(VK_F1, 0)), SEL_DROP);
 
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
     check("so does ESCAPE",

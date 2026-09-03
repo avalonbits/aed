@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include "clipboard.h"
 #include "cmd_ops.h"
 #include "vkey.h"
 #include "screen.h"
@@ -37,6 +38,8 @@ typedef struct _editor {
     // this is happening, and a selection means nothing once the file changes.
     tb_pos anchor_;
     bool selecting_;
+
+    clipboard clip_;
 } editor;
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
@@ -80,7 +83,13 @@ typedef enum _sel_action {
     SEL_NONE = 0,   // there was no selection and there still is none
     SEL_EXTEND,     // one was started or is being extended
     SEL_DROP,       // one was in progress and this key ended it
+    SEL_REPLACE,    // ...and the key changes the document, so it takes its place
 } sel_action;
+
+// True for the keys that put something in the document or take something out.
+// With a selection live these replace it rather than acting alongside it, so
+// they have to be told apart from the ones that merely end it.
+bool ed_key_edits(key_command kc);
 
 // Applies a keypress to the selection, before the command it names runs. The
 // return value tells the caller whether anything needs repainting, which is why

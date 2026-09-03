@@ -160,4 +160,15 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b);
 // all.
 bool tb_insert(text_buffer* tb, const char* buf, int sz);
 
+// Whether `bytes` of text carrying `lines` line breaks would fit, once a range
+// of `free_bytes` spanning `free_lines` breaks has been removed to make way for
+// it. Both budgets are checked: the characters and the line index are bounded
+// separately, and on a document of short lines the index runs out first.
+//
+// A caller that replaces a selection has to ask before deleting it. Finding out
+// afterwards means the selection is already gone and there is nothing to paste
+// in its place -- and nothing to put back, since there is no undo.
+bool tb_can_insert(text_buffer* tb, int bytes, int lines,
+                   int free_bytes, int free_lines);
+
 #endif // _TEXT_BUFFER_H_
