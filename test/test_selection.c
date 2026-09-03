@@ -578,6 +578,38 @@ int main(void) {
     stub_set_keys(NULL, 0);
     ed_destroy(&op);
 
+    /* --- the widest screen there is --- */
+    /* Mode 19 is 1024x768, which MOS reports as 128 columns. Held in a signed
+     * char that is -128, and every width calculation built on it goes negative:
+     * the paint loop stops before it starts and the screen renders as a few
+     * characters in the corner. The cursor and the document are fine, which is
+     * what makes it look like a drawing bug rather than a type. */
+    stub_set_screen(128, 96);
+    stub_file_reset();
+    stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
+    editor widest;
+    check("an editor on the widest mode", ed_init(&widest, 8, "wide.txt") != NULL, 1);
+    check("  reports all its columns", widest.scr_.cols_, 128);
+    check("  and all its rows", widest.scr_.rows_, 96);
+    check("  with a positive width", widest.scr_.cols_ > 0, 1);
+
+    screen* wscr = &widest.scr_;
+    scr_set_scheme(wscr, 15, 0);
+    stub_emit_colours(1);
+    cap_start();
+    scr_write_line_sel(wscr, wscr->topY_, "hello world", 11, 2, 5);
+    {
+        static char want[256];
+        memset(want, '-', 128);
+        want[2] = want[3] = want[4] = '#';
+        want[128] = 0;
+        check_paint("a row paints its full 128 columns",
+                    painted(wscr, 128), want);
+    }
+    stub_emit_colours(0);
+    ed_destroy(&widest);
+    stub_set_screen(80, 25);
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

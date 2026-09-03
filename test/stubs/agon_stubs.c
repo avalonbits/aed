@@ -98,8 +98,16 @@ uint8_t getsysvar_keymods(void) {
 
 int stub_keys_read(void) { return stub_key_at; }
 
-uint8_t getsysvar_scrCols(void)    { return 80; }
-uint8_t getsysvar_scrRows(void)    { return 25; }
+static uint8_t stub_cols = 80;
+static uint8_t stub_rows = 25;
+
+void stub_set_screen(int cols, int rows) {
+    stub_cols = (uint8_t) cols;
+    stub_rows = (uint8_t) rows;
+}
+
+uint8_t getsysvar_scrCols(void)    { return stub_cols; }
+uint8_t getsysvar_scrRows(void)    { return stub_rows; }
 uint8_t getsysvar_scrColours(void) { return 16; }
 
 /* --- MOS: file I/O, recorded in memory --- */

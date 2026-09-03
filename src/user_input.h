@@ -32,10 +32,10 @@ typedef enum _response {
 typedef struct _user_input {
     char_buffer cb_;
     char ypos_;
-    char cols_;
+    int cols_;
 } user_input;
 
-user_input* ui_init(user_input* ui, int size, char ypos, char cols);
+user_input* ui_init(user_input* ui, int size, char ypos, int cols);
 void ui_destroy(user_input* ui);
 
 RESPONSE ui_goto(user_input* ui, screen* scr, int* line);
