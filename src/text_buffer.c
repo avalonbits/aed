@@ -432,49 +432,37 @@ int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b) {
     return total > 0 ? total : 0;
 }
 
-int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {
-    if (out == NULL) {
-        return -1;
-    }
-    cb_clear(out);
+bool tb_range_walk(text_buffer* tb, tb_pos a, tb_pos b, tb_sink sink, void* ctx) {
+    static const char crlf[2] = { '\r', '\n' };
 
     order(&a, &b);
     int left = tb_range_size(tb, a, b);
     if (left <= 0) {
-        return 0;
+        return true;    // nothing to send is not a failure
     }
+
+    // Walked on a copy: tb_copy aliases the same buffers, so the real cursor
+    // does not move.
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_seek(&cp, a);
 
-    int written = 0;
     while (left > 0) {
         int sz = 0;
         const char* line = tb_suffix(&cp, &sz);
-        int take = sz < left ? sz : left;
-        for (int i = 0; i < take; i++) {
-            // cb_put is what enforces the clipboard's size. Running out empties
-            // it again rather than leaving a truncated copy: a caller that went
-            // on to cut the range would otherwise delete text it could not keep.
-            if (!cb_put(out, line[i])) {
-                cb_clear(out);
-
-                return -1;
-            }
+        const int take = sz < left ? sz : left;
+        if (take > 0 && !sink(ctx, line, take)) {
+            return false;
         }
-        written += take;
         left -= take;
 
         if (left <= 0) {
             break;
         }
         // What is left of the range runs past this line, so the break goes in.
-        if (!cb_put(out, '\r') || !cb_put(out, '\n')) {
-            cb_clear(out);
-
-            return -1;
+        if (!sink(ctx, crlf, 2)) {
+            return false;
         }
-        written += 2;
         left -= 2;
 
         const int prev = tb_ypos(&cp);
@@ -484,6 +472,38 @@ int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {
         }
         tb_home(&cp);
     }
+
+    return true;
+}
+
+// cb_put is what enforces the destination's size. Running out stops the walk,
+// and the caller empties the buffer rather than leaving a truncated copy: one
+// that went on to cut the range would otherwise delete text it could not keep.
+static bool cb_sink(void* ctx, const char* buf, int sz) {
+    char_buffer* out = (char_buffer*) ctx;
+    for (int i = 0; i < sz; i++) {
+        if (!cb_put(out, buf[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {
+    if (out == NULL) {
+        return -1;
+    }
+    cb_clear(out);
+
+    if (!tb_range_walk(tb, a, b, cb_sink, out)) {
+        cb_clear(out);
+
+        return -1;
+    }
+
+    int written = 0;
+    cb_prefix(out, &written);
 
     return written;
 }
@@ -531,18 +551,47 @@ bool tb_can_insert(text_buffer* tb, int bytes, int lines,
     return bytes <= chars && lines + 1 <= slots;
 }
 
+bool tb_insert_span(text_buffer* tb, const char* buf, int sz, bool* pending_cr) {
+    for (int i = 0; i < sz; i++) {
+        // A CR held back from the last call, or from the byte before this one.
+        // Whatever follows it, the break belongs to the CR; an LF right after
+        // just completes it rather than starting a second one.
+        if (*pending_cr) {
+            *pending_cr = false;
+            if (!tb_newline(tb)) {
+                return false;
+            }
+            if (buf[i] == '\n') {
+                continue;
+            }
+        }
+        if (buf[i] == '\r') {
+            *pending_cr = true;
+            continue;
+        }
+        if (buf[i] == '\n') {
+            if (!tb_newline(tb)) {
+                return false;
+            }
+            continue;
+        }
+        if (!tb_put(tb, buf[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool tb_insert(text_buffer* tb, const char* buf, int sz) {
     if (buf == NULL || sz <= 0) {
         return false;
     }
 
     // A bare LF becomes a CRLF, so the text can be a byte longer than it
-    // arrived. Counted up front: a paste that ran out of room half way would
-    // leave the document holding an arbitrary prefix of it.
-    //
-    // The lines are counted too. The line index is bounded separately from the
-    // characters and runs out first on a document of short lines, so room for
-    // the bytes is not room for the paste.
+    // arrived. Counted up front, along with the lines it brings: a paste that
+    // ran out of room half way would leave the document holding an arbitrary
+    // prefix of it.
     int needed = 0;
     int breaks = 0;
     for (int i = 0; i < sz; i++) {
@@ -557,24 +606,16 @@ bool tb_insert(text_buffer* tb, const char* buf, int sz) {
             needed += 1;
         }
     }
-    // A split costs a slot and needs a spare, so N breaks need N + 1 free.
-    if (needed > cb_available(&tb->cb_) || breaks + 1 > lb_avai(&tb->lb_)) {
+    if (!tb_can_insert(tb, needed, breaks, 0, 0)) {
         return false;
     }
 
-    for (int i = 0; i < sz; i++) {
-        if (buf[i] == '\r' && i + 1 < sz && buf[i + 1] == '\n') {
-            if (!tb_newline(tb)) {
-                return false;
-            }
-            i++;
-        } else if (buf[i] == '\n' || buf[i] == '\r') {
-            if (!tb_newline(tb)) {
-                return false;
-            }
-        } else if (!tb_put(tb, buf[i])) {
-            return false;
-        }
+    bool pending_cr = false;
+    if (!tb_insert_span(tb, buf, sz, &pending_cr)) {
+        return false;
+    }
+    if (pending_cr) {
+        return tb_newline(tb);
     }
 
     return true;

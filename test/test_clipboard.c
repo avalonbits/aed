@@ -140,26 +140,69 @@ int main(void) {
 
     /* Too large: nothing is kept, and the clipboard says it has nothing rather
      * than leaving the previous copy looking like the new one. */
-    /* Sized to hold "one\r\ntwo" but not the whole document, so a copy that
-     * fits and one that does not can both be made into it. */
+    /* --- a copy too big for memory goes to a file --- */
+    /* Sized to hold "one\r\ntwo" but not the whole document, so both paths can
+     * be taken with the same clipboard. */
     clipboard tiny;
     clip_init(&tiny, 10);
-    check("a range too large is refused",
-          clip_copy(&tiny, &tb, at(1, 0), at(3, 5)) ? 1 : 0, 0);
-    check("  and it holds nothing", clip_has(&tiny) ? 1 : 0, 0);
-    check("  not even part of it", clip_size(&tiny), 0);
 
-    /* A previous copy must not be left standing in its place -- including what
-     * was counted about it, since a stale line count would be checked against
-     * the line index at paste time and is nobody's idea of what is there. */
-    check("a copy that fits, with a line break in it",
+    stub_file_reset();
+    check("a copy that fits stays in memory",
           clip_copy(&tiny, &tb, at(1, 0), at(2, 3)) ? 1 : 0, 1);
-    check("  which was counted", clip_lines(&tiny), 1);
-    check("  then one that does not fit",
+    check("  and writes no file", stub_file_opens_for_write(), 0);
+    check("  with nowhere to point at", strcmp(clip_path(&tiny), ""), 0);
+    check("  its line break counted", clip_lines(&tiny), 1);
+
+    stub_file_reset();
+    check("one too large goes to a file instead",
+          clip_copy(&tiny, &tb, at(1, 0), at(3, 5)) ? 1 : 0, 1);
+    check("  which was written", stub_file_opens_for_write(), 1);
+    check("  beside the document", strcmp(clip_path(&tiny), "doc.txt.scratch"), 0);
+    check("  holding the whole range", clip_size(&tiny), 15);
+    check("  with its breaks counted", clip_lines(&tiny), 2);
+    check("  and the bytes are the range",
+          strncmp(stub_file_bytes(), "one\r\ntwo\r\nthree", 15), 0);
+
+    /* Reading it back gives exactly what went in. */
+    stub_file_readback();
+    text_buffer dest;
+    stub_file_set_content("", 0);
+    check("a document to paste into", tb_init(&dest, 4, "dest.txt") != NULL, 1);
+    stub_file_readback();
+    check("pasting the spilled copy", clip_paste(&tiny, &dest) ? 1 : 0, 1);
+    check_s("  reproduces it", doc_of(&dest), "one/two/three");
+    tb_destroy(&dest);
+
+    /* Going back to a copy that fits puts it in memory and takes the file with
+     * it: a scratch file outliving the copy it held is just litter. */
+    stub_file_reset();
+    check("a small copy after a large one",
+          clip_copy(&tiny, &tb, at(1, 0), at(1, 3)) ? 1 : 0, 1);
+    check("  is back in memory", strcmp(clip_path(&tiny), ""), 0);
+    check("  and the file is gone", stub_deletes(), 1);
+
+    /* A scratch file that cannot be written is a copy that did not happen. */
+    stub_file_reset();
+    stub_file_fail_open(1);
+    check("a spill that cannot open its file fails",
           clip_copy(&tiny, &tb, at(1, 0), at(3, 5)) ? 1 : 0, 0);
-    check("  leaves nothing to paste", clip_has(&tiny) ? 1 : 0, 0);
-    check("  and no count of what is not there", clip_lines(&tiny), 0);
+    check("  and holds nothing", clip_has(&tiny) ? 1 : 0, 0);
+    check("  with no count of what is not there", clip_lines(&tiny), 0);
+
+    /* Nor is one that stops part way through writing. */
+    stub_file_reset();
+    stub_file_short_write(4);
+    check("a spill that runs out of card fails",
+          clip_copy(&tiny, &tb, at(1, 0), at(3, 5)) ? 1 : 0, 0);
+    check("  and holds nothing", clip_has(&tiny) ? 1 : 0, 0);
+    check("  taking the remnant with it", stub_deletes() > 0, 1);
+
+    /* And the file goes when the clipboard does. */
+    stub_file_reset();
+    clip_copy(&tiny, &tb, at(1, 0), at(3, 5));
+    check("a spilled copy exists", strcmp(clip_path(&tiny), "") != 0, 1);
     clip_destroy(&tiny);
+    check("destroying the clipboard removes its file", stub_deletes(), 1);
 
     /* An empty range is not a copy. */
     check("an empty range copies nothing",
@@ -179,6 +222,129 @@ int main(void) {
 
     clip_destroy(&c);
     tb_destroy(&tb);
+
+    /* --- a line break split across a chunk boundary --- */
+    /* The scratch file is read CLIP_CHUNK bytes at a time, so a CRLF can land
+     * with its CR at the end of one read and its LF at the start of the next.
+     * Treated separately that is two line breaks instead of one, and every line
+     * after it is wrong. Built so the break straddles the boundary exactly. */
+    {
+        static char split[CLIP_CHUNK * 3];
+        int n = 0;
+        /* Fill up to one byte short of the chunk boundary... */
+        while (n < CLIP_CHUNK - 1) {
+            split[n++] = 'x';
+        }
+        /* ...so the CR is the last byte of chunk one and the LF the first of
+         * chunk two. */
+        split[n++] = '\r';
+        split[n++] = '\n';
+        for (int i = 0; i < 40; i++) {
+            split[n++] = 'y';
+        }
+        split[n++] = '\r';
+        split[n++] = '\n';
+
+        stub_file_reset();
+        stub_file_set_content(split, n);
+        text_buffer straddle;
+        check("a document with a break on the boundary",
+              tb_init(&straddle, 8, "split.txt") != NULL, 1);
+        check("  which is where the chunk ends", n > CLIP_CHUNK, 1);
+
+        clipboard cs;
+        clip_init(&cs, 16);          /* far too small, so it must spill */
+        stub_file_reset();
+        check("copying it spills", clip_copy(&cs, &straddle, at(1, 0),
+                                             at(3, 0)) ? 1 : 0, 1);
+        check("  with both breaks counted", clip_lines(&cs), 2);
+        const int spilled = clip_size(&cs);
+
+        stub_file_reset();
+        stub_file_set_content("", 0);
+        text_buffer into;
+        check("somewhere to paste it", tb_init(&into, 8, "into.txt") != NULL, 1);
+        stub_file_reset();
+        stub_file_set_content(stub_file_bytes(), 0);
+        /* Put the spilled bytes back where a read will find them. */
+        static char spill_copy[CLIP_CHUNK * 3];
+        clip_copy(&cs, &straddle, at(1, 0), at(3, 0));
+        memcpy(spill_copy, stub_file_bytes(), (size_t) stub_file_size());
+        const int spill_len = stub_file_size();
+        stub_file_reset();
+        stub_file_set_content(spill_copy, spill_len);
+
+        check("pasting it back", clip_paste(&cs, &into) ? 1 : 0, 1);
+        check("  gives the same number of lines", tb_ymax(&into), 3);
+        check("  and the same number of bytes", tb_used(&into), spilled);
+        check("  with the first line whole", tb_ymax(&into) > 0, 1);
+
+        text_buffer probe;
+        tb_copy(&probe, &into);
+        tb_seek(&probe, at(1, 0));
+        int psz = 0;
+        tb_suffix(&probe, &psz);
+        check("  the line before the boundary is not cut in two",
+              psz, CLIP_CHUNK - 1);
+
+        clip_destroy(&cs);
+        tb_destroy(&into);
+        tb_destroy(&straddle);
+    }
+
+    /* An unnamed buffer has no document to sit beside. The scratch file still
+     * needs a name, and one starting with a dot is not it. */
+    {
+        stub_file_reset();
+        stub_file_fail_open(1);          /* no file: an empty, unnamed buffer */
+        text_buffer anon;
+        check("an unnamed document", tb_init(&anon, 4, NULL) != NULL, 1);
+        /* tb_fname reports no name as NULL, not as an empty string, which is
+         * what scratch_path has to cope with. */
+        check("  which has no name", tb_fname(&anon) == NULL, 1);
+        for (int i = 0; i < 40; i++) {
+            tb_put(&anon, 'q');
+        }
+        clipboard an;
+        clip_init(&an, 8);               /* smaller than 40, so it spills */
+        stub_file_reset();
+        check("copying from it spills",
+              clip_copy(&an, &anon, at(1, 0), at(1, 40)) ? 1 : 0, 1);
+        check("  under a name of its own", strcmp(clip_path(&an), "aed.scratch"), 0);
+        clip_destroy(&an);
+        tb_destroy(&anon);
+    }
+
+    /* --- a scratch file that ends mid-break --- */
+    /* clip_copy never writes one: a position cannot sit between the CR and the
+     * LF, so the walk always emits the pair. But the scratch file is plain text
+     * beside the document and can be truncated or edited, and losing the last
+     * line of a paste because of it would be a poor answer. */
+    {
+        static const char crlf_cut[] = "alpha\r\nbeta\r";
+        clipboard hand;
+        clip_init(&hand, 16);
+        /* Point it at a file it did not write, which is the whole scenario. */
+        hand.on_file_ = true;
+        hand.size_ = (int) sizeof(crlf_cut) - 1;
+        hand.lines_ = 2;
+        memcpy(hand.path_, "hand.scratch", 13);
+
+        stub_file_reset();
+        stub_file_set_content(crlf_cut, (int) sizeof(crlf_cut) - 1);
+        text_buffer hd;
+        stub_file_set_content("", 0);
+        check("a document for the hand-made file",
+              tb_init(&hd, 8, "hd.txt") != NULL, 1);
+        stub_file_reset();
+        stub_file_set_content(crlf_cut, (int) sizeof(crlf_cut) - 1);
+        check("pasting a file ending in a bare CR",
+              clip_paste(&hand, &hd) ? 1 : 0, 1);
+        check_s("  keeps it as a line break", doc_of(&hd), "alpha/beta/");
+        tb_destroy(&hd);
+        hand.on_file_ = false;      /* it is not ours to delete */
+        clip_destroy(&hand);
+    }
 
     /* --- the commands --- */
     restart();
@@ -296,10 +462,9 @@ int main(void) {
     cmd_paste(&ed);
     check_s("  and pasting puts it all back", doc_of(&ed.buf_), "one/two/three/");
 
-    /* --- a cut that cannot be copied is not a cut --- */
-    /* The clipboard is smaller than the document can be, so a big enough
-     * selection cannot be held. Deleting it anyway would be a delete wearing
-     * the name of a cut, and the text would be gone with nothing to paste. */
+    /* --- cutting more than memory holds --- */
+    /* A selection larger than the clipboard is no longer a wall: it spills to
+     * the scratch file, and the cut goes through. */
     static char big[CLIP_SIZE + 2048];
     for (int i = 0; i < (int) sizeof(big); i++) {
         big[i] = 'a' + (i % 26);
@@ -309,19 +474,33 @@ int main(void) {
     ed_destroy(&ed);
     check("a document larger than the clipboard",
           ed_init(&ed, 32, "big.txt") != NULL, 1);
+    started = true;
     check("  which it is", tb_used(&ed.buf_) > clip_capacity(&ed.clip_), 1);
 
     const int before = tb_used(&ed.buf_);
+    stub_file_reset();
     cmd_select_all(&ed);
     cmd_cut(&ed);
-    check("a cut too large to copy deletes nothing", tb_used(&ed.buf_), before);
-    check("  and leaves nothing on the clipboard", clip_has(&ed.clip_) ? 1 : 0, 0);
-    /* Copy alone is the same story. */
+    check("a cut larger than memory still cuts", tb_used(&ed.buf_), 0);
+    check("  holding all of it", clip_size(&ed.clip_), before);
+    check("  in a file beside the document",
+          strcmp(clip_path(&ed.clip_), "big.txt.scratch"), 0);
+
+    /* ...but a cut whose scratch file cannot be written still deletes nothing,
+     * which is the rule that has not changed. */
+    stub_file_reset();
+    stub_file_set_content(big, (int) sizeof(big));
+    ed_destroy(&ed);
+    ed_init(&ed, 32, "big.txt");
+    const int before2 = tb_used(&ed.buf_);
+    stub_file_reset();
+    stub_file_fail_open(1);
     cmd_select_all(&ed);
-    cmd_copy(&ed);
-    check("a copy too large copies nothing", clip_has(&ed.clip_) ? 1 : 0, 0);
-    check("  and still deletes nothing", tb_used(&ed.buf_), before);
-    started = true;
+    cmd_cut(&ed);
+    check("a cut that cannot be written deletes nothing",
+          tb_used(&ed.buf_), before2);
+    check("  and leaves nothing on the clipboard",
+          clip_has(&ed.clip_) ? 1 : 0, 0);
 
     /* --- a paste that will not fit must not eat the selection --- */
     /* Deleting the selection first frees room, so the check has to allow for
@@ -450,6 +629,208 @@ int main(void) {
     cmd_paste(&ed);
     check("  fits once the selection gives its slot back",
           tb_used(&ed.buf_) > lines_before, 1);
+
+    /* --- a spill that would land on an existing file asks first --- */
+    /* The scratch name is worked out from the document name, so it can collide
+     * with a file the user has, or with a remnant of a session that crashed.
+     * Opening it to write truncates it, so the question is worth one keypress. */
+    {
+        static char blob[CLIP_SIZE + 512];
+        for (int i = 0; i < (int) sizeof(blob); i++) {
+            blob[i] = 'a' + (i % 26);
+        }
+        stub_file_reset();
+        stub_file_set_content(blob, (int) sizeof(blob));
+        ed_destroy(&ed);
+        check("a document that will not fit in memory",
+              ed_init(&ed, 32, "doc.txt") != NULL, 1);
+        started = true;
+
+        /* Content set means a read-open succeeds, which is the stub's way of
+         * saying doc.txt.scratch is already there. */
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        stub_key no[] = { { 'n', VK_n, 0 } };
+        stub_set_keys(no, 1);
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        stub_set_keys(NULL, 0);
+        check("answering no leaves the file alone", stub_file_opens_for_write(), 0);
+        check("  and copies nothing", clip_has(&ed.clip_) ? 1 : 0, 0);
+
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        stub_key yes[] = { { 'y', VK_y, 0 } };
+        stub_set_keys(yes, 1);
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        stub_set_keys(NULL, 0);
+        check("answering yes goes ahead", stub_file_opens_for_write() > 0, 1);
+        check("  and the copy is made", clip_has(&ed.clip_) ? 1 : 0, 1);
+
+        /* Asked once. A file this session wrote is its own to write over -- and
+         * the proof is that the second copy actually writes, not merely that
+         * the first one is still there. */
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        stub_set_keys(NULL, 0);          /* no answer available: a prompt would cancel */
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        check("copying again over our own file asks nothing",
+              stub_file_opens_for_write() > 0, 1);
+        check("  and the copy is there", clip_has(&ed.clip_) ? 1 : 0, 1);
+
+        /* Cutting takes the same care: it spills before it deletes. */
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        ed_destroy(&ed);
+        stub_file_set_content(blob, (int) sizeof(blob));
+        ed_init(&ed, 32, "cut.txt");
+        started = true;
+        stub_file_reset();
+        stub_file_set_content(blob, 16);   /* cut.txt.scratch is already there */
+        const int cut_before = tb_used(&ed.buf_);
+        stub_key cutno[] = { { 'n', VK_n, 0 } };
+        stub_set_keys(cutno, 1);
+        cmd_select_all(&ed);
+        cmd_cut(&ed);
+        stub_set_keys(NULL, 0);
+        check("a cut answered no deletes nothing", tb_used(&ed.buf_), cut_before);
+        check("  and writes nothing", stub_file_opens_for_write(), 0);
+    }
+
+    /* --- a paste that cannot read its file does not eat the selection --- */
+    /* The file is read a chunk at a time, so one that has gone missing is
+     * discovered part way through -- after the selection it replaces has been
+     * deleted, with no undo to bring it back. Checked before anything goes. */
+    {
+        static char blob2[CLIP_SIZE + 512];
+        for (int i = 0; i < (int) sizeof(blob2); i++) {
+            blob2[i] = 'a' + (i % 26);
+        }
+        stub_file_reset();
+        stub_file_set_content(blob2, (int) sizeof(blob2));
+        ed_destroy(&ed);
+        ed_init(&ed, 32, "doc2.txt");
+        started = true;
+
+        stub_file_reset();
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        check("a spilled copy", clip_size(&ed.clip_) > clip_capacity(&ed.clip_), 1);
+
+        /* Now the file is gone: nothing to read back at all. */
+        stub_file_reset();
+        const int kept = tb_used(&ed.buf_);
+        select_from(at(1, 0), at(1, 20));
+        cmd_paste(&ed);
+        check("a paste whose file has gone changes nothing",
+              tb_used(&ed.buf_), kept);
+        check("  and leaves the selection alone", ed.selecting_ ? 1 : 0, 1);
+
+        /* And one that opens but has been truncated -- which the open cannot
+         * tell you, only reading it through can. */
+        stub_file_reset();
+        stub_file_set_content(blob2, clip_size(&ed.clip_) / 2);
+        select_from(at(1, 0), at(1, 20));
+        cmd_paste(&ed);
+        check("a paste whose file is short changes nothing",
+              tb_used(&ed.buf_), kept);
+        check("  and leaves that selection alone too",
+              ed.selecting_ ? 1 : 0, 1);
+    }
+
+    /* And a read that stops part way takes back what it managed to insert. */
+    {
+        static const char body[] = "alpha\r\nbeta\r\ngamma\r\n";
+        stub_file_reset();
+        stub_file_set_content(body, (int) sizeof(body) - 1);
+        text_buffer host;
+        check("a document to paste into", tb_init(&host, 8, "host.txt") != NULL, 1);
+
+        clipboard partial;
+        clip_init(&partial, 8);
+        partial.on_file_ = true;
+        partial.size_ = (int) sizeof(body) - 1;
+        partial.lines_ = 3;
+        memcpy(partial.path_, "gone.scratch", 13);
+
+        /* The clipboard says the file holds 20 bytes; the file has 8. That is a
+         * truncated scratch file, and the read runs dry half way through. */
+        stub_file_reset();
+        stub_file_set_content(body, 8);
+        const int before_partial = tb_used(&host);
+        tb_seek(&host, at(1, 0));
+        check("a read that runs dry part way fails",
+              clip_paste(&partial, &host) ? 1 : 0, 0);
+        check("  and takes back what it inserted", tb_used(&host), before_partial);
+        partial.on_file_ = false;
+        clip_destroy(&partial);
+        tb_destroy(&host);
+    }
+
+    stub_file_reset();
+    stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
+    ed_destroy(&ed);
+    ed_init(&ed, 8, "doc.txt");
+    started = true;
+
+    /* --- a spilled copy belongs to the session, not the document --- */
+    /* The scratch path is fixed when the copy spills and not worked out again,
+     * because CTRL+O renames the document out from under it -- and the file
+     * still has to be readable and still has to be removed. */
+    {
+        static char wide[CLIP_SIZE + 512];
+        for (int i = 0; i < (int) sizeof(wide); i++) {
+            wide[i] = 'a' + (i % 26);
+        }
+        stub_file_reset();
+        stub_file_set_content(wide, (int) sizeof(wide));
+        ed_destroy(&ed);
+        check("a document bigger than the clipboard",
+              ed_init(&ed, 32, "first.txt") != NULL, 1);
+        started = true;
+
+        stub_file_reset();
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        check("copying it spills", clip_size(&ed.clip_) > clip_capacity(&ed.clip_), 1);
+        check("  beside the document it came from",
+              strcmp(clip_path(&ed.clip_), "first.txt.scratch"), 0);
+
+        /* Open another file. */
+        stub_key ks[32];
+        int kn = 0;
+        for (int i = 0; i < 9; i++) {
+            ks[kn].ch = 0x7F; ks[kn].vk = VK_BACKSPACE; ks[kn++].mods = 0;
+        }
+        for (const char* q = "second.txt"; *q; q++) {
+            ks[kn].ch = *q; ks[kn].vk = VK_NONE; ks[kn++].mods = 0;
+        }
+        ks[kn].ch = 0; ks[kn].vk = VK_RETURN; ks[kn++].mods = 0;
+        static const char SMALL[] = "tiny\r\n";
+        stub_file_reset();
+        stub_file_set_content(SMALL, (int) sizeof(SMALL) - 1);
+        stub_set_keys(ks, kn);
+        cmd_open(&ed);
+        stub_set_keys(NULL, 0);
+
+        check("after opening another file", strcmp(tb_fname(&ed.buf_), "second.txt"), 0);
+        check("  the scratch path is the one it was written under",
+              strcmp(clip_path(&ed.clip_), "first.txt.scratch"), 0);
+        check("  and the copy is still there", clip_size(&ed.clip_) > 0, 1);
+
+        /* And the file goes when the editor does. */
+        stub_file_reset();
+        ed_destroy(&ed);
+        started = false;
+        check("quitting removes the scratch file", stub_deletes(), 1);
+
+        stub_file_reset();
+        stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
+        ed_init(&ed, 8, "doc.txt");
+        started = true;
+    }
 
     /* --- typing over a selection replaces it --- */
     check("a printable key edits",

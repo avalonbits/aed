@@ -120,6 +120,7 @@ static int  stub_closes;
 static int  stub_fail_open;
 static int  stub_write_opens;
 static int  stub_short_read = -1;
+static int  stub_read_pos;
 static uint32_t stub_objsize;
 static int  stub_objsize_set;
 static int         stub_mkdir_count;
@@ -136,6 +137,7 @@ void stub_file_reset(void) {
     stub_fail_open = 0;
     stub_write_opens = 0;
     stub_short_read = -1;
+    stub_read_pos = 0;
     stub_objsize = 0;
     stub_objsize_set = 0;
     stub_content = NULL;
@@ -162,6 +164,15 @@ void stub_discard_output(void) {
 void stub_file_set_content(const char* data, int len) {
     stub_content = data;
     stub_content_len = len;
+    stub_read_pos = 0;
+}
+
+/* Serves back whatever has been written, so a test can write a file and then
+ * read it in again -- which is the whole of a spilled copy and its paste. */
+void stub_file_readback(void) {
+    stub_content = stub_buf;
+    stub_content_len = stub_len;
+    stub_read_pos = 0;
 }
 
 int         stub_mkdirs(void)      { return stub_mkdir_count; }
@@ -199,11 +210,20 @@ uint8_t mos_mkdir(const char* path) {
 uint8_t mos_fopen(const char* filename, uint8_t mode) {
     (void)filename;
     stub_opens++;
+    stub_read_pos = 0;      /* reads start at the beginning of the file */
     if ((mode & FA_WRITE) != 0) {
         stub_write_opens++;
     }
     if (stub_fail_open) {
         return 0;  /* MOS reports failure as handle 0 */
+    }
+    /* Opening for reading alone fails when there is nothing to read, which is
+     * how a file that is not there behaves. The stub cannot tell one name from
+     * another, so "content has been set" stands in for "the file exists" --
+     * enough for the code that probes whether a path is already taken. Opens
+     * that ask to write are unaffected: those create the file. */
+    if ((mode & FA_WRITE) == 0 && stub_content_len == 0) {
+        return 0;
     }
 
     return 1;
@@ -220,15 +240,19 @@ unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
     (void)fh;
     /* Actually fill the caller's buffer: a short read would hide an
      * out-of-bounds destination from the sanitizer. */
+    /* Reads advance through the content the way a real file does, so a caller
+     * that streams it in chunks gets each chunk once and in order. */
     unsigned n = numbytes;
-    if ((int) n > stub_content_len) {
-        n = (unsigned) stub_content_len;
+    const int left = stub_content_len - stub_read_pos;
+    if ((int) n > left) {
+        n = (unsigned) (left > 0 ? left : 0);
     }
     if (stub_short_read >= 0 && (int) n > stub_short_read) {
         n = (unsigned) stub_short_read;
     }
     if (stub_content != NULL && n > 0) {
-        memcpy(buffer, stub_content, n);
+        memcpy(buffer, stub_content + stub_read_pos, n);
+        stub_read_pos += (int) n;
     }
 
     return n;

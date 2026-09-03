@@ -333,6 +333,25 @@ bool cmd_delete_selection(editor* ed) {
     return true;
 }
 
+// A spill writes over whatever is at <document>.scratch. That name can belong
+// to a file the user has, or to a remnant of a session that crashed, so it is
+// worth one question before it goes. Only ever asked once a session: a file
+// this session wrote is its own to write over again.
+static bool may_spill(editor* ed, tb_pos a, tb_pos b) {
+    TB(ed);
+    UI(ed);
+    SCR(ed);
+
+    if (!clip_spill_would_overwrite(&ed->clip_, tb, tb_range_size(tb, a, b))) {
+        return true;
+    }
+    const RESPONSE res = ui_dialog(ui, scr, "Scratch file exists. Overwrite?");
+    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+
+    return res == YES_OPT;
+}
+
 void cmd_copy(editor* ed) {
     if (!ed->selecting_) {
         return;
@@ -344,11 +363,14 @@ void cmd_copy(editor* ed) {
     tb_pos a;
     tb_pos b;
     cmd_selection_range(ed, &a, &b);
+    if (!may_spill(ed, a, b)) {
+        return;
+    }
     if (!clip_copy(&ed->clip_, tb, a, b)) {
         // Only worth saying anything when there was something to copy: an empty
         // selection failing is not news.
         if (tb_range_size(tb, a, b) > 0) {
-            ui_message(ui, scr, "Selection too large to copy");
+            ui_message(ui, scr, "Could not write the scratch file");
             cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
             scr_show_cursor_ch(scr, tb_peek(tb));
         }
@@ -369,12 +391,16 @@ void cmd_cut(editor* ed) {
     tb_pos a;
     tb_pos b;
     cmd_selection_range(ed, &a, &b);
+    if (!may_spill(ed, a, b)) {
+        return;
+    }
 
     // Copied first, and only deleted if that worked. A cut that removed text
-    // the clipboard could not hold would be a delete wearing the wrong name.
+    // the copy did not keep -- because the scratch file could not be written --
+    // would be a delete wearing the wrong name.
     if (!clip_copy(&ed->clip_, tb, a, b)) {
         if (tb_range_size(tb, a, b) > 0) {
-            ui_message(ui, scr, "Selection too large to cut");
+            ui_message(ui, scr, "Could not write the scratch file");
             cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
             scr_show_cursor_ch(scr, tb_peek(tb));
         }
@@ -409,6 +435,18 @@ void cmd_paste(editor* ed) {
     if (!tb_can_insert(tb, clip_size(&ed->clip_), clip_lines(&ed->clip_),
                        free_bytes, free_lines)) {
         ui_message(ui, scr, "Not enough room to paste");
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        scr_show_cursor_ch(scr, tb_peek(tb));
+
+        return;
+    }
+
+    // A spilled copy is read a chunk at a time, so a file that has gone missing
+    // or been truncated is only discovered part way through -- by which point
+    // the selection it was replacing is already deleted. Asked first, while
+    // there is still something to keep.
+    if (!clip_verify(&ed->clip_)) {
+        ui_message(ui, scr, "The scratch file cannot be read");
         cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
 

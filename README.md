@@ -147,13 +147,18 @@ selection just remove it -- there is no undo yet, so a selection is worth a glan
 you type over it.
 
 The clipboard belongs to the editing session rather than the file, so you can copy in
-one document, open another with `CTRL+O`, and paste it there. It holds 8KiB, which is
-around a hundred lines. A selection larger than that is refused rather than half copied,
-and a cut whose copy was refused does not delete anything -- losing the text with nothing
-to paste would be worse than not cutting. Quitting the editor forgets it.
+one document, open another with `CTRL+O`, and paste it there. Quitting the editor
+forgets it.
 
-A future release will spill larger copies to a scratch file beside the document, which
-removes the size limit.
+There is no limit on how much you can copy. Up to 8KiB is kept in memory; anything
+larger is written to a scratch file named after the document -- `notes.txt.scratch`
+beside `notes.txt` -- and read back from there when you paste. The file is removed when
+you quit, and it holds nothing but the copied text, so a stray one left behind by a
+crash can be opened and read like any other file.
+
+If the scratch file cannot be written -- a full or write-protected card -- the copy
+fails and says so, and a cut whose copy failed does not delete anything. Losing the text
+with nothing to paste would be worse than not cutting.
 
 `DELETE` and `BACKSPACE` keys work as expected, removing characters under the cursor (`DELETE`) and to the left of the cursor (`BACKSPACE`).
 If at the end of the line, `DELETE` will merge the next line with the current one.
