@@ -25,7 +25,7 @@
 
 #include "vkey.h"
 
-user_input* ui_init(user_input* ui, int size, char ypos, char cols) {
+user_input* ui_init(user_input* ui, int size, char ypos, int cols) {
     if (!cb_init(&ui->cb_, size)) {
         return NULL;
     }

@@ -23,8 +23,21 @@
 #include <stdint.h>
 
 typedef struct _screen {
-    char rows_;
-    char cols_;
+    // Wider than a char on purpose. Mode 19 is 1024x768, which MOS reports as
+    // 128 columns, and this file is compiled with -fsigned-char -- so a char
+    // holds it as -128 and every width calculation built on it goes negative:
+    // the banner padding, the paint loop's stop column, the line-clamp. The
+    // screen renders as a few characters in the top-left corner.
+    //
+    // rows_ is widened with it. No documented mode is taller than 96 rows, so
+    // it fits today, but a pair of fields that mean the same kind of thing
+    // should not need the reader to work out which one is safe.
+    //
+    // currX_ below stays a char: it is a column *index*, so its largest value
+    // is 127 on the widest mode there is, which is exactly what a signed char
+    // holds.
+    int rows_;
+    int cols_;
     char colors_;
 
     char currX_;

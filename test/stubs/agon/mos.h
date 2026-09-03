@@ -22,6 +22,10 @@ typedef struct { FFOBJID obj; } FIL;
 void     waitvblank(void);
 void     mos_puts(const char* buffer, unsigned size, char delimiter);
 uint8_t* mos_sysvars(void);
+/* The screen MOS reports. 80x25 unless a test says otherwise -- the widest
+ * real mode is 128 columns, which does not fit in a signed char. */
+void     stub_set_screen(int cols, int rows);
+
 uint8_t  getsysvar_scrCols(void);
 uint8_t  getsysvar_scrRows(void);
 uint8_t  getsysvar_scrColours(void);
