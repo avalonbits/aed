@@ -25,6 +25,7 @@
 #include <stdio.h>
 
 #include "cmd_ops.h"
+#include "input.h"
 #include "config.h"
 
 #define DEFAULT_CURSOR 32
@@ -87,7 +88,6 @@ void ed_destroy(editor* ed) {
     tb_destroy(&ed->buf_);
 }
 
-key_command read_input();
 
 // Shift with a motion key starts a selection if there is none and extends it if
 // there is. Anything else ends it -- which is what makes the mode invisible:
@@ -374,13 +374,15 @@ key_command editCmds(key_command kc) {
     return kc;
 }
 
-key_command read_input() {
+key_command read_input(void) {
     key_command kc = {NULL, {'\0', VK_NONE}, 0};
-    kc.k.key = getch();
-    kc.k.vkey = getsysvar_vkeycode();
 
-    const char mods = getsysvar_keymods();
-    kc.mods = mods;
+    const key_event ev = input_read();
+    kc.k.key = ev.ascii;
+    kc.k.vkey = ev.vkey;
+    kc.mods = ev.mods;
+
+    const char mods = kc.mods;
     if (mods & MOD_CTRL) {
         return ctrlCmds(kc, mods);
     }

@@ -77,6 +77,11 @@ typedef struct _key_command {
 // What a key means with CTRL held. Declared here so the bindings can be
 // asserted directly: a command that exists but is not reachable from the
 // keyboard is not a feature, and nothing below this level would notice.
+// Waits for a keypress and works out what it means. Declared here so the
+// mapping can be driven directly: a key that reaches the editor but resolves to
+// nothing is invisible from below this level.
+key_command read_input(void);
+
 key_command ctrlCmds(key_command kc, char mods);
 
 typedef enum _sel_action {

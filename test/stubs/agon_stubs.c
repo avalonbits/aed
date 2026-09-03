@@ -65,38 +65,71 @@ uint8_t* mos_sysvars(void) {
 
 static const stub_key* stub_keys;
 static int stub_nkeys;
-static int stub_key_at;
+/* Packets reported since the process started. Never reset: on the device the
+ * counter only ever climbs, and a reader remembers the last value it saw. A
+ * stub that restarted it at zero could hand back a value the reader had already
+ * seen, and the reader would wait for a key that had in fact arrived. */
+static int stub_delivered;
+static int stub_key_base;       /* what it read when this script was set */
+static int stub_polls;
 
 void stub_set_keys(const stub_key* keys, int n) {
     stub_keys = keys;
     stub_nkeys = n;
-    stub_key_at = 0;
+    stub_key_base = stub_delivered;
 }
 
-char getch(void) {
-    if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
-        return 27;                      /* ESC, so no prompt loops forever */
+/* The scripted keys are modelled the way the VDP delivers real ones: a packet
+ * counter that moves when a key arrives, and fields describing the packet the
+ * counter last reported. Every poll of the counter reports a new packet, so a
+ * reader waiting for it to change never spins.
+ *
+ * A script that has run out keeps reporting ESCAPE presses rather than
+ * stopping, so a modal prompt driven by one can never loop forever. */
+static stub_key stub_current(void) {
+    stub_key esc;
+    esc.ch = 27;
+    esc.vk = 125;                       /* VK_ESCAPE */
+    esc.mods = 0;
+    esc.up = 0;
+
+    const int at = stub_delivered - stub_key_base - 1;
+    if (stub_keys == NULL || at < 0 || at >= stub_nkeys) {
+        return esc;
     }
 
-    return stub_keys[stub_key_at].ch;
+    return stub_keys[at];
+}
+
+uint8_t getsysvar_vkeycount(void) {
+    /* A packet arrives on every other poll rather than on every one, so the
+     * counter sometimes reads the same twice running -- which is the normal
+     * case on the device, where most polls find nothing new. A reader that did
+     * not remember the last value it saw would take the same packet twice, and
+     * that is worth being able to catch. */
+    if (++stub_polls % 2 == 0) {
+        stub_delivered++;
+    }
+
+    return (uint8_t) stub_delivered;
+}
+
+uint8_t getsysvar_vkeydown(void) {
+    return stub_current().up ? 0 : 1;
+}
+
+uint8_t getsysvar_keyascii(void) {
+    return (uint8_t) stub_current().ch;
 }
 
 uint8_t getsysvar_vkeycode(void) {
-    if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
-        return 125;                     /* VK_ESCAPE */
-    }
-
-    return stub_keys[stub_key_at++].vk;
+    return stub_current().vk;
 }
 uint8_t getsysvar_keymods(void) {
-    if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
-        return 0;
-    }
-
-    return stub_keys[stub_key_at].mods;
+    return stub_current().mods;
 }
 
-int stub_keys_read(void) { return stub_key_at; }
+int stub_keys_read(void) { return stub_delivered - stub_key_base; }
 
 static uint8_t stub_cols = 80;
 static uint8_t stub_rows = 25;

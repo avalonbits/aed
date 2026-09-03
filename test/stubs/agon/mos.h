@@ -33,12 +33,19 @@ uint8_t  getsysvar_scrColours(void);
 /* Keyboard. The prompts in user_input.c drive their own blocking loops; these
  * let the controller link without any test actually pressing a key. The
  * modifier masks come from vkey.h, not here. */
-char     getch(void);
 
 /* A scripted key sequence for the modal prompts, which drive their own blocking
  * getch loops. When it runs out, ESCAPE is returned forever so a test can never
  * hang in one of them. */
-typedef struct { char ch; unsigned char vk; unsigned char mods; } stub_key;
+/* `up` marks a key release. It is last and defaults to zero so that the three
+ * field initialisers everywhere else stay presses, which is what a test writing
+ * `{ 'y', VK_y, 0 }` means. */
+typedef struct {
+    char ch;
+    unsigned char vk;
+    unsigned char mods;
+    unsigned char up;
+} stub_key;
 void        stub_set_keys(const stub_key* keys, int n);
 
 /* The last colours handed to vdp_set_text_colour. Foreground and background are
@@ -52,6 +59,13 @@ int         stub_last_fg(void);
 int         stub_last_bg(void);
 void        stub_colours_reset(void);
 uint8_t  getsysvar_vkeycode(void);
+
+/* The key-packet sysvars. vkeycount moves for every packet the VDP sends,
+ * which is how a keypress is noticed; the rest describe the packet it last
+ * reported. */
+uint8_t  getsysvar_vkeycount(void);
+uint8_t  getsysvar_vkeydown(void);
+uint8_t  getsysvar_keyascii(void);
 uint8_t  getsysvar_keymods(void);
 
 uint8_t  mos_fopen(const char* filename, uint8_t mode);

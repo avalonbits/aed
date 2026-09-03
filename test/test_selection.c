@@ -578,6 +578,67 @@ int main(void) {
     stub_set_keys(NULL, 0);
     ed_destroy(&op);
 
+    /* --- a key that arrives without a typed character --- */
+    /* CTRL+SHIFT with an arrow is delivered as a key packet carrying its
+     * virtual key and its modifiers, but nothing lands in the buffer getch()
+     * waits on -- measured on the device, where holding CTRL+SHIFT and pressing
+     * RIGHT moved the packet counter and set vkeycode/keymods correctly while
+     * getch() stayed blocked until the modifiers were let go. Reading the
+     * packet is what makes those keys reachable at all.
+     *
+     * Scripted with ascii 0 to stand for exactly that: nothing in the buffer. */
+    {
+        stub_file_reset();
+        stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
+        editor pk;
+        check("an editor for the packet keys", ed_init(&pk, 8, "pk.txt") != NULL, 1);
+
+        stub_key wordsel[] = {
+            { 0, VK_RIGHT, (char)(MOD_CTRL | MOD_SHFT) },
+            { 0, VK_RIGHT, (char)(MOD_CTRL | MOD_SHFT) },
+        };
+        stub_set_keys(wordsel, 2);
+
+        key_command kc = read_input();
+        check("a key with no character still arrives", kc.k.vkey, VK_RIGHT);
+        check("  carrying both its modifiers", kc.mods,
+              (char)(MOD_CTRL | MOD_SHFT));
+        check("  and meaning a word move", kc.cmd == cmd_w_right, 1);
+        check("  which extends a selection",
+              ed_selection_for(&pk, kc), SEL_EXTEND);
+
+        /* The second one keeps extending rather than starting over. */
+        const int anchored = pk.anchor_.x;
+        kc = read_input();
+        check("the next one arrives too", kc.k.vkey, VK_RIGHT);
+        check("  and extends the same selection",
+              ed_selection_for(&pk, kc), SEL_EXTEND);
+        check("  from the same anchor", pk.anchor_.x, anchored);
+
+        /* Letting go of a key is a packet too, and it is not a keystroke. If
+         * releases were read as keys, releasing the shift you are selecting
+         * with would end the selection you are making. */
+        /* The releases carry keys of their own, different from the press that
+         * follows them, so reading one instead of stepping over it shows up as
+         * the wrong key rather than as the right one by luck. */
+        stub_key withrelease[] = {
+            { 0, VK_RIGHT,  (char)(MOD_CTRL | MOD_SHFT), 0 },  /* press   */
+            { 0, VK_RIGHT,  (char)(MOD_CTRL | MOD_SHFT), 1 },  /* release */
+            { 0, VK_LSHIFT, 0,                           1 },  /* release */
+            { 0, VK_LEFT,   (char)(MOD_CTRL | MOD_SHFT), 0 },  /* press   */
+        };
+        stub_set_keys(withrelease, 4);
+        kc = read_input();
+        check("the first press arrives", kc.k.vkey, VK_RIGHT);
+        check("  as a word move", kc.cmd == cmd_w_right, 1);
+        kc = read_input();
+        check("both releases are stepped over", kc.k.vkey, VK_LEFT);
+        check("  reaching the press after them", kc.cmd == cmd_w_left, 1);
+
+        stub_set_keys(NULL, 0);
+        ed_destroy(&pk);
+    }
+
     /* --- the widest screen there is --- */
     /* Mode 19 is 1024x768, which MOS reports as 128 columns. Held in a signed
      * char that is -128, and every width calculation built on it goes negative:
