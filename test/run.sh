@@ -24,7 +24,8 @@ CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
 # the controller/view interaction, which nothing below that level can reach.
 # editor.c stays out -- it is only the blocking input loop.
 SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
-      src/conv.c src/cmd_ops.c src/user_input.c test/stubs/agon_stubs.c)
+      src/conv.c src/cmd_ops.c src/user_input.c src/config.c
+      test/stubs/agon_stubs.c)
 
 status=0
 for t in test/test_*.c; do

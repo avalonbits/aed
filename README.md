@@ -40,6 +40,51 @@ MOS has searched `/bin` since version 2.2.0, so 2.2 is the lowest usable minor r
 The supported floor is the **last point release** of that line, 2.2.3 — if you are on
 2.2.x, be on 2.2.3.
 
+# Configuration
+
+AED keeps its settings in `/config/aed.cfg`. **The first time you run it, it writes
+that file for you**, filled in with the settings it is currently using -- including the
+colours it picked up from your Agon -- so there is something to edit rather than a
+format to guess at. Edit the file and restart AED to apply changes; there is no way to
+change settings from inside the editor yet.
+
+`/config` sits alongside `/bin` and `/mos` rather than inside them, since those are for
+executables. The convention is one file per application, or `/config/<app>/` for an
+application that needs several.
+
+A freshly written file looks like this:
+
+```
+# AED settings.
+#
+# Blank lines are ignored and '#' starts a comment. Settings AED does
+# not recognise are skipped, so this file stays readable by older and
+# newer versions alike. Edit and restart AED to apply.
+
+# How wide a tab renders, in columns. 1 to 16.
+tab = 4
+
+# Text and background colour, as Agon colour numbers. These were
+# taken from the colours your Agon was already using.
+fg = 15
+bg = 0
+```
+
+| Setting | Meaning |
+|---|---|
+| `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
+| `fg` | text colour, as an Agon colour number. |
+| `bg` | background colour. |
+
+Settings are `name = value`, one per line. Spaces around the name and value are
+ignored and a `#` starts a comment anywhere on a line. Names AED does not recognise are
+skipped, so a file written for a newer version still works with an older one, and a
+setting with a missing or malformed value keeps its default rather than making the
+whole file fail.
+
+If `/config` cannot be created -- a write-protected card, say -- AED starts normally
+with its defaults and simply does not save them.
+
 # Running the editor.
 If you run it just as `aed` it will start the editor using `/aed.txt` as its backing file. If the file can't be created,
 it will exit with the message `Quit`. If the file already exists, it will read it into the buffer and display it on the editor screen.
@@ -65,8 +110,8 @@ You can press `CTRL+D` or `CTRL+DELETE` to delete a whole line.
 
 `TAB` inserts a real tab. Tabs are stored in the file as tab characters and are only
 expanded to the next tab stop when drawn, so a file's tabs survive being opened and
-saved. The tab width is 4 columns; making it configurable is planned for a later
-release. `LEFT/RIGHT` move over a tab in one step,
+saved. The tab width is 4 columns by default and can be changed in the settings file
+(see **Configuration** below). `LEFT/RIGHT` move over a tab in one step,
 since it is a single character, and the cursor sits at the column where the tab
 begins.
 
@@ -91,7 +136,8 @@ The following features will be implemented before releasing v1.0 of the editor:
 
 - [ ] Undo / Redo.
 - [x] ~~Native tabs.~~
-- [ ] Configurable tab size.
+- [x] ~~Configurable tab size.~~
+- [ ] Change settings from inside the editor.
 - [ ] Tab-to-space conversion.
 - [ ] Syntax highlighting for BBCBasic and assembly files.
 - [ ] Unlimted file size support.

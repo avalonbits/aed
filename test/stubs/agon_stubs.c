@@ -55,6 +55,8 @@ static int  stub_len;
 static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
+static int         stub_mkdir_count;
+static char        stub_mkdir_path[256];
 static const char* stub_content;
 static int         stub_content_len;
 
@@ -65,6 +67,8 @@ void stub_file_reset(void) {
     stub_fail_open = 0;
     stub_content = NULL;
     stub_content_len = 0;
+    stub_mkdir_count = 0;
+    stub_mkdir_path[0] = 0;
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
@@ -82,6 +86,23 @@ void stub_discard_output(void) {
 void stub_file_set_content(const char* data, int len) {
     stub_content = data;
     stub_content_len = len;
+}
+
+int         stub_mkdirs(void)      { return stub_mkdir_count; }
+const char* stub_last_mkdir(void)  { return stub_mkdir_path; }
+
+uint8_t mos_mkdir(const char* path) {
+    stub_mkdir_count++;
+    if (path != NULL) {
+        size_t n = strlen(path);
+        if (n >= sizeof(stub_mkdir_path)) {
+            n = sizeof(stub_mkdir_path) - 1;
+        }
+        memcpy(stub_mkdir_path, path, n);
+        stub_mkdir_path[n] = 0;
+    }
+
+    return 0;
 }
 
 uint8_t mos_fopen(const char* filename, uint8_t mode) {
