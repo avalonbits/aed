@@ -348,7 +348,7 @@ void cmd_copy(editor* ed) {
         // Only worth saying anything when there was something to copy: an empty
         // selection failing is not news.
         if (tb_range_size(tb, a, b) > 0) {
-            ui_message(ui, scr, "Selection too large to copy");
+            ui_message(ui, scr, "Could not write the scratch file");
             cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
             scr_show_cursor_ch(scr, tb_peek(tb));
         }
@@ -371,10 +371,11 @@ void cmd_cut(editor* ed) {
     cmd_selection_range(ed, &a, &b);
 
     // Copied first, and only deleted if that worked. A cut that removed text
-    // the clipboard could not hold would be a delete wearing the wrong name.
+    // the copy did not keep -- because the scratch file could not be written --
+    // would be a delete wearing the wrong name.
     if (!clip_copy(&ed->clip_, tb, a, b)) {
         if (tb_range_size(tb, a, b) > 0) {
-            ui_message(ui, scr, "Selection too large to cut");
+            ui_message(ui, scr, "Could not write the scratch file");
             cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
             scr_show_cursor_ch(scr, tb_peek(tb));
         }

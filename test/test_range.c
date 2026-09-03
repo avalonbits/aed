@@ -263,6 +263,14 @@ int main(void) {
           tb_insert(&tb, "A\nB", 3) ? 1 : 0, 1);
     check_s("  the same as CRLF would", doc_of(&tb), "oneA/B/two/three/");
 
+    /* Text ending in a bare CR still ends with a line break: the CR is held
+     * back until something follows it, and nothing does. */
+    load(&tb);
+    tb_seek(&tb, at(1, 3));
+    check("a trailing bare CR is still a break",
+          tb_insert(&tb, "A\r", 2) ? 1 : 0, 1);
+    check_s("  so the line is split", doc_of(&tb), "oneA//two/three/");
+
     check("inserting nothing is refused", tb_insert(&tb, "", 0) ? 1 : 0, 0);
     check("inserting from NULL is refused", tb_insert(&tb, NULL, 4) ? 1 : 0, 0);
 

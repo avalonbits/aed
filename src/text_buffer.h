@@ -143,6 +143,18 @@ int tb_cmp(tb_pos a, tb_pos b);
 // crossed. Order does not matter.
 int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b);
 
+// Where the bytes of a range are sent. Called with each run of text and with
+// each line break separately; returns false to stop the walk.
+typedef bool (*tb_sink)(void* ctx, const char* buf, int sz);
+
+// Feeds the text between the two positions to `sink`, line breaks included as
+// CRLF. The document is only read. Returns false if the sink stopped it.
+//
+// Exists so that a range can go somewhere other than memory -- a copy too large
+// for the clipboard goes to a file -- without a second implementation of the
+// walk that would have to agree with this one about where lines end.
+bool tb_range_walk(text_buffer* tb, tb_pos a, tb_pos b, tb_sink sink, void* ctx);
+
 // Replaces `out` with the text between the two positions, line breaks included
 // as CRLF. Returns the number of bytes written, or -1 if the range will not fit
 // -- in which case `out` is left empty rather than holding a truncated copy,
@@ -159,6 +171,14 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b);
 // anything if the document has no room, so a paste either lands whole or not at
 // all.
 bool tb_insert(text_buffer* tb, const char* buf, int sz);
+
+// Inserts a run of bytes without checking there is room, for a caller that has
+// already checked the whole of what it is inserting. `pending_cr` carries a
+// trailing CR across calls: text arriving in chunks can be split between the
+// CR and the LF of one line break, and the two halves have to make one break
+// rather than two. It starts false, and if it is still true at the end the
+// caller owes one more tb_newline.
+bool tb_insert_span(text_buffer* tb, const char* buf, int sz, bool* pending_cr);
 
 // Whether `bytes` of text carrying `lines` line breaks would fit, once a range
 // of `free_bytes` spanning `free_lines` breaks has been removed to make way for
