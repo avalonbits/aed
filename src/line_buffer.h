@@ -51,6 +51,11 @@ int lb_csize(line_buffer* lb);
 // Cursor ops.
 bool lb_up(line_buffer* lb);
 bool lb_down(line_buffer* lb);
+// True when lb_new has somewhere to put a new line. It needs two slots, not
+// one -- see lb_new -- so asking it directly is the only way a caller can know
+// whether a split will go through without duplicating that arithmetic.
+bool lb_can_new(line_buffer* lb);
+
 bool lb_new(line_buffer* lb, int size);
 bool lb_del(line_buffer* lb);
 bool lb_merge_next(line_buffer* lb);

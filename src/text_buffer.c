@@ -133,6 +133,16 @@ bool tb_newline(text_buffer* tb) {
     if (cb_available(&tb->cb_) < 2) {
         return false;
     }
+    // And the line index must have room for the line the break starts. It is
+    // bounded separately from the characters and runs out first on a document
+    // of short lines, and lb_new failing after the CRLF was already written
+    // left exactly the disagreement the check above exists to prevent. Asked of
+    // the line buffer rather than worked out here, so there is one place that
+    // knows how many slots a split costs.
+    if (!lb_can_new(&tb->lb_)) {
+        return false;
+    }
+
     tb->dirty_ = true;
     tb_put(tb, '\r');
     tb_put(tb, '\n');
@@ -140,6 +150,7 @@ bool tb_newline(text_buffer* tb) {
     if (ok) {
         tb->x_ = 0;
     }
+
     return ok;
 }
 
@@ -516,18 +527,26 @@ bool tb_insert(text_buffer* tb, const char* buf, int sz) {
     // A bare LF becomes a CRLF, so the text can be a byte longer than it
     // arrived. Counted up front: a paste that ran out of room half way would
     // leave the document holding an arbitrary prefix of it.
+    //
+    // The lines are counted too. The line index is bounded separately from the
+    // characters and runs out first on a document of short lines, so room for
+    // the bytes is not room for the paste.
     int needed = 0;
+    int breaks = 0;
     for (int i = 0; i < sz; i++) {
         if (buf[i] == '\r' && i + 1 < sz && buf[i + 1] == '\n') {
             needed += 2;
+            breaks++;
             i++;
         } else if (buf[i] == '\n' || buf[i] == '\r') {
             needed += 2;
+            breaks++;
         } else {
             needed += 1;
         }
     }
-    if (needed > cb_available(&tb->cb_)) {
+    // A split costs a slot and needs a spare, so N breaks need N + 1 free.
+    if (needed > cb_available(&tb->cb_) || breaks + 1 > lb_avai(&tb->lb_)) {
         return false;
     }
 

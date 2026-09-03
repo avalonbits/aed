@@ -288,6 +288,90 @@ int main(void) {
           tb_insert(&tb, cbuf, csz) ? 1 : 0, 1);
     check_s("  and the text arrives whole", doc_of(&tb), "oo/threene/tw/");
 
+    /* --- the line index runs out before the characters do --- */
+    /* The two buffers are bounded separately, and on a document of short lines
+     * the index is the one that fills. tb_newline used to write the CRLF and
+     * only then discover lb_new had no room, leaving a line break the index
+     * knew nothing about -- exactly the disagreement between text and index its
+     * own capacity check exists to prevent. */
+    text_buffer small;
+    stub_file_reset();
+    check("a small document", tb_init(&small, 1, "small.txt") != NULL, 1);
+    check("  has far more character room than lines",
+          tb_available(&small) > lb_avai(&small.lb_) * 4, 1);
+
+    int accepted = 0;
+    while (tb_newline(&small)) {
+        accepted++;
+    }
+    check("newlines are accepted until the index is full", accepted > 0, 1);
+    check("  which is what ran out, not the characters",
+          tb_available(&small) > 0, 1);
+    /* "Full" means lb_new has nowhere to go, which is one slot short of empty:
+     * a split writes the line's own size and the remainder to the slot after
+     * it, so the last slot can never be the one being split. */
+    check("  and the index has no room to split again",
+          lb_can_new(&small.lb_) ? 1 : 0, 0);
+    check("  with exactly the spare that requires left",
+          lb_avai(&small.lb_), 1);
+
+    const int used_before = tb_used(&small);
+    check("one more is refused", tb_newline(&small) ? 1 : 0, 0);
+    check("  without writing the break anyway", tb_used(&small), used_before);
+    check("  so every line break has an index entry",
+          tb_ymax(&small), accepted + 1);
+
+    tb_destroy(&small);
+
+    /* And a paste has to count the lines it brings, not just the bytes: room
+     * for the characters is not room for the text. */
+    text_buffer roomy;
+    stub_file_reset();
+    check("another small document", tb_init(&roomy, 1, "roomy.txt") != NULL, 1);
+    int lines_left = lb_avai(&roomy.lb_);
+    static char manylines[256];
+    int mn = 0;
+    for (int i = 0; i < lines_left + 2; i++) {
+        manylines[mn++] = '\r';
+        manylines[mn++] = '\n';
+    }
+    check("the paste has more breaks than there are lines",
+          mn / 2 > lb_avai(&roomy.lb_), 1);
+    check("  but plenty of character room", mn < tb_available(&roomy), 1);
+    const int roomy_before = tb_used(&roomy);
+    check("it is refused", tb_insert(&roomy, manylines, mn) ? 1 : 0, 0);
+    check("  and none of it went in", tb_used(&roomy), roomy_before);
+
+    /* One that does fit still goes in, so the check is not simply refusing. */
+    check("a paste within the line budget is accepted",
+          tb_insert(&roomy, "a\r\nb\r\nc", 7) ? 1 : 0, 1);
+    tb_destroy(&roomy);
+
+    /* Exactly on the boundary, which is where the spare slot matters. A paste
+     * bringing as many breaks as there are free slots is one too many: the last
+     * split has nowhere to put the remainder. Counting only the breaks lets it
+     * through, and it then stops half way with the text already in. */
+    text_buffer edge;
+    stub_file_reset();
+    check("a document to fill exactly", tb_init(&edge, 1, "edge.txt") != NULL, 1);
+    const int slots = lb_avai(&edge.lb_);
+    int en = 0;
+    for (int i = 0; i < slots; i++) {
+        manylines[en++] = '\r';
+        manylines[en++] = '\n';
+    }
+    check("the paste brings exactly as many breaks as there are slots",
+          en / 2, slots);
+    const int edge_before = tb_used(&edge);
+    check("it is refused", tb_insert(&edge, manylines, en) ? 1 : 0, 0);
+    check("  without landing half of it", tb_used(&edge), edge_before);
+
+    /* One break fewer is the largest paste that fits, and it must go in. */
+    check("one break fewer is accepted",
+          tb_insert(&edge, manylines, en - 2) ? 1 : 0, 1);
+    check("  and all of it landed", tb_used(&edge), edge_before + en - 2);
+    tb_destroy(&edge);
+
     cb_destroy(&clip);
     tb_destroy(&tb);
 
