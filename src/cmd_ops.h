@@ -19,6 +19,8 @@
 #ifndef _CMD_OPS_H_
 #define _CMD_OPS_H_
 
+#include "text_buffer.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -43,6 +45,20 @@ void cmd_open(editor* ed);
 // of the selection falls on each. Knowing which bytes are on which row is
 // document knowledge, so it lives here rather than in the view.
 void cmd_repaint_rows(editor* ed, char fromY, char toY);
+
+// The selection, as two positions in document order. Only meaningful while one
+// is being made.
+void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to);
+
+// Deletes the selected text and leaves the cursor where it began. Used when a
+// key that changes the document arrives with a selection live: the selection is
+// what it replaces.
+bool cmd_delete_selection(editor* ed);
+
+void cmd_copy(editor* ed);
+void cmd_cut(editor* ed);
+void cmd_paste(editor* ed);
+void cmd_select_all(editor* ed);
 void cmd_color_picker(editor* ed);
 
 void cmd_putc(editor* ed, key k);

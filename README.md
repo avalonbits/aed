@@ -130,10 +130,30 @@ Hold `SHIFT` and move the cursor to select. Every movement key works: the arrows
 time. The selected text is shown with the colours reversed, and a line break inside the
 selection shows as one highlighted space at the end of the line.
 
+`CTRL+A` selects the whole document.
+
 There is no mode to leave. The selection starts where the cursor was when you first
 held `SHIFT`, grows and shrinks as you keep moving, and disappears the moment you press
 anything that is not a movement key -- so there is no way to get stuck in it and nothing
 to remember.
+
+# Copy, cut and paste
+`CTRL+C` copies the selection, `CTRL+X` cuts it, and `CTRL+V` pastes at the cursor.
+Copying leaves the selection alone so you can change your mind about where it ends;
+cutting and pasting consume it.
+
+Typing with text selected replaces it, as does pasting. `BACKSPACE` and `DELETE` with a
+selection just remove it -- there is no undo yet, so a selection is worth a glance before
+you type over it.
+
+The clipboard belongs to the editing session rather than the file, so you can copy in
+one document, open another with `CTRL+O`, and paste it there. It holds 8KiB, which is
+around a hundred lines. A selection larger than that is refused rather than half copied,
+and a cut whose copy was refused does not delete anything -- losing the text with nothing
+to paste would be worse than not cutting. Quitting the editor forgets it.
+
+A future release will spill larger copies to a scratch file beside the document, which
+removes the size limit.
 
 `DELETE` and `BACKSPACE` keys work as expected, removing characters under the cursor (`DELETE`) and to the left of the cursor (`BACKSPACE`).
 If at the end of the line, `DELETE` will merge the next line with the current one.

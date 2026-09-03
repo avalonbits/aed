@@ -25,7 +25,7 @@ CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
 # editor.c is linked too: ed_init applies the settings file, and that policy is
 # worth testing. Its input loop is never called from a test.
 SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
-      src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/editor.c
+      src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/clipboard.c src/editor.c
       test/stubs/agon_stubs.c)
 
 status=0
