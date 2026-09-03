@@ -107,6 +107,16 @@ If the file already exists, it will read it into the buffer and display it on th
 `CTRL+S` will save the current text buffer to a file. If no file name was provided on startup, a prompt for the file name is shown.
 `CTRL+ALT+S` will always show a prompt for the file name before saving.
 
+`CTRL+O` opens another file, prompting for the name at the bottom of the screen with
+the current one filled in. If the document you are editing has unsaved changes it asks
+whether to save them first, the same way quitting does, and answering `ESC` there calls
+the whole thing off. A name that does not exist yet is created, so this is also how you
+start a new file without leaving the editor.
+
+Opening replaces the document you are editing -- there is only ever one buffer -- but a
+file that cannot be opened, or that is too large to fit, leaves your work exactly where
+it was and says what went wrong.
+
 # Navigation and shortcuts.
 You navigate using the `LEFT, RIGHT, UP, DOWN` arrow keys to move the cursor one character at a time. The cursor will wrap around lines if you
 try to move past the end or beginning. You can also use `CTRL+LEFT` and `CTRL+RIGHT` to navigate between white spaces (words) for

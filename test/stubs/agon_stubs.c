@@ -79,6 +79,8 @@ uint8_t getsysvar_vkeycode(void) {
 }
 uint8_t getsysvar_keymods(void)  { return 0; }
 
+int stub_keys_read(void) { return stub_key_at; }
+
 uint8_t getsysvar_scrCols(void)    { return 80; }
 uint8_t getsysvar_scrRows(void)    { return 25; }
 uint8_t getsysvar_scrColours(void) { return 16; }

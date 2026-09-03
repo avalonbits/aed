@@ -79,14 +79,6 @@ void ed_destroy(editor* ed) {
     tb_destroy(&ed->buf_);
 }
 
-#define CMD_PUTC    (cmd_op) 0x01
-#define CMD_QUIT    (cmd_op) 0x02
-#define CMD_SAVE    (cmd_op) 0x03
-typedef struct _key_command {
-    cmd_op cmd;
-    key k;
-} key_command;
-
 key_command read_input();
 
 void ed_run(editor* ed) {
@@ -149,6 +141,10 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_G:
         case VK_g:
             kc.cmd = cmd_goto;
+            break;
+        case VK_O:
+        case VK_o:
+            kc.cmd = cmd_open;
             break;
         default:
             kc.cmd = NULL;

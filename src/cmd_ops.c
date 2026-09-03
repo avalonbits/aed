@@ -192,6 +192,50 @@ bool cmd_quit(editor* ed) {
     return cmd_save(ed);
 }
 
+void cmd_open(editor* ed) {
+    TB(ed);
+    SCR(ed);
+    UI(ed);
+
+    // Same bargain as quitting: the document on screen is about to go, so the
+    // user gets the same chance to keep it, and answering neither way calls the
+    // whole thing off.
+    if (tb_changed(tb)) {
+        RESPONSE res = ui_dialog(ui, scr, "Save before opening?");
+        if (res == CANCEL_OPT) {
+            return;
+        }
+        if (res == YES_OPT && !cmd_save(ed)) {
+            return;   // the save was cancelled or failed; keep the document
+        }
+    }
+
+    char* fname;
+    int sz;
+    // Prefilled with the current name so the prompt shows the shape of what it
+    // wants, and so opening a mistyped name again is a small edit.
+    if (ui_text(ui, scr, "Open file: ", tb_fname(tb), &fname, &sz) != YES_OPT) {
+        return;
+    }
+
+    switch (tb_open(tb, fname, sz)) {
+        case TB_TOO_LARGE:
+            ui_message(ui, scr, "File too large");
+            return;
+        case TB_NO_FILE:
+            ui_message(ui, scr, "Cannot open file");
+            return;
+        case TB_OK:
+            break;
+    }
+
+    // scr_clear winds the cursor and the horizontal origin back to the start
+    // as well as repainting the banner, which is exactly the reset a whole new
+    // document needs.
+    scr_clear(scr);
+    cmd_show(ed);
+}
+
 void cmd_color_picker(editor* ed) {
     SCR(ed);
     UI(ed);

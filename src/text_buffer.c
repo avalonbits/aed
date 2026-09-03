@@ -484,6 +484,62 @@ bool tb_load(text_buffer* tb, const char* fname) {
     return ok;
 }
 
+void tb_clear(text_buffer* tb) {
+    cb_clear(&tb->cb_);
+    lb_clear(&tb->lb_);
+    tb->x_ = 0;
+    tb->dirty_ = false;
+}
+
+tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
+    if (fname == NULL || sz <= 0) {
+        return TB_NO_FILE;
+    }
+
+    char name[sizeof(tb->fname_)];
+    if (sz >= (int) sizeof(name)) {
+        sz = sizeof(name) - 1;
+    }
+    strncpy(name, fname, sz);
+    name[sz] = 0;
+
+    char fh = mos_fopen(name, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
+    if (fh == 0) {
+        fh = mos_fopen(name, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
+        if (fh == 0) {
+            return TB_NO_FILE;
+        }
+    }
+    FIL* fil = mos_getfil(fh);
+    if (fil == NULL) {
+        mos_fclose(fh);
+
+        return TB_NO_FILE;
+    }
+
+    // Measured against the whole buffer, not what is free in it right now: the
+    // document on screen is about to be discarded, so its bytes are not in the
+    // way. Checking before discarding anything is the point -- a file that will
+    // not fit must leave the editor exactly as it was.
+    const int fsz = (int) fil->obj.objsize;
+    if (fsz > cb_size(&tb->cb_)) {
+        mos_fclose(fh);
+
+        return TB_TOO_LARGE;
+    }
+
+    tb_clear(tb);
+    memcpy(tb->fname_, name, (size_t) sz + 1);
+
+    bool ok = true;
+    if (fsz > 0) {
+        ok = tb_read(fh, tb, fsz);
+    }
+    mos_fclose(fh);
+
+    return ok ? TB_OK : TB_NO_FILE;
+}
+
 bool tb_save(text_buffer* tb) {
     if (!tb_valid_file(tb)) {
         return false;

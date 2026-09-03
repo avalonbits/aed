@@ -59,6 +59,10 @@ FIL*     mos_getfil(uint8_t fh);
 void        stub_file_reset(void);
 const char* stub_file_bytes(void);
 int         stub_file_size(void);
+/* Scripted keys consumed so far. Lets a test assert that something actually
+ * waited for a keypress rather than drawing and moving straight on. */
+int         stub_keys_read(void);
+
 int         stub_file_opens(void);   /* mos_fopen calls */
 int         stub_file_opens_for_write(void); /* those asking to write */
 int         stub_file_closes(void);  /* mos_fclose calls */
