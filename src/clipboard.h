@@ -75,6 +75,19 @@ bool clip_copy(clipboard* c, text_buffer* tb, tb_pos a, tb_pos b);
 // time and cannot be undone half way through.
 bool clip_paste(clipboard* c, text_buffer* tb);
 
+// Whether a copy of `size` bytes would spill onto a file that this session did
+// not write. The scratch name is worked out from the document name, so it can
+// collide with a file the user has, or with a remnant left by a session that
+// crashed -- and opening it to write truncates it. The caller is expected to
+// ask before going ahead; this only reports.
+bool clip_spill_would_overwrite(clipboard* c, text_buffer* tb, int size);
+
+// Whether a spilled copy can still be read in full. A caller that is about to
+// delete something to make room for the paste should ask first: the paste
+// arrives a chunk at a time, and finding out half way means the thing it
+// replaced is already gone.
+bool clip_verify(clipboard* c);
+
 // Whether anything has been copied yet. A paste with nothing to paste is not an
 // error, it just does nothing.
 bool clip_has(clipboard* c);

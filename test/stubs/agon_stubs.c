@@ -217,6 +217,14 @@ uint8_t mos_fopen(const char* filename, uint8_t mode) {
     if (stub_fail_open) {
         return 0;  /* MOS reports failure as handle 0 */
     }
+    /* Opening for reading alone fails when there is nothing to read, which is
+     * how a file that is not there behaves. The stub cannot tell one name from
+     * another, so "content has been set" stands in for "the file exists" --
+     * enough for the code that probes whether a path is already taken. Opens
+     * that ask to write are unaffected: those create the file. */
+    if ((mode & FA_WRITE) == 0 && stub_content_len == 0) {
+        return 0;
+    }
 
     return 1;
 }

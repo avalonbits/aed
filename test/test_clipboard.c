@@ -630,6 +630,151 @@ int main(void) {
     check("  fits once the selection gives its slot back",
           tb_used(&ed.buf_) > lines_before, 1);
 
+    /* --- a spill that would land on an existing file asks first --- */
+    /* The scratch name is worked out from the document name, so it can collide
+     * with a file the user has, or with a remnant of a session that crashed.
+     * Opening it to write truncates it, so the question is worth one keypress. */
+    {
+        static char blob[CLIP_SIZE + 512];
+        for (int i = 0; i < (int) sizeof(blob); i++) {
+            blob[i] = 'a' + (i % 26);
+        }
+        stub_file_reset();
+        stub_file_set_content(blob, (int) sizeof(blob));
+        ed_destroy(&ed);
+        check("a document that will not fit in memory",
+              ed_init(&ed, 32, "doc.txt") != NULL, 1);
+        started = true;
+
+        /* Content set means a read-open succeeds, which is the stub's way of
+         * saying doc.txt.scratch is already there. */
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        stub_key no[] = { { 'n', VK_n, 0 } };
+        stub_set_keys(no, 1);
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        stub_set_keys(NULL, 0);
+        check("answering no leaves the file alone", stub_file_opens_for_write(), 0);
+        check("  and copies nothing", clip_has(&ed.clip_) ? 1 : 0, 0);
+
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        stub_key yes[] = { { 'y', VK_y, 0 } };
+        stub_set_keys(yes, 1);
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        stub_set_keys(NULL, 0);
+        check("answering yes goes ahead", stub_file_opens_for_write() > 0, 1);
+        check("  and the copy is made", clip_has(&ed.clip_) ? 1 : 0, 1);
+
+        /* Asked once. A file this session wrote is its own to write over -- and
+         * the proof is that the second copy actually writes, not merely that
+         * the first one is still there. */
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        stub_set_keys(NULL, 0);          /* no answer available: a prompt would cancel */
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        check("copying again over our own file asks nothing",
+              stub_file_opens_for_write() > 0, 1);
+        check("  and the copy is there", clip_has(&ed.clip_) ? 1 : 0, 1);
+
+        /* Cutting takes the same care: it spills before it deletes. */
+        stub_file_reset();
+        stub_file_set_content(blob, 16);
+        ed_destroy(&ed);
+        stub_file_set_content(blob, (int) sizeof(blob));
+        ed_init(&ed, 32, "cut.txt");
+        started = true;
+        stub_file_reset();
+        stub_file_set_content(blob, 16);   /* cut.txt.scratch is already there */
+        const int cut_before = tb_used(&ed.buf_);
+        stub_key cutno[] = { { 'n', VK_n, 0 } };
+        stub_set_keys(cutno, 1);
+        cmd_select_all(&ed);
+        cmd_cut(&ed);
+        stub_set_keys(NULL, 0);
+        check("a cut answered no deletes nothing", tb_used(&ed.buf_), cut_before);
+        check("  and writes nothing", stub_file_opens_for_write(), 0);
+    }
+
+    /* --- a paste that cannot read its file does not eat the selection --- */
+    /* The file is read a chunk at a time, so one that has gone missing is
+     * discovered part way through -- after the selection it replaces has been
+     * deleted, with no undo to bring it back. Checked before anything goes. */
+    {
+        static char blob2[CLIP_SIZE + 512];
+        for (int i = 0; i < (int) sizeof(blob2); i++) {
+            blob2[i] = 'a' + (i % 26);
+        }
+        stub_file_reset();
+        stub_file_set_content(blob2, (int) sizeof(blob2));
+        ed_destroy(&ed);
+        ed_init(&ed, 32, "doc2.txt");
+        started = true;
+
+        stub_file_reset();
+        cmd_select_all(&ed);
+        cmd_copy(&ed);
+        check("a spilled copy", clip_size(&ed.clip_) > clip_capacity(&ed.clip_), 1);
+
+        /* Now the file is gone: nothing to read back at all. */
+        stub_file_reset();
+        const int kept = tb_used(&ed.buf_);
+        select_from(at(1, 0), at(1, 20));
+        cmd_paste(&ed);
+        check("a paste whose file has gone changes nothing",
+              tb_used(&ed.buf_), kept);
+        check("  and leaves the selection alone", ed.selecting_ ? 1 : 0, 1);
+
+        /* And one that opens but has been truncated -- which the open cannot
+         * tell you, only reading it through can. */
+        stub_file_reset();
+        stub_file_set_content(blob2, clip_size(&ed.clip_) / 2);
+        select_from(at(1, 0), at(1, 20));
+        cmd_paste(&ed);
+        check("a paste whose file is short changes nothing",
+              tb_used(&ed.buf_), kept);
+        check("  and leaves that selection alone too",
+              ed.selecting_ ? 1 : 0, 1);
+    }
+
+    /* And a read that stops part way takes back what it managed to insert. */
+    {
+        static const char body[] = "alpha\r\nbeta\r\ngamma\r\n";
+        stub_file_reset();
+        stub_file_set_content(body, (int) sizeof(body) - 1);
+        text_buffer host;
+        check("a document to paste into", tb_init(&host, 8, "host.txt") != NULL, 1);
+
+        clipboard partial;
+        clip_init(&partial, 8);
+        partial.on_file_ = true;
+        partial.size_ = (int) sizeof(body) - 1;
+        partial.lines_ = 3;
+        memcpy(partial.path_, "gone.scratch", 13);
+
+        /* The clipboard says the file holds 20 bytes; the file has 8. That is a
+         * truncated scratch file, and the read runs dry half way through. */
+        stub_file_reset();
+        stub_file_set_content(body, 8);
+        const int before_partial = tb_used(&host);
+        tb_seek(&host, at(1, 0));
+        check("a read that runs dry part way fails",
+              clip_paste(&partial, &host) ? 1 : 0, 0);
+        check("  and takes back what it inserted", tb_used(&host), before_partial);
+        partial.on_file_ = false;
+        clip_destroy(&partial);
+        tb_destroy(&host);
+    }
+
+    stub_file_reset();
+    stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
+    ed_destroy(&ed);
+    ed_init(&ed, 8, "doc.txt");
+    started = true;
+
     /* --- a spilled copy belongs to the session, not the document --- */
     /* The scratch path is fixed when the copy spills and not worked out again,
      * because CTRL+O renames the document out from under it -- and the file

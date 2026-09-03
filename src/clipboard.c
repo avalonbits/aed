@@ -85,23 +85,79 @@ const char* clip_path(clipboard* c) {
 // "<document>.scratch". Beside the file being edited, so it is obvious where it
 // came from. An unnamed buffer has nothing to sit beside, so it gets a plain
 // name in the current directory.
-static bool scratch_path(clipboard* c, text_buffer* tb) {
+static bool build_scratch_path(text_buffer* tb, char* out, int max) {
     const char* name = tb_fname(tb);
     const int nlen = (name == NULL) ? 0 : (int) strlen(name);
     const int slen = (int) sizeof(SCRATCH_SUFFIX) - 1;
+    (void) max;
 
     // An unnamed buffer has nothing to sit beside, so it gets a plain name in
     // the current directory rather than one starting with a dot.
     if (nlen == 0) {
-        memcpy(c->path_, "aed", 3);
-        memcpy(c->path_ + 3, SCRATCH_SUFFIX, (size_t) slen + 1);
+        memcpy(out, "aed", 3);
+        memcpy(out + 3, SCRATCH_SUFFIX, (size_t) slen + 1);
 
         return true;
     }
-    memcpy(c->path_, name, (size_t) nlen);
-    memcpy(c->path_ + nlen, SCRATCH_SUFFIX, (size_t) slen + 1);
+    memcpy(out, name, (size_t) nlen);
+    memcpy(out + nlen, SCRATCH_SUFFIX, (size_t) slen + 1);
 
     return true;
+}
+
+static bool scratch_path(clipboard* c, text_buffer* tb) {
+    return build_scratch_path(tb, c->path_, (int) sizeof(c->path_));
+}
+
+bool clip_spill_would_overwrite(clipboard* c, text_buffer* tb, int size) {
+    if (size <= cb_size(&c->buf_)) {
+        return false;       // it will fit in memory; no file involved
+    }
+
+    char path[sizeof(((clipboard*) 0)->path_)];
+    if (!build_scratch_path(tb, path, (int) sizeof(path))) {
+        return false;
+    }
+    // One this session already wrote is ours to write over again.
+    if (c->on_file_ && strcmp(path, c->path_) == 0) {
+        return false;
+    }
+
+    const char fh = mos_fopen(path, FA_READ);
+    if (fh == 0) {
+        return false;       // nothing there to lose
+    }
+    mos_fclose(fh);
+
+    return true;
+}
+
+bool clip_verify(clipboard* c) {
+    if (!c->on_file_) {
+        return true;        // in memory, and memory does not go missing
+    }
+
+    const char fh = mos_fopen(c->path_, FA_READ);
+    if (fh == 0) {
+        return false;
+    }
+
+    char buf[CLIP_CHUNK];
+    int left = c->size_;
+    bool ok = true;
+    while (left > 0) {
+        const unsigned want = (left < (int) sizeof(buf)) ? (unsigned) left
+                                                        : (unsigned) sizeof(buf);
+        const unsigned got = mos_fread(fh, buf, want);
+        if (got != want) {
+            ok = false;
+            break;
+        }
+        left -= (int) got;
+    }
+    mos_fclose(fh);
+
+    return ok;
 }
 
 // Buffers the walk's output and writes it out a chunk at a time, counting the
@@ -223,6 +279,11 @@ static bool paste_file(clipboard* c, text_buffer* tb) {
         return false;
     }
 
+    // Where the paste starts, so a read that fails part way can be taken back
+    // out again. Half a file in the middle of a document is not what anyone
+    // asked for, and there is no undo to remove it with.
+    const tb_pos before = tb_tell(tb);
+
     char buf[CLIP_CHUNK];
     bool pending_cr = false;
     bool ok = true;
@@ -246,6 +307,9 @@ static bool paste_file(clipboard* c, text_buffer* tb) {
 
     if (ok && pending_cr) {
         ok = tb_newline(tb);
+    }
+    if (!ok) {
+        tb_range_del(tb, before, tb_tell(tb));
     }
 
     return ok;
