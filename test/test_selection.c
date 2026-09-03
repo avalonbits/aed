@@ -116,6 +116,35 @@ static void check_paint(const char* name, const char* got, const char* want) {
     }
 }
 
+/* The document line currently at the top of the screen, worked out the way the
+ * editor does: from the cursor's line and its screen row. */
+static int top_line_of(editor* ed) {
+    return tb_ypos(&ed->buf_) - (ed->scr_.currY_ - ed->scr_.topY_);
+}
+
+/* How many rows a repaint actually drew. Every row is padded out to the full
+ * width, so the printable characters divide evenly by it -- enough to tell
+ * "just this row" from "the whole area" without depending on the contents.
+ * The colour bytes are skipped: a background is offset by 128 and would
+ * otherwise count as a character. */
+static int painted_rows(screen* scr, int cols) {
+    (void) scr;
+    static char raw[65536];
+    const int n = cap_read(raw, sizeof(raw));
+    int printable = 0;
+    for (int i = 0; i < n; i++) {
+        if (raw[i] == 17 && i + 1 < n) {
+            i++;
+            continue;
+        }
+        if ((unsigned char) raw[i] >= 32) {
+            printable++;
+        }
+    }
+
+    return printable / cols;
+}
+
 static key_command press(VKey vkey, char mods) {
     key_command kc;
     kc.cmd = NULL;
@@ -460,6 +489,53 @@ int main(void) {
                     painted(tscr, cols), want);
     }
     ed_destroy(&tabbed);
+
+    /* --- how much gets repainted --- */
+    /* Repainting only the rows the cursor moved between is what keeps a
+     * keystroke cheap, but it is only right while the rest of the screen still
+     * shows what it showed before. Three things break that. */
+    ed.selecting_ = true;
+    ed.anchor_ = (tb_pos){1, 0};
+    tb_seek(&ed.buf_, (tb_pos){2, 3});
+    scr->currY_ = (char)(scr->topY_ + 1);
+    scr->originX_ = 0;
+
+    /* The cursor stayed on its row and nothing scrolled: only that row needs
+     * doing, so the row above keeps whatever was on it. */
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_,
+                         top_line_of(&ed), scr->originX_);
+    check("an ordinary extend repaints one row",
+          painted_rows(scr, cols), 1);
+
+    /* A horizontal scroll moves every row at once -- originX_ is screen-wide --
+     * so the rows not repainted are left showing their old columns. This is the
+     * same trap as the stale rows in #60, one layer up. */
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_,
+                         top_line_of(&ed), scr->originX_ + 4);
+    check("a horizontal scroll repaints the whole text area",
+          painted_rows(scr, cols) > 1, 1);
+
+    /* So does a vertical one. */
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_,
+                         top_line_of(&ed) + 1, scr->originX_);
+    check("a vertical scroll does too",
+          painted_rows(scr, cols) > 1, 1);
+
+    /* And dropping a selection, since the highlight could be anywhere. */
+    cap_start();
+    ed_selection_repaint(&ed, SEL_DROP, scr->currY_,
+                         top_line_of(&ed), scr->originX_);
+    check("dropping one does too", painted_rows(scr, cols) > 1, 1);
+
+    /* With nothing selected there is nothing to repaint at all. */
+    cap_start();
+    ed_selection_repaint(&ed, SEL_NONE, scr->currY_,
+                         top_line_of(&ed), scr->originX_);
+    check("and with no selection nothing is painted",
+          painted_rows(scr, cols), 0);
 
     stub_emit_colours(0);
     ed_destroy(&ed);

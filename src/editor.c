@@ -112,6 +112,36 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
     return SEL_NONE;
 }
 
+void ed_selection_repaint(editor* ed, sel_action act, char y_before,
+                          int top_before, int origin_before) {
+    if (act == SEL_NONE) {
+        return;
+    }
+
+    screen* scr = &ed->scr_;
+    text_buffer* tb = &ed->buf_;
+    const int top_after = tb_ypos(tb) - (scr->currY_ - scr->topY_);
+
+    // The whole text area whenever the view moved under the text. Dropping a
+    // selection has to clear a highlight that could be anywhere on screen; a
+    // vertical scroll puts different lines on every row; and originX_ is
+    // screen-wide, so a horizontal scroll shifts every row at once and leaves
+    // the ones not repainted showing their old columns.
+    if (act == SEL_DROP
+        || top_after != top_before
+        || scr->originX_ != origin_before) {
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    } else {
+        // Otherwise the highlight only changed between where the cursor was and
+        // where it is, which for an arrow key is a row or two. A full repaint
+        // costs 33-47ms on the VDP and this runs on every keystroke.
+        const char lo = y_before < scr->currY_ ? y_before : scr->currY_;
+        const char hi = y_before < scr->currY_ ? scr->currY_ : y_before;
+        cmd_repaint_rows(ed, lo, hi);
+    }
+    scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
 bool ed_is_modifier(VKey vkey) {
     switch (vkey) {
         case VK_LSHIFT: case VK_RSHIFT:
@@ -151,9 +181,10 @@ void ed_run(editor* ed) {
         const sel_action act = ed_selection_for(ed, kc);
 
         // Where the view was, so the repaint afterwards can tell a cursor that
-        // moved within the screen from one that scrolled it.
+        // moved within the screen from one that moved the screen.
         const char y_before = scr->currY_;
         const int top_before = tb_ypos(buf) - (y_before - scr->topY_);
+        const int origin_before = scr->originX_;
 
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
@@ -167,23 +198,7 @@ void ed_run(editor* ed) {
             kc.cmd(ed);
         }
 
-        if (act != SEL_NONE) {
-            const int top_after = tb_ypos(buf) - (scr->currY_ - scr->topY_);
-            if (act == SEL_DROP || top_after != top_before) {
-                // The whole text area either way: dropping a selection has to
-                // clear a highlight that could be anywhere on screen, and a
-                // scrolled view has different lines on every row.
-                cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
-            } else {
-                // The highlight only changed between where the cursor was and
-                // where it is, which for an arrow key is a row or two. A full
-                // repaint per keystroke costs 33-47ms on the VDP.
-                const char lo = y_before < scr->currY_ ? y_before : scr->currY_;
-                const char hi = y_before < scr->currY_ ? scr->currY_ : y_before;
-                cmd_repaint_rows(ed, lo, hi);
-            }
-            scr_show_cursor_ch(scr, tb_peek(buf));
-        }
+        ed_selection_repaint(ed, act, y_before, top_before, origin_before);
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
