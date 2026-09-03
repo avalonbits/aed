@@ -78,16 +78,19 @@ bg = 0
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
 
-A setting only counts inside the section that owns it -- a bare `tab = 8` with no
-`[editor]` above it is ignored. Section and setting names are matched without regard to
+A setting only counts inside the section that owns it: `tab = 8` under `[colours]` is
+ignored, which is what leaves room for a future section to use a name like `fg` for
+something of its own. A setting written *before* any heading is taken at face value, so
+a file that predates the sections, or one you edited and forgot the heading on, still
+does what it plainly says. Section and setting names are matched without regard to
 case, spaces around them are ignored, and `#` or `;` starts a comment anywhere on a
 line. Anything AED does not recognise is skipped rather than rejected, so a file
 written for a newer version still works with an older one, and a setting with a missing
 or malformed value keeps its default instead of making the whole file fail.
 
 Changing the colour scheme from inside the editor (`CTRL+ALT+C`) writes the new colours
-back to this file, and leaves the rest of it -- your comments, spacing and any settings
-this version does not know about -- exactly as you wrote it. Every other setting still
+back to this file, and leaves the rest of it -- your comments, spacing, and every
+setting other than `fg` and `bg` -- exactly as you wrote it. Every other setting still
 needs the file edited by hand and AED restarted.
 
 If `/config` cannot be created -- a write-protected card, say -- AED starts normally

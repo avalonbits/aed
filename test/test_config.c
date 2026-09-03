@@ -110,7 +110,11 @@ int main(void) {
     /* A name only means something inside the section that owns it. Without this
      * a future [syntax] section could not reuse a name like `fg` for something
      * else, which is most of the reason for having sections at all. */
-    check("a name outside any section is ignored", tab_of_raw("tab = 8\n"), -1);
+    /* ...except before the first heading, where a name is taken at face value.
+     * The first settings file AED wrote had no headings, and a hand-edited file
+     * missing one should still do what it plainly says. */
+    check("a name before any heading is taken at face value",
+          tab_of_raw("tab = 8\n"), 8);
     check("a name in the wrong section is ignored",
           tab_of_raw("[colours]\ntab = 8\n"), -1);
     check("the heading scopes every name under it",
@@ -123,12 +127,32 @@ int main(void) {
           tab_of_raw("[  editor  ]\ntab = 8\n"), 8);
     check("an unknown section is skipped whole",
           tab_of_raw("[syntax]\ntab = 2\n[editor]\ntab = 8\n"), 8);
+    /* Checked from inside another section, so a bracket wrongly taken as a
+     * heading would show up as the setting being applied rather than skipped. */
     check("an unclosed bracket is not a heading",
-          tab_of_raw("[editor\ntab = 8\n"), -1);
+          tab_of_raw("[colours]\n[editor\ntab = 8\n"), -1);
     check("a comment may follow a heading",
           tab_of_raw("[editor]  # editing\ntab = 8\n"), 8);
     check("a semicolon starts a comment too", tab_of("; tab = 2\ntab = 8\n"), 8);
     check("a trailing semicolon comment", tab_of("tab = 8 ; columns\n"), 8);
+
+    /* The whole of the first file AED ever wrote, headings and all absent. It
+     * has to keep working: an installation that has one would otherwise read as
+     * an empty file and silently lose every setting in it. */
+    static const char legacy[] =
+        "# AED settings.\r\n"
+        "\r\n"
+        "# How wide a tab renders, in columns. 1 to 16.\r\n"
+        "tab = 8\r\n"
+        "\r\n"
+        "fg = 15\r\n"
+        "bg = 2\r\n";
+    config old_file;
+    cfg_defaults(&old_file);
+    cfg_parse(&old_file, legacy, (int) sizeof(legacy) - 1);
+    check("a pre-INI file still loads: tab", old_file.tab_size, 8);
+    check("  and its foreground", old_file.fg, 15);
+    check("  and its background", old_file.bg, 2);
 
     /* --- loading from a file --- */
     config cfg;
@@ -444,6 +468,30 @@ int main(void) {
     cfg_defaults(&picked);
     cfg_parse(&picked, merged, stub_file_size());
     check("  and the saved fg matches the screen", picked.fg, scr_fg(&pe.scr_));
+
+    /* Picking a colour must write *only* the colours. A tab value the editor
+     * clamped on the way in, or one the file never had, would otherwise be
+     * rewritten or invented behind the user's back. */
+    static const char odd_tab[] = "[editor]\r\ntab = 99\r\n[colours]\r\nfg = 1\r\n";
+    stub_file_reset();
+    stub_file_set_content(odd_tab, (int) sizeof(odd_tab) - 1);
+    stub_set_keys(pick, 2);
+    cmd_color_picker(&pe);
+    memcpy(merged, stub_file_bytes(), (size_t) stub_file_size());
+    merged[stub_file_size()] = 0;
+    check("the picker leaves an out-of-range tab exactly as written",
+          strstr(merged, "tab = 99") != NULL, 1);
+
+    static const char no_tab[] = "[colours]\r\nfg = 1\r\nbg = 0\r\n";
+    stub_file_reset();
+    stub_file_set_content(no_tab, (int) sizeof(no_tab) - 1);
+    stub_set_keys(pick, 2);
+    cmd_color_picker(&pe);
+    memcpy(merged, stub_file_bytes(), (size_t) stub_file_size());
+    merged[stub_file_size()] = 0;
+    check("  and does not invent a tab setting that was never there",
+          strstr(merged, "tab") == NULL, 1);
+
     ed_destroy(&pe);
     stub_set_keys(NULL, 0);
 

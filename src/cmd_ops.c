@@ -205,11 +205,12 @@ void cmd_color_picker(editor* ed) {
         scr_show_cursor_ch(scr, ch);
 
         // Write the choice down. Settings live in the file now, and a scheme
-        // that vanished on exit was the wart this was meant to fix. The update
-        // leaves the rest of the file alone, comments included.
+        // that vanished on exit was the wart this was meant to fix. Only the
+        // colours are set here: everything left unset is copied through
+        // untouched, so picking a colour cannot rewrite or invent a tab setting
+        // the user never asked to change.
         config cfg;
         cfg_defaults(&cfg);
-        cfg.tab_size = scr_tab_size(scr);
         cfg.fg = scr_fg(scr);
         cfg.bg = scr_bg(scr);
         cfg_update(&cfg, CFG_PATH);

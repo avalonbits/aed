@@ -219,11 +219,20 @@ static line read_line(const char* s, int start, int end) {
 }
 
 // Which known setting a line names, given the section it appears in, or -1.
+//
+// A name appearing before any heading is matched on the name alone. The first
+// settings file AED wrote had no headings at all, so this is what keeps one of
+// those working instead of reading as an empty file; it also means a hand-edited
+// file that is missing its heading still does what it plainly says. A name under
+// the *wrong* heading is still ignored -- that is the scoping the sections are
+// for, and it is what leaves room for a later [syntax] to have its own `fg`.
 static int setting_index(const char* section, int seclen,
                          const char* name, int namelen) {
     for (int i = 0; i < N_SETTINGS; i++) {
-        if (name_is(section, seclen, SETTINGS[i].section) &&
-            name_is(name, namelen, SETTINGS[i].name)) {
+        if (!name_is(name, namelen, SETTINGS[i].name)) {
+            continue;
+        }
+        if (seclen == 0 || name_is(section, seclen, SETTINGS[i].section)) {
             return i;
         }
     }
