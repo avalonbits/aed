@@ -41,6 +41,12 @@ void ui_destroy(user_input* ui);
 RESPONSE ui_goto(user_input* ui, screen* scr, int* line);
 RESPONSE ui_color_picker(user_input* ui, screen* scr);
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg);
+
+// States something and waits for a key. There is no question to answer, but it
+// still has to block: the footer row is repainted at the top of every pass
+// through the main loop, so a message that did not wait would be gone before it
+// could be read.
+void ui_message(user_input* ui, screen* scr, char* msg);
 RESPONSE ui_text(
     user_input* ui,
     screen* scr,

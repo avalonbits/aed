@@ -166,6 +166,19 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
 
 static const char options[13] = " [Y/N/ESC]: ";
 
+static const char dismiss[17] = " (press any key)";
+
+void ui_message(user_input* ui, screen* scr, char* msg) {
+    const int msz = strlen(msg);
+    scr_write_line(scr, ui->ypos_, msg, msz);
+    vdp_cursor_tab(msz, ui->ypos_);
+    VDP_PUTS(dismiss);
+    scr_show_cursor_ch(scr, scr->cursor_);
+
+    getch();
+    getsysvar_vkeycode();
+}
+
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     const int msz = strlen(msg);
     scr_write_line(scr, ui->ypos_, msg, msz);

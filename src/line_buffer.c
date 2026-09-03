@@ -29,11 +29,20 @@ line_buffer* lb_init(line_buffer* lb, int size) {
         return NULL;
     }
 
-    memset(lb->buf_, 0, size);
     lb->size_ = size;
-    lb->curr_ = lb->buf_;
-    lb->cend_ = lb->buf_ + size;
+    lb_clear(lb);
+
     return lb;
+}
+
+void lb_clear(line_buffer* lb) {
+    // The sizes have to go back to zero, not just the pointers: lb_cinc counts
+    // a line up one byte at a time from whatever is already in the slot, so a
+    // stale length from the last document would be added to rather than
+    // replaced, and every line would come out too long.
+    memset(lb->buf_, 0, (size_t) lb->size_ * sizeof(int));
+    lb->curr_ = lb->buf_;
+    lb->cend_ = lb->buf_ + lb->size_;
 }
 
 void lb_destroy(line_buffer* lb) {

@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include "cmd_ops.h"
 #include "screen.h"
 #include "text_buffer.h"
 #include "user_input.h"
@@ -35,5 +36,21 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname);
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);
+
+// Three commands the main loop handles itself rather than calling through, so
+// they are sentinels in the table rather than functions.
+#define CMD_PUTC    (cmd_op) 0x01
+#define CMD_QUIT    (cmd_op) 0x02
+#define CMD_SAVE    (cmd_op) 0x03
+
+typedef struct _key_command {
+    cmd_op cmd;
+    key k;
+} key_command;
+
+// What a key means with CTRL held. Declared here so the bindings can be
+// asserted directly: a command that exists but is not reachable from the
+// keyboard is not a feature, and nothing below this level would notice.
+key_command ctrlCmds(key_command kc, char mods);
 
 #endif  // _EDITOR_H_

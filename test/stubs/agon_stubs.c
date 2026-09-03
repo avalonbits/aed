@@ -79,6 +79,8 @@ uint8_t getsysvar_vkeycode(void) {
 }
 uint8_t getsysvar_keymods(void)  { return 0; }
 
+int stub_keys_read(void) { return stub_key_at; }
+
 uint8_t getsysvar_scrCols(void)    { return 80; }
 uint8_t getsysvar_scrRows(void)    { return 25; }
 uint8_t getsysvar_scrColours(void) { return 16; }
@@ -92,6 +94,9 @@ static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
 static int  stub_write_opens;
+static int  stub_short_read = -1;
+static uint32_t stub_objsize;
+static int  stub_objsize_set;
 static int         stub_mkdir_count;
 static int         stub_delete_count;
 static int         stub_short = -1;
@@ -105,6 +110,9 @@ void stub_file_reset(void) {
     stub_closes = 0;
     stub_fail_open = 0;
     stub_write_opens = 0;
+    stub_short_read = -1;
+    stub_objsize = 0;
+    stub_objsize_set = 0;
     stub_content = NULL;
     stub_content_len = 0;
     stub_mkdir_count = 0;
@@ -134,6 +142,12 @@ void stub_file_set_content(const char* data, int len) {
 int         stub_mkdirs(void)      { return stub_mkdir_count; }
 int         stub_deletes(void)     { return stub_delete_count; }
 void        stub_file_short_write(int n) { stub_short = n; }
+void        stub_file_short_read(int n)  { stub_short_read = n; }
+
+void stub_file_set_objsize(uint32_t n) {
+    stub_objsize = n;
+    stub_objsize_set = 1;
+}
 
 uint8_t mos_del(const char* filename) {
     (void)filename;
@@ -185,6 +199,9 @@ unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
     if ((int) n > stub_content_len) {
         n = (unsigned) stub_content_len;
     }
+    if (stub_short_read >= 0 && (int) n > stub_short_read) {
+        n = (unsigned) stub_short_read;
+    }
     if (stub_content != NULL && n > 0) {
         memcpy(buffer, stub_content, n);
     }
@@ -209,7 +226,10 @@ unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
 FIL* mos_getfil(uint8_t fh) {
     (void)fh;
     static FIL fil;
-    fil.obj.objsize = (uint32_t) stub_content_len;
+    /* Normally the content is the file, but a test can say otherwise to
+     * exercise a size the read does not agree with. */
+    fil.obj.objsize = stub_objsize_set
+        ? stub_objsize : (uint32_t) stub_content_len;
 
     return &fil;
 }

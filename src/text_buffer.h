@@ -82,6 +82,32 @@ typedef struct _split_line {
 split_line tb_curr_line(text_buffer* tb);
 
 bool tb_load(text_buffer* tb, const char* fname);
+
+// Why tb_open reports rather than prints: tb_load is a startup path and writes
+// its complaint straight to the screen, which there is fine because there is no
+// editor on it yet. Opening a second file happens with a document on screen, so
+// the caller has to be told what went wrong and given the chance to say so
+// without scribbling over it.
+typedef enum _tb_result {
+    TB_OK = 0,
+    TB_NO_FILE,     // could not be opened, and could not be created either
+    TB_TOO_LARGE,   // will not fit in the buffer, whatever is in there now
+} tb_result;
+
+// Replaces the document with the contents of `fname`, as tb_load does for a
+// fresh buffer. A name that does not exist is created, so this is also how a
+// new document is started -- the same thing naming a missing file on the
+// command line does.
+//
+// The current document survives every failure this can report: the size is
+// checked against the whole buffer before a byte of it is discarded. Only an
+// I/O error partway through the read can leave the buffer empty, and by then
+// the file is gone as far as the editor is concerned anyway.
+tb_result tb_open(text_buffer* tb, const char* fname, int sz);
+
+// Empties the document, keeping the buffer and the file name. Cursor back to
+// the start, and not dirty: nothing has been typed into it.
+void tb_clear(text_buffer* tb);
 bool tb_save(text_buffer* tb);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);

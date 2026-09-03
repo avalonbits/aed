@@ -33,6 +33,10 @@ typedef struct _line_buffer  {
 line_buffer* lb_init(line_buffer* lb, int size);
 void lb_destroy(line_buffer* lb);
 
+// Empties the buffer without freeing it, leaving it as lb_init left it. The
+// counterpart of cb_clear, and what lets a document be replaced in place.
+void lb_clear(line_buffer* lb);
+
 // Info ops
 int lb_curr(line_buffer* lb);
 int lb_avai(line_buffer* lb);
