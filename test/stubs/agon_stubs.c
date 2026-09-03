@@ -56,6 +56,8 @@ static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
 static int         stub_mkdir_count;
+static int         stub_delete_count;
+static int         stub_short = -1;
 static char        stub_mkdir_path[256];
 static const char* stub_content;
 static int         stub_content_len;
@@ -69,6 +71,8 @@ void stub_file_reset(void) {
     stub_content_len = 0;
     stub_mkdir_count = 0;
     stub_mkdir_path[0] = 0;
+    stub_delete_count = 0;
+    stub_short = -1;
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
@@ -89,6 +93,15 @@ void stub_file_set_content(const char* data, int len) {
 }
 
 int         stub_mkdirs(void)      { return stub_mkdir_count; }
+int         stub_deletes(void)     { return stub_delete_count; }
+void        stub_file_short_write(int n) { stub_short = n; }
+
+uint8_t mos_del(const char* filename) {
+    (void)filename;
+    stub_delete_count++;
+
+    return 0;
+}
 const char* stub_last_mkdir(void)  { return stub_mkdir_path; }
 
 uint8_t mos_mkdir(const char* path) {
@@ -139,6 +152,9 @@ unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
 
 unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
     (void)fh;
+    if (stub_short >= 0 && (int) numbytes > stub_short) {
+        numbytes = (unsigned) stub_short;   // pretend the card filled up
+    }
     if (stub_len + (int)numbytes > STUB_FILE_CAP) {
         numbytes = STUB_FILE_CAP - stub_len;
     }

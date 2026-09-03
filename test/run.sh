@@ -22,9 +22,10 @@ CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
 # Model, View and Controller, plus the stubbed platform layer. cmd_ops.c is
 # linked so tests can drive whole commands: the two worst bugs so far lived in
 # the controller/view interaction, which nothing below that level can reach.
-# editor.c stays out -- it is only the blocking input loop.
+# editor.c is linked too: ed_init applies the settings file, and that policy is
+# worth testing. Its input loop is never called from a test.
 SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
-      src/conv.c src/cmd_ops.c src/user_input.c src/config.c
+      src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/editor.c
       test/stubs/agon_stubs.c)
 
 status=0

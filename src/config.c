@@ -219,8 +219,19 @@ bool cfg_save(const config* cfg, const char* path) {
     if (fh == 0) {
         return false;
     }
-    mos_fwrite(fh, buf, (unsigned) n);
+    const unsigned written = mos_fwrite(fh, buf, (unsigned) n);
     mos_fclose(fh);
+
+    if (written != (unsigned) n) {
+        // A full card or a bad write leaves a truncated file. That is worse
+        // than no file at all: it still parses, so the next startup would load
+        // it and never rewrite the missing settings. FA_CREATE_ALWAYS has
+        // already discarded whatever was there before, so there is nothing to
+        // preserve by keeping the remnant.
+        mos_del(path);
+
+        return false;
+    }
 
     return true;
 }

@@ -45,8 +45,12 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         if (cfg.tab_size >= 0) {
             scr_set_tab_size(scr, (char) cfg.tab_size);
         }
-        if (cfg.fg >= 0 && cfg.bg >= 0) {
-            scr_set_scheme(scr, (char) cfg.fg, (char) cfg.bg);
+        // Each colour applies on its own: a file that sets only fg keeps the
+        // measured bg, the same way an unset tab keeps the default.
+        if (cfg.fg >= 0 || cfg.bg >= 0) {
+            const char fg = cfg.fg >= 0 ? (char) cfg.fg : scr_fg(scr);
+            const char bg = cfg.bg >= 0 ? (char) cfg.bg : scr_bg(scr);
+            scr_set_scheme(scr, fg, bg);
             scr_clear(scr);
         }
     } else {

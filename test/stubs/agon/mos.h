@@ -35,6 +35,7 @@ uint8_t  getsysvar_keymods(void);
 
 uint8_t  mos_fopen(const char* filename, uint8_t mode);
 uint8_t  mos_mkdir(const char* path);
+uint8_t  mos_del(const char* filename);
 uint8_t  mos_fclose(uint8_t fh);
 unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes);
 unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes);
@@ -56,6 +57,11 @@ void        stub_file_set_content(const char* data, int len);
 /* Directories mos_mkdir was asked to create since the last reset. */
 int         stub_mkdirs(void);
 const char* stub_last_mkdir(void);
+
+/* Make mos_fwrite accept only `n` bytes, as a full card would. */
+void        stub_file_short_write(int n);
+/* Files mos_del was asked to remove since the last reset. */
+int         stub_deletes(void);
 
 /* Sends VDU bytes and MOS diagnostics to /dev/null. Tests that assert on state
  * rather than on what reached the screen should call this first, so the suite's

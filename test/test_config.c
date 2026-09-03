@@ -15,6 +15,7 @@
 #include <agon/mos.h>
 
 #include "config.h"
+#include "editor.h"
 
 static int failures = 0;
 
@@ -189,6 +190,46 @@ int main(void) {
     check("save fails quietly when the file cannot be opened",
           cfg_save(&out, CFG_PATH) ? 1 : 0, 0);
     check("  and wrote nothing", stub_file_size(), 0);
+
+    /* --- a short write must not leave a truncated file behind --- */
+    /* A truncated settings file still parses, so the next startup would load it
+     * and never rewrite the settings that never made it to disk. */
+    stub_file_reset();
+    stub_file_short_write(20);
+    check("a short write reports failure", cfg_save(&out, CFG_PATH) ? 1 : 0, 0);
+    check("  and the partial file is removed", stub_deletes(), 1);
+
+    stub_file_reset();
+    check("a complete write keeps the file", cfg_save(&out, CFG_PATH) ? 1 : 0, 1);
+    check("  and deletes nothing", stub_deletes(), 0);
+
+    /* --- what ed_init does with a settings file --- */
+    /* Each setting applies on its own: one named in the file takes effect, one
+     * left out keeps whatever the editor already had. */
+    static const char only_fg[] = "fg=3\r\n";
+    stub_file_reset();
+    stub_file_set_content(only_fg, (int) sizeof(only_fg) - 1);
+    editor ed;
+    check("editor starts with a settings file", ed_init(&ed, 8, NULL) != NULL, 1);
+    check("fg alone is applied", scr_fg(&ed.scr_), 3);
+    check("  and bg keeps the measured value", scr_bg(&ed.scr_), 0);
+    check("  and tab keeps its default", scr_tab_size(&ed.scr_), SCR_DEFAULT_TAB_SIZE);
+    ed_destroy(&ed);
+
+    static const char only_bg[] = "bg=5\r\ntab=8\r\n";
+    stub_file_reset();
+    stub_file_set_content(only_bg, (int) sizeof(only_bg) - 1);
+    check("editor starts again", ed_init(&ed, 8, NULL) != NULL, 1);
+    check("bg alone is applied", scr_bg(&ed.scr_), 5);
+    check("  and tab alongside it", scr_tab_size(&ed.scr_), 8);
+    ed_destroy(&ed);
+
+    /* No file at all: the editor writes one holding what it is starting with. */
+    stub_file_reset();
+    stub_file_fail_open(1);
+    check("editor starts with no settings file", ed_init(&ed, 8, NULL) != NULL, 1);
+    check("  and tried to create /config", stub_mkdirs() >= 1, 1);
+    ed_destroy(&ed);
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
