@@ -38,6 +38,11 @@ bool cmd_quit(editor* ed);
 bool cmd_save(editor* ed);
 void cmd_save_as(editor* ed);
 void cmd_open(editor* ed);
+
+// Repaints screen rows fromY..toY from the document, highlighting whatever part
+// of the selection falls on each. Knowing which bytes are on which row is
+// document knowledge, so it lives here rather than in the view.
+void cmd_repaint_rows(editor* ed, char fromY, char toY);
 void cmd_color_picker(editor* ed);
 
 void cmd_putc(editor* ed, key k);

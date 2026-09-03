@@ -46,6 +46,15 @@ typedef struct _screen {
     // they are put back on exit whatever AED was showing.
     char entryFg_;
     char entryBg_;
+    // Columns of the row being painted that are inside the selection, as
+    // [selFrom_, selTo_). Set for one row at a time by scr_write_line_sel and
+    // cleared again by it, so no other painter can inherit a highlight meant
+    // for a different line. selOn_ is whether the colours are currently
+    // swapped, so a highlighted run costs two colour changes and not one per
+    // character.
+    int selFrom_;
+    int selTo_;
+    char selOn_;
 } screen;
 
 // Tab width used when projecting a byte offset onto a screen column. Tabs are
@@ -146,6 +155,13 @@ void scr_scroll_down(screen* scr, char topY, char bottomY, char* line, int sz, c
 void scr_sync_cursor(screen* scr);
 void scr_clear_textarea(screen* scr, char top, char bottom);
 void scr_write_line(screen* scr, char ypos, char* buf, int sz);
+
+// As scr_write_line, with the columns in [from_col, to_col) drawn in the
+// reversed scheme. Columns are screen columns, so the caller has already
+// resolved tabs -- scr_column_of turns a byte offset into one. An empty or
+// backwards span paints the row plainly.
+void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
+                        int from_col, int to_col);
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz);
 
 void scr_show_cursor_ch(screen* scr, char ch);

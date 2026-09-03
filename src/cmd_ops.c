@@ -192,6 +192,80 @@ bool cmd_quit(editor* ed) {
     return cmd_save(ed);
 }
 
+// The screen row showing the document's first visible line. Not stored: the
+// cursor's document line and its screen row give it away, and one derived
+// number cannot drift out of step with the two it comes from.
+static int top_line(screen* scr, text_buffer* tb) {
+    return tb_ypos(tb) - (scr->currY_ - scr->topY_);
+}
+
+// The columns of `line` that the selection covers, as [from, to). Empty when
+// none of it does.
+static void row_selection(editor* ed, int line, const char* text, int len,
+                          int* from, int* to) {
+    *from = 0;
+    *to = 0;
+    if (!ed->selecting_) {
+        return;
+    }
+
+    SCR(ed);
+    tb_pos a = ed->anchor_;
+    tb_pos b = tb_tell(&ed->buf_);
+    if (tb_cmp(a, b) > 0) {
+        const tb_pos t = a;
+        a = b;
+        b = t;
+    }
+    if (line < a.line || line > b.line) {
+        return;
+    }
+
+    *from = (line == a.line) ? scr_column_of(scr, text, a.x) : 0;
+    if (line == b.line) {
+        *to = scr_column_of(scr, text, b.x);
+    } else {
+        // Past the end of the text by one, so a line break inside the selection
+        // shows as a highlighted cell rather than as nothing at all.
+        *to = scr_column_of(scr, text, len) + 1;
+    }
+}
+
+void cmd_repaint_rows(editor* ed, char fromY, char toY) {
+    SCR(ed);
+    TB(ed);
+
+    if (fromY < scr->topY_) {
+        fromY = scr->topY_;
+    }
+    if (toY >= scr->bottomY_) {
+        toY = scr->bottomY_ - 1;
+    }
+
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_pos start;
+    start.line = top_line(scr, tb) + (fromY - scr->topY_);
+    start.x = 0;
+    tb_seek(&cp, start);
+
+    for (char y = fromY; y <= toY; y++) {
+        int sz = 0;
+        char* text = tb_suffix(&cp, &sz);
+        int from = 0;
+        int to = 0;
+        row_selection(ed, tb_ypos(&cp), text, sz, &from, &to);
+        scr_write_line_sel(scr, y, text, sz, from, to);
+
+        const int prev = tb_ypos(&cp);
+        tb_down(&cp);
+        if (tb_ypos(&cp) == prev) {
+            break;      // ran out of document
+        }
+    }
+    scr_sync_cursor(scr);
+}
+
 void cmd_open(editor* ed) {
     TB(ed);
     SCR(ed);
@@ -228,6 +302,10 @@ void cmd_open(editor* ed) {
         case TB_OK:
             break;
     }
+
+    // A selection points into the document that just went away, so it goes with
+    // it -- its line numbers mean something else now.
+    ed->selecting_ = false;
 
     // scr_clear winds the cursor and the horizontal origin back to the start
     // as well as repainting the banner, which is exactly the reset a whole new

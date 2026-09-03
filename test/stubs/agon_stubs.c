@@ -18,6 +18,7 @@ void vdp_cursor_home(void) {}
 void vdp_clear_screen(void) {}
 void vdp_cursor_enable(bool flag)    { (void)flag; }
 static int stub_fg = -1;
+static int stub_colour_bytes = 0;
 static int stub_bg = -1;
 
 void vdp_set_text_colour(int colour) {
@@ -26,7 +27,17 @@ void vdp_set_text_colour(int colour) {
     } else {
         stub_fg = colour;
     }
+    /* Off by default. The real call is "VDU 17, colour" and a test that wants
+     * to see a highlight needs those bytes in the stream, but colour 0 puts a
+     * NUL in it -- which ends the string for every other test that reads the
+     * stream back and searches it for text. So it is asked for. */
+    if (stub_colour_bytes) {
+        putchar(17);
+        putchar(colour & 0xFF);
+    }
 }
+
+void stub_emit_colours(int on) { stub_colour_bytes = on; }
 
 int  stub_last_fg(void) { return stub_fg; }
 int  stub_last_bg(void) { return stub_bg; }
@@ -77,7 +88,13 @@ uint8_t getsysvar_vkeycode(void) {
 
     return stub_keys[stub_key_at++].vk;
 }
-uint8_t getsysvar_keymods(void)  { return 0; }
+uint8_t getsysvar_keymods(void) {
+    if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
+        return 0;
+    }
+
+    return stub_keys[stub_key_at].mods;
+}
 
 int stub_keys_read(void) { return stub_key_at; }
 

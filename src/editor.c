@@ -59,6 +59,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         cfg.bg = scr_bg(scr);
         cfg_save(&cfg, CFG_PATH);
     }
+    ed->selecting_ = false;
+    ed->anchor_.line = 1;
+    ed->anchor_.x = 0;
+
     if (!tb_init(&ed->buf_, mem_kb, fname)) {
        return NULL;
     }
@@ -81,6 +85,61 @@ void ed_destroy(editor* ed) {
 
 key_command read_input();
 
+// Shift with a motion key starts a selection if there is none and extends it if
+// there is. Anything else ends it -- which is what makes the mode invisible:
+// there is nothing to leave deliberately, and no way to get stuck in it.
+sel_action ed_selection_for(editor* ed, key_command kc) {
+    // Pressing shift is not a keystroke that ends anything. MOS reports it as
+    // its own event before the arrow it modifies, so treating it as an ordinary
+    // key would cancel the selection a moment before extending it.
+    if (ed_is_modifier(kc.k.vkey)) {
+        return SEL_NONE;
+    }
+    if ((kc.mods & MOD_SHFT) && ed_is_motion(kc.k.vkey)) {
+        if (!ed->selecting_) {
+            ed->anchor_ = tb_tell(&ed->buf_);
+            ed->selecting_ = true;
+        }
+
+        return SEL_EXTEND;
+    }
+    if (ed->selecting_) {
+        ed->selecting_ = false;
+
+        return SEL_DROP;
+    }
+
+    return SEL_NONE;
+}
+
+bool ed_is_modifier(VKey vkey) {
+    switch (vkey) {
+        case VK_LSHIFT: case VK_RSHIFT:
+        case VK_LCTRL:  case VK_RCTRL:
+        case VK_LALT:   case VK_RALT:
+        case VK_LGUI:   case VK_RGUI:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool ed_is_motion(VKey vkey) {
+    switch (vkey) {
+        case VK_LEFT:     case VK_KP_LEFT:
+        case VK_RIGHT:    case VK_KP_RIGHT:
+        case VK_UP:       case VK_KP_UP:
+        case VK_DOWN:     case VK_KP_DOWN:
+        case VK_HOME:     case VK_KP_HOME:
+        case VK_END:      case VK_KP_END:
+        case VK_PAGEUP:   case VK_KP_PAGEUP:
+        case VK_PAGEDOWN: case VK_KP_PAGEDOWN:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void ed_run(editor* ed) {
     text_buffer* buf = &ed->buf_;
     screen* scr = &ed->scr_;
@@ -88,6 +147,14 @@ void ed_run(editor* ed) {
     for (;;) {
         scr_footer(scr, tb_fname(buf), tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
         key_command kc = read_input();
+
+        const sel_action act = ed_selection_for(ed, kc);
+
+        // Where the view was, so the repaint afterwards can tell a cursor that
+        // moved within the screen from one that scrolled it.
+        const char y_before = scr->currY_;
+        const int top_before = tb_ypos(buf) - (y_before - scr->topY_);
+
         if (kc.cmd == CMD_PUTC) {
             cmd_putc(ed, kc.k);
         } else if (kc.cmd == CMD_QUIT) {
@@ -98,6 +165,24 @@ void ed_run(editor* ed) {
             cmd_save(ed);
         } else if (kc.cmd != NULL) {
             kc.cmd(ed);
+        }
+
+        if (act != SEL_NONE) {
+            const int top_after = tb_ypos(buf) - (scr->currY_ - scr->topY_);
+            if (act == SEL_DROP || top_after != top_before) {
+                // The whole text area either way: dropping a selection has to
+                // clear a highlight that could be anywhere on screen, and a
+                // scrolled view has different lines on every row.
+                cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+            } else {
+                // The highlight only changed between where the cursor was and
+                // where it is, which for an arrow key is a row or two. A full
+                // repaint per keystroke costs 33-47ms on the VDP.
+                const char lo = y_before < scr->currY_ ? y_before : scr->currY_;
+                const char hi = y_before < scr->currY_ ? scr->currY_ : y_before;
+                cmd_repaint_rows(ed, lo, hi);
+            }
+            scr_show_cursor_ch(scr, tb_peek(buf));
         }
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
@@ -203,11 +288,12 @@ key_command editCmds(key_command kc) {
 }
 
 key_command read_input() {
-    key_command kc = {NULL, {'\0', VK_NONE}};
+    key_command kc = {NULL, {'\0', VK_NONE}, 0};
     kc.k.key = getch();
     kc.k.vkey = getsysvar_vkeycode();
 
     const char mods = getsysvar_keymods();
+    kc.mods = mods;
     if (mods & MOD_CTRL) {
         return ctrlCmds(kc, mods);
     }

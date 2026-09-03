@@ -120,6 +120,9 @@ screen *scr_init(screen* scr, char cursor) {
     scr->cursor_ = cursor;
     scr->topY_ = 1;
     scr->originX_ = 0;
+    scr->selFrom_ = 0;
+    scr->selTo_ = 0;
+    scr->selOn_ = 0;
     scr->bottomY_ = scr->rows_-1;
     get_active_colours(scr);
     scr_clear(scr);
@@ -418,6 +421,22 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
 // Emits one line's worth of cells starting at document column `from_col`,
 // expanding tabs, stopping after `budget` screen columns. Returns the document
 // column reached, so a caller can continue across the gap split.
+// Swaps the colours on the way into the selection and back on the way out, so
+// a highlighted run costs two colour changes rather than one per character --
+// which matters on a VDP behind a serial link.
+static void highlight(screen* scr, int col) {
+    const char want = (col >= scr->selFrom_ && col < scr->selTo_) ? 1 : 0;
+    if (want == scr->selOn_) {
+        return;
+    }
+    if (want) {
+        set_colours(scr->bg_, scr->fg_);
+    } else {
+        set_colours(scr->fg_, scr->bg_);
+    }
+    scr->selOn_ = want;
+}
+
 static int emit_span(screen* scr, const char* buf, int sz, int col,
                      int from_col, int stop_col) {
     const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
@@ -429,6 +448,7 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
         }
         for (int w = 0; w < width && col < stop_col; w++, col++) {
             if (col >= from_col) {
+                highlight(scr, col);
                 putchar(buf[i] == '\t' ? ' ' : buf[i]);
             }
         }
@@ -446,6 +466,7 @@ void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
     const int stop = scr->originX_ + scr->cols_;
 
     vdp_cursor_tab((char)(from - scr->originX_), ypos);
+    scr->selOn_ = 0;
     int col = 0;
     if (pre != NULL && presz > 0) {
         col = emit_span(scr, pre, presz, col, from, stop);
@@ -453,12 +474,29 @@ void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
     if (suf != NULL && sufsz > 0) {
         col = emit_span(scr, suf, sufsz, col, from, stop);
     }
+    // The padding past the end of the text is highlighted too when the
+    // selection runs through the line break, which is how a selected newline
+    // shows up as anything at all.
     for (; col < stop; col++) {
         if (col >= from) {
+            highlight(scr, col);
             putchar(' ');
         }
     }
+    if (scr->selOn_) {
+        set_colours(scr->fg_, scr->bg_);
+        scr->selOn_ = 0;
+    }
     scr_sync_cursor(scr);
+}
+
+void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
+                        int from_col, int to_col) {
+    scr->selFrom_ = from_col;
+    scr->selTo_ = to_col;
+    scr_paint_row(scr, ypos, NULL, 0, buf, sz);
+    scr->selFrom_ = 0;
+    scr->selTo_ = 0;
 }
 
 void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,

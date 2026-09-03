@@ -124,6 +124,17 @@ faster movement.
 
 Use `PAGE_UP / PAGE_DOWN` to move a page of text at a time.
 
+# Selecting text
+Hold `SHIFT` and move the cursor to select. Every movement key works: the arrows,
+`HOME/END`, `PAGE_UP/PAGE_DOWN`, and `CTRL+LEFT / CTRL+RIGHT` to select whole words at a
+time. The selected text is shown with the colours reversed, and a line break inside the
+selection shows as one highlighted space at the end of the line.
+
+There is no mode to leave. The selection starts where the cursor was when you first
+held `SHIFT`, grows and shrinks as you keep moving, and disappears the moment you press
+anything that is not a movement key -- so there is no way to get stuck in it and nothing
+to remember.
+
 `DELETE` and `BACKSPACE` keys work as expected, removing characters under the cursor (`DELETE`) and to the left of the cursor (`BACKSPACE`).
 If at the end of the line, `DELETE` will merge the next line with the current one.
 
