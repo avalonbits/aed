@@ -326,6 +326,229 @@ int tb_ymax(text_buffer* tb) {
     return lb_max(&tb->lb_)  - lb_avai(&tb->lb_) +1;
 }
 
+// --- positions and ranges ---
+
+// The line's text, not counting the CRLF that ends it. The last line has none.
+static int line_len(text_buffer* tb) {
+    const int sz = lb_csize(&tb->lb_);
+
+    return lb_last(&tb->lb_) ? sz : sz - 2;
+}
+
+tb_pos tb_tell(text_buffer* tb) {
+    tb_pos p;
+    p.line = tb_ypos(tb);
+    p.x = tb->x_;
+
+    return p;
+}
+
+int tb_cmp(tb_pos a, tb_pos b) {
+    if (a.line != b.line) {
+        return a.line < b.line ? -1 : 1;
+    }
+    if (a.x != b.x) {
+        return a.x < b.x ? -1 : 1;
+    }
+
+    return 0;
+}
+
+void tb_seek(text_buffer* tb, tb_pos p) {
+    if (p.line < 1) {
+        p.line = 1;
+    }
+
+    // tb_up and tb_down report the character they land on, which is 0 for
+    // several legitimate positions, so progress is judged by the line number
+    // instead -- the same way the repaint loop decides it has run out of lines.
+    int prev = -1;
+    while (tb_ypos(tb) < p.line && tb_ypos(tb) != prev) {
+        prev = tb_ypos(tb);
+        tb_down(tb);
+    }
+    prev = -1;
+    while (tb_ypos(tb) > p.line && tb_ypos(tb) != prev) {
+        prev = tb_ypos(tb);
+        tb_up(tb);
+    }
+
+    const int len = line_len(tb);
+    int x = p.x;
+    if (x < 0) {
+        x = 0;
+    }
+    if (x > len) {
+        x = len;
+    }
+    tb_goto_offset(tb, x);
+}
+
+static void order(tb_pos* a, tb_pos* b) {
+    if (tb_cmp(*a, *b) > 0) {
+        const tb_pos t = *a;
+        *a = *b;
+        *b = t;
+    }
+}
+
+int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b) {
+    order(&a, &b);
+    if (a.line == b.line) {
+        const int n = b.x - a.x;
+
+        return n > 0 ? n : 0;
+    }
+
+    // Walked on a copy: tb_copy aliases the same buffers, so this reads the
+    // document without disturbing where the real cursor is.
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_seek(&cp, a);
+
+    int total = line_len(&cp) - a.x + 2;   // the rest of the line, and its CRLF
+    int prev = -1;
+    while (tb_ypos(&cp) < b.line && tb_ypos(&cp) != prev) {
+        prev = tb_ypos(&cp);
+        tb_down(&cp);
+        if (tb_ypos(&cp) >= b.line) {
+            break;
+        }
+        total += line_len(&cp) + 2;
+    }
+    total += b.x;
+
+    return total > 0 ? total : 0;
+}
+
+int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {
+    if (out == NULL) {
+        return -1;
+    }
+    cb_clear(out);
+
+    order(&a, &b);
+    int left = tb_range_size(tb, a, b);
+    if (left <= 0) {
+        return 0;
+    }
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_seek(&cp, a);
+
+    int written = 0;
+    while (left > 0) {
+        int sz = 0;
+        const char* line = tb_suffix(&cp, &sz);
+        int take = sz < left ? sz : left;
+        for (int i = 0; i < take; i++) {
+            // cb_put is what enforces the clipboard's size. Running out empties
+            // it again rather than leaving a truncated copy: a caller that went
+            // on to cut the range would otherwise delete text it could not keep.
+            if (!cb_put(out, line[i])) {
+                cb_clear(out);
+
+                return -1;
+            }
+        }
+        written += take;
+        left -= take;
+
+        if (left <= 0) {
+            break;
+        }
+        // What is left of the range runs past this line, so the break goes in.
+        if (!cb_put(out, '\r') || !cb_put(out, '\n')) {
+            cb_clear(out);
+
+            return -1;
+        }
+        written += 2;
+        left -= 2;
+
+        const int prev = tb_ypos(&cp);
+        tb_down(&cp);
+        if (tb_ypos(&cp) == prev) {
+            break;      // ran out of document
+        }
+        tb_home(&cp);
+    }
+
+    return written;
+}
+
+bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
+    order(&a, &b);
+    int left = tb_range_size(tb, a, b);
+    if (left <= 0) {
+        return false;
+    }
+
+    tb_seek(tb, a);
+
+    // Deleted one character at a time through the same primitives the DELETE
+    // key uses, so the line index is maintained by code that already gets it
+    // right rather than by a second implementation that has to agree with it.
+    bool any = false;
+    while (left > 0) {
+        if (tb_eol(tb)) {
+            if (!tb_del_merge(tb)) {
+                break;   // last line: nothing left to join to
+            }
+            left -= 2;
+        } else {
+            if (!tb_del(tb)) {
+                break;
+            }
+            left -= 1;
+        }
+        any = true;
+    }
+
+    return any;
+}
+
+bool tb_insert(text_buffer* tb, const char* buf, int sz) {
+    if (buf == NULL || sz <= 0) {
+        return false;
+    }
+
+    // A bare LF becomes a CRLF, so the text can be a byte longer than it
+    // arrived. Counted up front: a paste that ran out of room half way would
+    // leave the document holding an arbitrary prefix of it.
+    int needed = 0;
+    for (int i = 0; i < sz; i++) {
+        if (buf[i] == '\r' && i + 1 < sz && buf[i + 1] == '\n') {
+            needed += 2;
+            i++;
+        } else if (buf[i] == '\n' || buf[i] == '\r') {
+            needed += 2;
+        } else {
+            needed += 1;
+        }
+    }
+    if (needed > cb_available(&tb->cb_)) {
+        return false;
+    }
+
+    for (int i = 0; i < sz; i++) {
+        if (buf[i] == '\r' && i + 1 < sz && buf[i + 1] == '\n') {
+            if (!tb_newline(tb)) {
+                return false;
+            }
+            i++;
+        } else if (buf[i] == '\n' || buf[i] == '\r') {
+            if (!tb_newline(tb)) {
+                return false;
+            }
+        } else if (!tb_put(tb, buf[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->lb_.buf_ = src->lb_.buf_;
     dst->lb_.curr_ = src->lb_.curr_;

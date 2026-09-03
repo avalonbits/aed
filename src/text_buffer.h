@@ -112,4 +112,52 @@ bool tb_save(text_buffer* tb);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
 
+// --- positions and ranges ---
+//
+// A position in the document is the pair (line, byte within that line). There
+// is no absolute offset: tb_goto_offset moves within the current line only, and
+// the bytes themselves are split across the gap. So anything that works on a
+// span of text -- selecting, copying, cutting -- needs a position it can carry
+// around and compare, which is what this is.
+//
+// `x` never includes the CRLF. A position at the end of a line's text and one
+// at the start of the next are different positions with nothing between them
+// but the line break, which is what makes a range unambiguous about whether it
+// takes the newline with it.
+typedef struct _tb_pos {
+    int line;   // 1-based, as tb_ypos reports it
+    int x;      // 0-based byte within the line, as tb_xpos reports it less one
+} tb_pos;
+
+tb_pos tb_tell(text_buffer* tb);
+
+// Moves the cursor to `p`, clamping to the document: past the last line lands
+// on the last line, past the end of a line lands at its end.
+void tb_seek(text_buffer* tb, tb_pos p);
+
+// Negative, zero or positive as `a` is before, at, or after `b`. Lets a caller
+// hand ranges over in either order without sorting them first.
+int tb_cmp(tb_pos a, tb_pos b);
+
+// Bytes between the two positions, counting the CRLF of each line break
+// crossed. Order does not matter.
+int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b);
+
+// Replaces `out` with the text between the two positions, line breaks included
+// as CRLF. Returns the number of bytes written, or -1 if the range will not fit
+// -- in which case `out` is left empty rather than holding a truncated copy,
+// since a caller that then deleted the range would destroy what it could not
+// keep. The document is not modified.
+int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out);
+
+// Deletes the text between the two positions, leaving the cursor where the
+// range began. Returns false only if nothing could be deleted.
+bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b);
+
+// Inserts `sz` bytes at the cursor, treating CRLF and a bare LF alike as a line
+// break so that text from anywhere pastes correctly. Refuses without writing
+// anything if the document has no room, so a paste either lands whole or not at
+// all.
+bool tb_insert(text_buffer* tb, const char* buf, int sz);
+
 #endif // _TEXT_BUFFER_H_
