@@ -323,6 +323,134 @@ int main(void) {
     check("  and still deletes nothing", tb_used(&ed.buf_), before);
     started = true;
 
+    /* --- a paste that will not fit must not eat the selection --- */
+    /* Deleting the selection first frees room, so the check has to allow for
+     * that -- but a paste bigger than the selection it replaces still will not
+     * fit, and finding out after the deletion leaves the text gone with nothing
+     * in its place and no undo to get it back. */
+    static char half[4500];
+    for (int i = 0; i < (int) sizeof(half); i++) {
+        half[i] = 'a' + (i % 26);
+    }
+    stub_file_reset();
+    stub_file_set_content(half, (int) sizeof(half));
+    ed_destroy(&ed);
+    check("a document filling most of the buffer",
+          ed_init(&ed, 8, "half.txt") != NULL, 1);
+    started = true;
+
+    cmd_select_all(&ed);
+    cmd_copy(&ed);
+    check("  copied whole", clip_size(&ed.clip_), (int) sizeof(half));
+    /* Pasting it again needs as much room as the document already takes, and
+     * there is not that much left. */
+    check("  and there is not room for it twice",
+          tb_available(&ed.buf_) < clip_size(&ed.clip_), 1);
+
+    /* Select a few characters and paste over them. The selection is far smaller
+     * than the clipboard, so the paste cannot fit even once they are gone. */
+    select_from(at(1, 0), at(1, 10));
+    const int used_before = tb_used(&ed.buf_);
+    cmd_paste(&ed);
+    check("a paste with no room changes nothing", tb_used(&ed.buf_), used_before);
+    check("  and the selection is still there", ed.selecting_ ? 1 : 0, 1);
+    check("  with its anchor intact", ed.anchor_.x, 0);
+
+    /* One that does fit still goes in, so the check is not simply refusing. */
+    clipboard small;
+    clip_init(&small, 64);
+    clip_copy(&small, &ed.buf_, at(1, 0), at(1, 4));
+    clip_destroy(&ed.clip_);
+    ed.clip_ = small;
+    select_from(at(1, 0), at(1, 10));
+    cmd_paste(&ed);
+    check("a paste that fits replaces the selection",
+          tb_used(&ed.buf_), used_before - 10 + 4);
+
+    /* ...and one that fits only *because* the selection is going. The document
+     * is filled to within a few bytes of the buffer, so the paste has nowhere
+     * to go until the selection it replaces is counted as room. */
+    static char nearly[7900];
+    for (int i = 0; i < (int) sizeof(nearly); i++) {
+        nearly[i] = 'a' + (i % 26);
+    }
+    stub_file_reset();
+    stub_file_set_content(nearly, (int) sizeof(nearly));
+    ed_destroy(&ed);
+    check("a nearly full document", ed_init(&ed, 8, "full.txt") != NULL, 1);
+    started = true;
+
+    clipboard fifty;
+    clip_init(&fifty, 128);
+    clip_copy(&fifty, &ed.buf_, at(1, 0), at(1, 50));
+    clip_destroy(&ed.clip_);
+    ed.clip_ = fifty;
+    check("  with less room left than the clipboard holds",
+          tb_available(&ed.buf_) < clip_size(&ed.clip_), 1);
+
+    const int full_before = tb_used(&ed.buf_);
+    select_from(at(1, 0), at(1, 100));
+    cmd_paste(&ed);
+    check("a paste fits when the selection it replaces makes room",
+          tb_used(&ed.buf_), full_before - 100 + 50);
+
+    /* --- the line index is budgeted too, not just the characters --- */
+    /* A document of short lines fills the line index long before the
+     * characters, so a paste can have room for its bytes and nowhere to put
+     * its line breaks. */
+    static char shortlines[4096];
+    int sn = 0;
+    for (int i = 0; i < 200; i++) {
+        shortlines[sn++] = 'a';
+        shortlines[sn++] = '\r';
+        shortlines[sn++] = '\n';
+    }
+    stub_file_reset();
+    stub_file_set_content(shortlines, sn);
+    ed_destroy(&ed);
+    check("a document of short lines", ed_init(&ed, 8, "lines.txt") != NULL, 1);
+    started = true;
+    ed.selecting_ = false;
+
+    const int slots = lb_avai(&ed.buf_.lb_);
+    check("  with the line index nearly full", slots > 1 && slots < 60, 1);
+    check("  and plenty of characters left",
+          tb_available(&ed.buf_) > slots * 8, 1);
+
+    /* With a selection live, the line budget is the one that decides it, and
+     * asking after the deletion is too late: tb_insert would refuse, but the
+     * selection would already be gone. Three more breaks than the index can
+     * take even once the selection has given its slots back. */
+    clipboard breaks;
+    clip_init(&breaks, 2048);
+    clip_copy(&breaks, &ed.buf_, at(1, 0), at(1 + slots + 3, 0));
+    clip_destroy(&ed.clip_);
+    ed.clip_ = breaks;
+    check("a clipboard with more breaks than the index can take",
+          clip_lines(&ed.clip_), slots + 3);
+
+    const int lines_before = tb_used(&ed.buf_);
+    select_from(at(1, 0), at(4, 0));      /* three lines, so three slots freed */
+    cmd_paste(&ed);
+    check("a paste with nowhere to put its lines changes nothing",
+          tb_used(&ed.buf_), lines_before);
+    check("  and does not eat the selection first", ed.selecting_ ? 1 : 0, 1);
+
+    /* And the slots the selection gives back do count: this one fits only
+     * because they do. As many breaks as there are free slots, replacing a
+     * selection that spans one line, needs exactly the spare that frees. */
+    clipboard justfits;
+    clip_init(&justfits, 2048);
+    clip_copy(&justfits, &ed.buf_, at(1, 0), at(1 + slots, 0));
+    clip_destroy(&ed.clip_);
+    ed.clip_ = justfits;
+    check("a clipboard with exactly as many breaks as slots",
+          clip_lines(&ed.clip_), slots);
+    select_from(at(1, 0), at(2, 0));      /* one line, one slot back */
+    cmd_paste(&ed);
+    check("  fits once the selection gives its slot back",
+          tb_used(&ed.buf_) > lines_before, 1);
+
     /* --- typing over a selection replaces it --- */
     check("a printable key edits",
           ed_key_edits(press(VK_a, 'a', CMD_PUTC)) ? 1 : 0, 1);

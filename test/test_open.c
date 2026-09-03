@@ -308,7 +308,7 @@ int main(void) {
     check("  and at the top", ed.scr_.currY_, ed.scr_.topY_);
 
     /* Escaping the prompt changes nothing. */
-    stub_key esc[] = { { 0, VK_ESCAPE } };
+    stub_key esc[] = { { 0, VK_ESCAPE, 0 } };
     stub_file_reset();
     stub_file_set_content(first, (int) sizeof(first) - 1);
     stub_set_keys(esc, 1);

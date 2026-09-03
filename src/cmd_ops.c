@@ -314,7 +314,6 @@ bool cmd_delete_selection(editor* ed) {
         return false;
     }
     TB(ed);
-    SCR(ed);
 
     tb_pos a;
     tb_pos b;
@@ -394,7 +393,28 @@ void cmd_paste(editor* ed) {
         return;     // nothing copied yet; not worth a complaint
     }
 
-    // A selection is what the paste replaces, the same way typing does.
+    // A selection is what the paste replaces, the same way typing does -- but
+    // whether the paste fits is asked before deleting it, not after. Deleting
+    // first and then finding there is no room would leave the selection gone
+    // and nothing put in its place, with no undo to get it back.
+    int free_bytes = 0;
+    int free_lines = 0;
+    if (ed->selecting_) {
+        tb_pos a;
+        tb_pos b;
+        cmd_selection_range(ed, &a, &b);
+        free_bytes = tb_range_size(tb, a, b);
+        free_lines = b.line - a.line;
+    }
+    if (!tb_can_insert(tb, clip_size(&ed->clip_), clip_lines(&ed->clip_),
+                       free_bytes, free_lines)) {
+        ui_message(ui, scr, "Not enough room to paste");
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        scr_show_cursor_ch(scr, tb_peek(tb));
+
+        return;
+    }
+
     if (ed->selecting_) {
         cmd_delete_selection(ed);
     }

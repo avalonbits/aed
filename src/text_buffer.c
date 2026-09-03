@@ -519,6 +519,18 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     return any;
 }
 
+bool tb_can_insert(text_buffer* tb, int bytes, int lines,
+                   int free_bytes, int free_lines) {
+    if (bytes < 0 || lines < 0 || free_bytes < 0 || free_lines < 0) {
+        return false;
+    }
+    const int chars = cb_available(&tb->cb_) + free_bytes;
+    // A split costs a slot and needs a spare, so N breaks need N + 1 free.
+    const int slots = lb_avai(&tb->lb_) + free_lines;
+
+    return bytes <= chars && lines + 1 <= slots;
+}
+
 bool tb_insert(text_buffer* tb, const char* buf, int sz) {
     if (buf == NULL || sz <= 0) {
         return false;
