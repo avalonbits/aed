@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "cmd_ops.h"
+#include "vkey.h"
 #include "screen.h"
 #include "text_buffer.h"
 #include "user_input.h"
@@ -30,9 +31,27 @@ typedef struct _editor {
     screen scr_;
     text_buffer buf_;
     user_input ui_;
+
+    // Where the selection started. Held here rather than in the buffer because
+    // it is about intent, not about the document: the model has no idea any of
+    // this is happening, and a selection means nothing once the file changes.
+    tb_pos anchor_;
+    bool selecting_;
 } editor;
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
+
+// True for the keys that move the cursor without changing the document. Holding
+// shift with one of these is what starts and extends a selection; anything else
+// ends it.
+bool ed_is_motion(VKey vkey);
+
+// True for the modifier keys themselves. MOS reports the press of one as an
+// event in its own right, before the key it modifies, so anything deciding what
+// a keypress means has to skip them -- otherwise holding shift is itself a
+// keystroke, and it arrives right in the middle of the selection it is making.
+bool ed_is_modifier(VKey vkey);
+
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);
@@ -46,11 +65,35 @@ void ed_run(editor* ed);
 typedef struct _key_command {
     cmd_op cmd;
     key k;
+    // Carried out of read_input because whether a motion extends a selection is
+    // decided above the command, not inside it: cmd_left does the same thing
+    // either way.
+    char mods;
 } key_command;
 
 // What a key means with CTRL held. Declared here so the bindings can be
 // asserted directly: a command that exists but is not reachable from the
 // keyboard is not a feature, and nothing below this level would notice.
 key_command ctrlCmds(key_command kc, char mods);
+
+typedef enum _sel_action {
+    SEL_NONE = 0,   // there was no selection and there still is none
+    SEL_EXTEND,     // one was started or is being extended
+    SEL_DROP,       // one was in progress and this key ended it
+} sel_action;
+
+// Applies a keypress to the selection, before the command it names runs. The
+// return value tells the caller whether anything needs repainting, which is why
+// this is separate from running the command: the decision is made from the key
+// and the answer is needed again afterwards.
+sel_action ed_selection_for(editor* ed, key_command kc);
+
+// Repaints whatever the selection changed, after the command has run. The three
+// "before" values are read before it: the cursor's screen row, the document
+// line then at the top of the screen, and the horizontal scroll origin. Between
+// them they say whether the view moved under the text, which decides how much
+// has to be redrawn.
+void ed_selection_repaint(editor* ed, sel_action act, char y_before,
+                          int top_before, int origin_before);
 
 #endif  // _EDITOR_H_

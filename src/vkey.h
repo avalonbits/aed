@@ -301,14 +301,21 @@ typedef enum VirtualKey {
 
 } VKey;
 
+// Bits of the MOS keymods sysvar, as getsysvar_keymods() returns it. Measured
+// on MOS 3.0.2 and 2.2.3 rather than taken from this file's FabGL heritage,
+// which had them somewhere else: a probe printing (ch, vkey, mods) for each key
+// gives 0x01 holding either control, 0x02 holding either shift and 0x04 holding
+// alt. Left and right share a bit, so there is nothing to tell them apart with
+// and no separate constants for them.
+//
+// This mattered: MOD_SHFT was 0x08, which no key sets, so shift was invisible.
+// And MOD_ALT was 0x02|0x04 -- overlapping what is really shift -- so CTRL+SHIFT
+// with any key read as CTRL+ALT with it.
+//
+// The remaining bits (GUI, caps, num and scroll lock) have not been measured.
+// Probe before using one; do not assume the numbering continues.
 #define MOD_CTRL 0x01
-#define MOD_LALT 0x02
-#define MOD_RALT 0x04
-#define MOD_ALT  0x06   // Either alt key is fine.
-#define MOD_SHFT 0x08
-#define MOD_GUI  0x10
-#define MOD_CAPS 0x20
-#define MOD_NUML 0x40
-#define MOD_SCRL 0x80
+#define MOD_SHFT 0x02
+#define MOD_ALT  0x04
 
 #endif  // _VKEY_H_

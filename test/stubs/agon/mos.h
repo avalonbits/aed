@@ -34,11 +34,16 @@ char     getch(void);
 /* A scripted key sequence for the modal prompts, which drive their own blocking
  * getch loops. When it runs out, ESCAPE is returned forever so a test can never
  * hang in one of them. */
-typedef struct { char ch; unsigned char vk; } stub_key;
+typedef struct { char ch; unsigned char vk; unsigned char mods; } stub_key;
 void        stub_set_keys(const stub_key* keys, int n);
 
 /* The last colours handed to vdp_set_text_colour. Foreground and background are
  * distinguished the way the VDP does it: background is offset by 128. */
+/* Whether vdp_set_text_colour also writes its VDU bytes to the stream. Off by
+ * default: colour 0 emits a NUL, which truncates the stream for tests that read
+ * it back as text. Turn it on to see where a highlight starts and stops. */
+void        stub_emit_colours(int on);
+
 int         stub_last_fg(void);
 int         stub_last_bg(void);
 void        stub_colours_reset(void);
