@@ -30,6 +30,18 @@ uint8_t  getsysvar_scrColours(void);
  * let the controller link without any test actually pressing a key. The
  * modifier masks come from vkey.h, not here. */
 char     getch(void);
+
+/* A scripted key sequence for the modal prompts, which drive their own blocking
+ * getch loops. When it runs out, ESCAPE is returned forever so a test can never
+ * hang in one of them. */
+typedef struct { char ch; unsigned char vk; } stub_key;
+void        stub_set_keys(const stub_key* keys, int n);
+
+/* The last colours handed to vdp_set_text_colour. Foreground and background are
+ * distinguished the way the VDP does it: background is offset by 128. */
+int         stub_last_fg(void);
+int         stub_last_bg(void);
+void        stub_colours_reset(void);
 uint8_t  getsysvar_vkeycode(void);
 uint8_t  getsysvar_keymods(void);
 
@@ -48,6 +60,7 @@ void        stub_file_reset(void);
 const char* stub_file_bytes(void);
 int         stub_file_size(void);
 int         stub_file_opens(void);   /* mos_fopen calls */
+int         stub_file_opens_for_write(void); /* those asking to write */
 int         stub_file_closes(void);  /* mos_fclose calls */
 void        stub_file_fail_open(int fail);  /* make the next mos_fopen return 0 */
 

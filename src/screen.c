@@ -104,6 +104,8 @@ static void get_active_colours(screen* scr) {
 
     scr->fg_ = getColorForCh('*');
     scr->bg_ = getColorForCh(' ');
+    scr->entryFg_ = scr->fg_;
+    scr->entryBg_ = scr->bg_;
     set_colours(scr->fg_, scr->bg_);
 }
 
@@ -233,6 +235,12 @@ void scr_destroy(screen* scr) {
     static char enable_cursor_wrap[4] = {23, 16, 1, 1};
     VDP_PUTS(enable_cursor_wrap);
     vdp_cursor_enable(true);
+
+    // Hand the machine back as it was found: restore the colours first, then
+    // clear, so the cleared screen is in the user's background and not AED's.
+    set_colours(scr->entryFg_, scr->entryBg_);
+    vdp_clear_screen();
+
     scr->currX_ = 0;
     scr->currY_ = 0;
     scr->rows_ = 0;

@@ -108,7 +108,8 @@ void ed_run(editor* ed) {
             kc.cmd(ed);
         }
     }
-    vdp_clear_screen();
+    // Leaving the screen is scr_destroy's job: it restores the entry colours
+    // first, so the clear lands in the user's background rather than AED's.
 }
 
 key_command ctrlCmds(key_command kc, char mods) {

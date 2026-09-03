@@ -20,6 +20,7 @@
 
 #include <stddef.h>
 
+#include "config.h"
 #include "editor.h"
 #include "text_buffer.h"
 #include "screen.h"
@@ -202,6 +203,17 @@ void cmd_color_picker(editor* ed) {
         scr_clear(scr);
         refresh_screen(scr, tb);
         scr_show_cursor_ch(scr, ch);
+
+        // Write the choice down. Settings live in the file now, and a scheme
+        // that vanished on exit was the wart this was meant to fix. Only the
+        // colours are set here: everything left unset is copied through
+        // untouched, so picking a colour cannot rewrite or invent a tab setting
+        // the user never asked to change.
+        config cfg;
+        cfg_defaults(&cfg);
+        cfg.fg = scr_fg(scr);
+        cfg.bg = scr_bg(scr);
+        cfg_update(&cfg, CFG_PATH);
     }
 }
 
