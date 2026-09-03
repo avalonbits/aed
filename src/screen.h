@@ -41,6 +41,11 @@ typedef struct _screen {
     char cursor_;
     char fg_;
     char bg_;
+    // What the Agon was using before AED started. The editor's own scheme is
+    // its business; the colours the user left the machine in are theirs, so
+    // they are put back on exit whatever AED was showing.
+    char entryFg_;
+    char entryBg_;
 } screen;
 
 // Tab width used when projecting a byte offset onto a screen column. Tabs are

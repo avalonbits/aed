@@ -18,6 +18,9 @@
 
 //  FabGL / vdp-gl virtual key mappings.
 
+#ifndef _VKEY_H_
+#define _VKEY_H_
+
 typedef enum VirtualKey {
   VK_NONE,            /**< No character (marks the first virtual key) */
 
@@ -307,3 +310,5 @@ typedef enum VirtualKey {
 #define MOD_CAPS 0x20
 #define MOD_NUML 0x40
 #define MOD_SCRL 0x80
+
+#endif  // _VKEY_H_

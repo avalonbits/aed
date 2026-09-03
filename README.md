@@ -42,11 +42,10 @@ The supported floor is the **last point release** of that line, 2.2.3 — if you
 
 # Configuration
 
-AED keeps its settings in `/config/aed.cfg`. **The first time you run it, it writes
-that file for you**, filled in with the settings it is currently using -- including the
-colours it picked up from your Agon -- so there is something to edit rather than a
-format to guess at. Edit the file and restart AED to apply changes; there is no way to
-change settings from inside the editor yet.
+AED keeps its settings in `/config/aed.cfg`, an ordinary INI file. **The first time you
+run it, it writes that file for you**, filled in with the settings it is currently
+using -- including the colours it picked up from your Agon -- so there is something to
+edit rather than a format to guess at.
 
 `/config` sits alongside `/bin` and `/mos` rather than inside them, since those are for
 executables. The convention is one file per application, or `/config/<app>/` for an
@@ -54,33 +53,42 @@ application that needs several.
 
 A freshly written file looks like this:
 
-```
+```ini
 # AED settings.
 #
-# Blank lines are ignored and '#' starts a comment. Settings AED does
-# not recognise are skipped, so this file stays readable by older and
+# An INI file: [section] headings, then name = value lines. Blank lines
+# are ignored and '#' or ';' starts a comment. Sections and settings AED
+# does not recognise are skipped, so this file stays readable by older and
 # newer versions alike. Edit and restart AED to apply.
 
+[editor]
 # How wide a tab renders, in columns. 1 to 16.
 tab = 4
 
+[colours]
 # Text and background colour, as Agon colour numbers. These were
 # taken from the colours your Agon was already using.
 fg = 15
 bg = 0
 ```
 
-| Setting | Meaning |
-|---|---|
-| `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
-| `fg` | text colour, as an Agon colour number. |
-| `bg` | background colour. |
+| Section | Setting | Meaning |
+|---|---|---|
+| `[editor]` | `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
+| `[colours]` | `fg` | text colour, as an Agon colour number. |
+| `[colours]` | `bg` | background colour. |
 
-Settings are `name = value`, one per line. Spaces around the name and value are
-ignored and a `#` starts a comment anywhere on a line. Names AED does not recognise are
-skipped, so a file written for a newer version still works with an older one, and a
-setting with a missing or malformed value keeps its default rather than making the
-whole file fail.
+A setting only counts inside the section that owns it -- a bare `tab = 8` with no
+`[editor]` above it is ignored. Section and setting names are matched without regard to
+case, spaces around them are ignored, and `#` or `;` starts a comment anywhere on a
+line. Anything AED does not recognise is skipped rather than rejected, so a file
+written for a newer version still works with an older one, and a setting with a missing
+or malformed value keeps its default instead of making the whole file fail.
+
+Changing the colour scheme from inside the editor (`CTRL+ALT+C`) writes the new colours
+back to this file, and leaves the rest of it -- your comments, spacing and any settings
+this version does not know about -- exactly as you wrote it. Every other setting still
+needs the file edited by hand and AED restarted.
 
 If `/config` cannot be created -- a write-protected card, say -- AED starts normally
 with its defaults and simply does not save them.
