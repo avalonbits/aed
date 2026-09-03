@@ -20,6 +20,7 @@
 
 #include <agon/vdp.h>
 #include <agon/mos.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -410,7 +411,16 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
     // pass it + sz as the buffer to read.
     char_buffer* cb = &tb->cb_;
     cb->cend_ -= sz;
-    mos_fread(fh, (char*)cb->cend_, sz);
+    const unsigned got = mos_fread(fh, (char*)cb->cend_, (unsigned) sz);
+    if (got != (unsigned) sz) {
+        // Whatever was not read is still whatever happened to be in that
+        // memory. Carrying on would index it as document text and hand it back
+        // as the file's contents, which is worse than admitting the read
+        // failed. Give the space back and let the caller say so.
+        cb->cend_ += sz;
+
+        return false;
+    }
 
     //  Now update the line buffer. Tabs are kept as-is -- they are one byte in
     //  the document and the view decides how wide they render. Only line
@@ -464,11 +474,11 @@ bool tb_load(text_buffer* tb, const char* fname) {
     }
 
     bool ok = true;
-    int sz = (int) fil->obj.objsize;
 
-    // tb_read carves the read out of the tail of the gap, so a file bigger than
-    // the buffer would put cend_ below buf_ and read outside the allocation.
-    if (sz > cb_available(&tb->cb_)) {
+    // Compared before narrowing: objsize is 32 bits and the eZ80's int is 24,
+    // so a file over 8MB would arrive here as a small or negative number and
+    // walk straight past a signed check.
+    if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
         char* msg = "file too large";
         mos_puts(msg, strlen(msg), 0);
         mos_fclose(fh);
@@ -476,6 +486,7 @@ bool tb_load(text_buffer* tb, const char* fname) {
 
         return false;
     }
+    const int sz = (int) fil->obj.objsize;
     if (sz > 0) {
        ok = tb_read(fh, tb, sz);
     }
@@ -521,12 +532,16 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     // document on screen is about to be discarded, so its bytes are not in the
     // way. Checking before discarding anything is the point -- a file that will
     // not fit must leave the editor exactly as it was.
-    const int fsz = (int) fil->obj.objsize;
-    if (fsz > cb_size(&tb->cb_)) {
+    // Compared before narrowing, for the same reason as in tb_load: objsize is
+    // 32 bits wide and the eZ80's int is 24, so a file over 8MB narrows to a
+    // small or negative number and sails past a signed comparison -- taking the
+    // document with it, since the clear happens next.
+    if (fil->obj.objsize > (uint32_t) cb_size(&tb->cb_)) {
         mos_fclose(fh);
 
         return TB_TOO_LARGE;
     }
+    const int fsz = (int) fil->obj.objsize;
 
     tb_clear(tb);
     memcpy(tb->fname_, name, (size_t) sz + 1);

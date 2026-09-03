@@ -63,6 +63,14 @@ int         stub_file_size(void);
  * waited for a keypress rather than drawing and moving straight on. */
 int         stub_keys_read(void);
 
+/* Makes mos_fread return fewer bytes than asked for, so the read path can be
+ * checked against a card that stops part way. */
+void        stub_file_short_read(int n);
+
+/* Reports a file size that the content does not match, for the case where the
+ * filesystem claims more than can actually be read. */
+void        stub_file_set_objsize(uint32_t n);
+
 int         stub_file_opens(void);   /* mos_fopen calls */
 int         stub_file_opens_for_write(void); /* those asking to write */
 int         stub_file_closes(void);  /* mos_fclose calls */

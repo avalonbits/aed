@@ -211,6 +211,51 @@ int main(void) {
     check("a NULL name is refused", tb_open(&tb, NULL, 4), TB_NO_FILE);
     check("  and the document survived both", doc_is(&tb, "alpha\nbeta\n\n"), 1);
 
+    /* A card that stops part way through the read. The bytes that never arrived
+     * are still whatever was in that memory; indexing them as document text and
+     * handing them back as the file's contents is worse than saying the read
+     * failed, so the open is refused and the buffer is left empty rather than
+     * full of nonsense. */
+    stub_file_reset();
+    stub_file_set_content(second, (int) sizeof(second) - 1);
+    stub_file_short_read(6);
+    check("a short read is refused", tb_open(&tb, "part.txt", 8), TB_NO_FILE);
+    check("  and nothing of it is in the buffer", tb_used(&tb), 0);
+    check("  with the whole buffer back", tb_available(&tb), tb_size(&tb));
+
+    /* The same at startup, where it would otherwise build a document out of
+     * uninitialised memory and never say a word. */
+    stub_file_reset();
+    stub_file_set_content(second, (int) sizeof(second) - 1);
+    stub_file_short_read(6);
+    text_buffer partial;
+    check("a short read stops the editor starting",
+          tb_init(&partial, 4, "part.txt") == NULL, 1);
+
+    /* A size that does not fit the eZ80's 24-bit int. objsize is 32 bits wide,
+     * so narrowing it before the comparison turns a huge file into a small or
+     * negative number that walks straight past the guard -- and by then the
+     * document has been cleared. 0xFFFFFFFF narrows to -1, which is less than
+     * any capacity. */
+    /* Back to a known document, since the short read above emptied the buffer. */
+    stub_file_reset();
+    stub_file_set_content(first, (int) sizeof(first) - 1);
+    check("reload after the short read", tb_open(&tb, "first.txt", 9), TB_OK);
+
+    stub_file_reset();
+    stub_file_set_content(second, (int) sizeof(second) - 1);
+    stub_file_set_objsize(0xFFFFFFFFu);
+    check("a size too wide for an int is still too large",
+          tb_open(&tb, "vast.txt", 8), TB_TOO_LARGE);
+    check("  and the document is untouched", doc_is(&tb, "alpha\nbeta\n\n"), 1);
+
+    stub_file_reset();
+    stub_file_set_content(second, (int) sizeof(second) - 1);
+    stub_file_set_objsize(0xFFFFFFFFu);
+    text_buffer vast;
+    check("  and it stops the editor starting too",
+          tb_init(&vast, 4, "vast.txt") == NULL, 1);
+
     /* A file that does not exist yet is created, which is what naming a missing
      * file on the command line does. So CTRL+O is also how a new file starts. */
     stub_file_reset();
