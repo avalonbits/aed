@@ -99,15 +99,25 @@ bool lb_down(line_buffer* lb) {
     }
     return ok;
 }
+bool lb_can_new(line_buffer* lb) {
+    // Two slots: the line being split keeps `size` in the slot it already has,
+    // and the remainder is written to the next one. A guard of curr_ < cend_
+    // passes with a single slot free and then writes the remainder at cend_ --
+    // past the end of the allocation when the gap runs to the end of it.
+    return lb->curr_ + 1 < lb->cend_;
+}
+
 bool lb_new(line_buffer* lb, int size) {
-    bool ok = lb->curr_ < lb->cend_;
-    if (ok) {
-        const int csz = *lb->curr_;
-        *lb->curr_ = size;
-        lb->curr_++;
-        *lb->curr_ = (csz - size);
+    if (!lb_can_new(lb)) {
+        return false;
     }
-    return ok;
+
+    const int csz = *lb->curr_;
+    *lb->curr_ = size;
+    lb->curr_++;
+    *lb->curr_ = (csz - size);
+
+    return true;
 }
 
 bool lb_del(line_buffer* lb) {

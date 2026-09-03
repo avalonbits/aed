@@ -97,7 +97,17 @@ char cb_prev(char_buffer* cb, int cnt) {
         cb->curr_--;
         *cb->cend_ = *cb->curr_;
     }
-    return *cb->cend_;
+
+    // Guarded the way cb_next guards its own read. A count of zero skips the
+    // loop entirely, so with the cursor at the very end of the buffer cend_ is
+    // still one past the last byte and reading it walks off the allocation.
+    // tb_home does exactly that -- cb_prev(cb, 0) -- whenever HOME is pressed
+    // with the cursor already at the start of the last line.
+    if (cb->cend_ < cb->buf_ + cb->size_) {
+        return *cb->cend_;
+    }
+
+    return 0;
 }
 
 char cb_next(char_buffer* cb, int cnt) {

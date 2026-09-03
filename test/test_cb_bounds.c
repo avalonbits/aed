@@ -15,6 +15,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <agon/mos.h>
@@ -98,6 +99,27 @@ int main(void) {
     check("tb_newline succeeds with two bytes free", tb_newline(&tb) ? 1 : 0, 1);
     check("line count advanced", tb_ypos(&tb), y_before + 1);
     tb_destroy(&tb);
+
+    /* cb_prev with a count of zero skips its loop entirely, so the read it
+     * ends with is unguarded -- and with the cursor at the very end of the
+     * buffer, cend_ is one past the last byte. tb_home does exactly this
+     * (cb_prev(cb, 0)) whenever HOME is pressed with the cursor already at the
+     * start of a line, and the last line of a document is where the cursor sits
+     * at the end of the buffer. Sized exactly so the sanitizer sees the
+     * over-read rather than it landing in slack. */
+    {
+        char_buffer* edge = malloc(sizeof(char_buffer));
+        cb_init(edge, 8);
+        for (int i = 0; i < 8; i++) {
+            cb_put(edge, 'a' + i);
+        }
+        /* Everything is behind the cursor now, so cend_ is at the very end. */
+        check("the buffer is full", cb_used(edge), 8);
+        check("with nothing ahead of the cursor", cb_peek(edge), 0);
+        check("cb_prev of zero reads nothing off the end", cb_prev(edge, 0), 0);
+        cb_destroy(edge);
+        free(edge);
+    }
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
