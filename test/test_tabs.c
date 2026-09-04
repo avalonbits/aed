@@ -160,17 +160,19 @@ int main(void) {
     cap_start();
     scr_putc(&scr, '\t', "\t", 1, "col0", 4);
     n = cap_read(buf, sizeof(buf));
-    /* byte 0 is the hidden cursor cell; the repaint follows. */
+    /* Hiding the cursor writes the character back and steps over it -- two
+     * bytes, the second being VDU 8 -- and the repaint follows those. */
     check("insert repaints from the inserted tab's column",
-          n > 9 && memcmp(buf + 1, "    col0", 8) == 0, 1);
+          n > 10 && memcmp(buf + 2, "    col0", 8) == 0, 1);
 
     /* An insert paints the tail of the line through the buffer, and the cursor
      * is put back afterwards. The buffer has to be emptied before that move or
      * the text lands wherever the cursor went next -- and, worse, sits there
      * until something else happens to flush it. */
     stub_writes_reset();
-    scr_putc(&scr, 'Q', "Q", 1, "tail", 4);
-    check("an insert is flushed before the cursor is put back",
+    scr_paint_tail(&scr, "tail", 4);
+    check("the tail is written at all", stub_writes() > 0, 1);
+    check("...and before the cursor is put back",
           stub_tab_at(), stub_writes());
 
     /* Same for an ordinary character, which the cursor also sits past. */
@@ -178,7 +180,7 @@ int main(void) {
     scr_putc(&scr, 'X', "X", 1, "yz", 2);
     n = cap_read(buf, sizeof(buf));
     check("insert repaints the character itself",
-          n > 4 && memcmp(buf + 1, "Xyz", 3) == 0, 1);
+          n > 5 && memcmp(buf + 2, "Xyz", 3) == 0, 1);
 
     /* The cursor cell cannot contain a control byte. Sending a tab to the VDP
      * moves the cursor instead of painting it, which left the cursor invisible

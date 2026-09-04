@@ -66,8 +66,16 @@ void set_colours(char fg, char bg) {
     // Anything buffered belongs to the colours that are still current.
     out_flush();
 
-    vdp_set_text_colour(fg);
-    vdp_set_text_colour(bg+128);
+    // Both colours in one write. VDU 17 takes one parameter, so this is two
+    // commands, but they are four bytes and there is no reason to enter MOS
+    // twice for them -- and the editor changes colours several times a
+    // keystroke, around the cursor cell and at each end of a highlight.
+    char vdu[4];
+    vdu[0] = 17;
+    vdu[1] = fg;
+    vdu[2] = 17;
+    vdu[3] = (char) (bg + 128);
+    mos_puts(vdu, sizeof(vdu), 0);
 }
 
 // The cursor cell shows the character under it, but a control byte cannot be
@@ -81,18 +89,25 @@ static char cursor_glyph(screen* scr, char ch) {
     return ch;
 }
 
+// Drawing the cursor is four things -- reverse the colours, put the character
+// down, step back over it, put the colours back -- and ten bytes. It happens on
+// every keystroke, so it goes in one write rather than four.
 void scr_show_cursor_ch(screen* scr, char ch) {
     ch = cursor_glyph(scr, ch);
+    out_flush();
 
-    // First reverse colors
-    set_colours(scr->bg_, scr->fg_);
-
-    // Print the cursor;
-    putchar(ch);
-    vdp_cursor_left();
-
-    // Reverse colors back.
-    set_colours(scr->fg_, scr->bg_);
+    char vdu[10];
+    vdu[0] = 17;
+    vdu[1] = scr->bg_;
+    vdu[2] = 17;
+    vdu[3] = (char) (scr->fg_ + 128);
+    vdu[4] = ch;
+    vdu[5] = 8;                         // VDU 8: back over the cell just drawn
+    vdu[6] = 17;
+    vdu[7] = scr->fg_;
+    vdu[8] = 17;
+    vdu[9] = (char) (scr->bg_ + 128);
+    mos_puts(vdu, sizeof(vdu), 0);
 }
 
 static void scr_show_cursor(screen* scr) {
@@ -413,10 +428,16 @@ void scr_clear(screen* scr) {
 
 void scr_hide_cursor_ch(screen* scr, char ch) {
     ch = cursor_glyph(scr, ch);
+    out_flush();
 
-    set_colours(scr->fg_, scr->bg_);
-    putchar(ch);
-    vdp_cursor_left();
+    char vdu[6];
+    vdu[0] = 17;
+    vdu[1] = scr->fg_;
+    vdu[2] = 17;
+    vdu[3] = (char) (scr->bg_ + 128);
+    vdu[4] = ch;
+    vdu[5] = 8;
+    mos_puts(vdu, sizeof(vdu), 0);
 }
 
 static void scr_hide_cursor(screen* scr) {
