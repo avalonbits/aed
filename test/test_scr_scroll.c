@@ -82,6 +82,11 @@ static screen mkscreen(void) {
     scr.topY_ = 1;
     scr.bottomY_ = 24;
     scr.tab_size_ = SCR_DEFAULT_TAB_SIZE;
+    /* What scr_init derives from the pixel dimensions for the stock 8x8 system
+     * font. A hand-built fixture that leaves these zero would emit a movement
+     * byte of 0, which on VDP 1.04 means no movement at all. */
+    scr.charW_ = 8;
+    scr.charH_ = 8;
     scr.currX_ = 0;
     scr.currY_ = 5;
 
@@ -116,6 +121,36 @@ int main(void) {
         const int rn = cap_read(got, sizeof(got));
         check("a scroll viewport stops before it", rn > 3 && got[3] == 78, 1);
         scr_destroy(&real);
+    }
+
+    /* The VDU 23,7 movement byte is a pixel count, and it has to be the real
+     * cell size rather than the 8 the system font happens to use. Movement 0
+     * would say "one character cell" and would be the obvious choice, but that
+     * meaning only arrived in Console8 VDP 2.5.0 -- on the VDP 1.04 this editor
+     * supports it means no movement, so 0 must never reach the wire. A 16-pixel
+     * font therefore has to scroll by 16. */
+    {
+        stub_set_cell(16, 16);
+        stub_set_screen(80, 25);
+        screen big;
+        scr_init(&big, 32);
+        check("cell height derived from the pixel dimensions", big.charH_, 16);
+        check("cell width derived from the pixel dimensions", big.charW_, 16);
+
+        cap_start();
+        scr_scroll_up(&big, 3, 20, line, 5, 'x');
+        const int bn = cap_read(got, sizeof(got));
+        check("vertical scroll moves by one cell, not a fixed 8",
+              bn > 9 && got[9] == 16, 1);
+
+        cap_start();
+        scr_scroll_h(&big, 1);
+        const int hn = cap_read(got, sizeof(got));
+        check("horizontal scroll moves by one cell too",
+              hn > 9 && got[9] == 16, 1);
+
+        scr_destroy(&big);
+        stub_set_cell(8, 8);
     }
 
     /* VDU 28,left,bottom,right,top  then  VDU 23,7,0,dir,8  then  VDU 26.
