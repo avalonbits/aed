@@ -433,15 +433,25 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
             continue;
         }
 
+        // Where the line's text stops and its ending begins. lend is the LF, so
+        // on a CRLF file the CR sits one before it -- inside the text that is
+        // about to be replaced. Copying only from lend leaves the CR behind and
+        // quietly turns that one line into a bare LF, which is how a file that
+        // was all CRLF ends up mixed after a colour change.
+        int tail = lend;
+        if (tail > lstart && in[tail - 1] == '\r') {
+            tail--;
+        }
+
         // Keep the name exactly as written, replace the value, keep any comment.
         at = put_raw(out, at, max, in + lstart, (ln.eq + 1) - lstart);
         at = put_text(out, at, max, " ");
         at = put_number(out, at, max, newval);
         if (ln.cut < lend) {
             at = put_text(out, at, max, "  ");
-            at = put_raw(out, at, max, in + ln.cut, lend - ln.cut);
+            at = put_raw(out, at, max, in + ln.cut, tail - ln.cut);
         }
-        at = put_raw(out, at, max, in + lend, rawend - lend);
+        at = put_raw(out, at, max, in + tail, rawend - tail);
         if (at < 0) {
             return -1;
         }

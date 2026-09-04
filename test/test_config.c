@@ -334,6 +334,19 @@ int main(void) {
     check("the headings survive", strstr(merged, "[colours]") != NULL, 1);
     check("  both of them", strstr(merged, "[editor]") != NULL, 1);
     check("the new fg is written", strstr(merged, "fg = 3") != NULL, 1);
+    check("  ending the way the line it replaced did",
+          strstr(merged, "fg = 3\r\n") != NULL, 1);
+    /* Every line ending in the file is still a CRLF: not one bare LF anywhere,
+     * which is what a half-converted file looks like. */
+    {
+        int bare = 0;
+        for (int i = 0; i < mn; i++) {
+            if (merged[i] == '\n' && (i == 0 || merged[i - 1] != '\r')) {
+                bare++;
+            }
+        }
+        check("  and no line was left with a bare LF", bare, 0);
+    }
     check("the new bg is written", strstr(merged, "bg = 4") != NULL, 1);
     check("the old fg is gone", strstr(merged, "fg = 15") == NULL, 1);
 
@@ -422,6 +435,10 @@ int main(void) {
     merged[cn] = 0;
     check("the changed line keeps its comment",
           strstr(merged, "# my foreground") != NULL, 1);
+    /* And its line ending. lend points at the LF, so the CR of a CRLF sits
+     * inside the text being replaced -- copy from the LF and it is gone, which
+     * turns one line of an otherwise CRLF file into a bare LF. */
+    check("  and its CRLF", strstr(merged, "# my foreground\r\n") != NULL, 1);
     check("  and carries the new value", strstr(merged, "fg = 3") != NULL, 1);
 
     /* --- exit puts the machine back the way it was found --- */
