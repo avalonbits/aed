@@ -184,6 +184,18 @@ static uint8_t stub_mods_now;
 void stub_set_keymods(int mods) { stub_mods_now = (uint8_t) mods; }
 
 uint8_t getsysvar_keymods(void)    { return stub_mods_now; }
+/* Pixel dimensions consistent with the 8x8 system font, so charW_/charH_ come
+ * out at 8 unless a test deliberately sets a different cell size. */
+static uint16_t stub_cellw = 8;
+static uint16_t stub_cellh = 8;
+
+void stub_set_cell(int w, int h) {
+    stub_cellw = (uint16_t) w;
+    stub_cellh = (uint16_t) h;
+}
+
+uint16_t getsysvar_scrwidth(void)  { return (uint16_t)(stub_cellw * stub_cols); }
+uint16_t getsysvar_scrheight(void) { return (uint16_t)(stub_cellh * stub_rows); }
 uint8_t getsysvar_scrCols(void)    { return stub_cols; }
 uint8_t getsysvar_scrRows(void)    { return stub_rows; }
 uint8_t getsysvar_scrColours(void) { return 16; }

@@ -228,6 +228,21 @@ screen *scr_init(screen* scr, char cursor) {
     // else in this file.
     scr->cols_ = getsysvar_scrCols() - 1;
     scr->colors_ = getsysvar_scrColours();
+
+    // Cell size for the VDU 23,7 movement byte, derived rather than assumed.
+    // Every stock Agon mode uses the 8x8 system font, so this is 8 today; a
+    // font loaded through the VDP's font API before AED starts would not be,
+    // and a scroll of the wrong distance tears the text area. Guarded because
+    // emitting 0 here would mean "no movement" on an old VDP -- the one value
+    // that must never reach the wire.
+    {
+        const int cols = getsysvar_scrCols();
+        const int rows = getsysvar_scrRows();
+        const int w = cols > 0 ? getsysvar_scrwidth() / cols : 0;
+        const int h = rows > 0 ? getsysvar_scrheight() / rows : 0;
+        scr->charW_ = (char) (w > 0 && w < 256 ? w : 8);
+        scr->charH_ = (char) (h > 0 && h < 256 ? h : 8);
+    }
     scr->cursor_ = cursor;
     scr->lastFname_[0] = 0;
     scr->lastPosW_ = 0;
@@ -803,7 +818,7 @@ void scr_scroll_h(screen* scr, int cols) {
     } else {
         scroll[3] = 1;   // window right -> content left
     }
-    scroll[4] = 8;       // one character cell
+    scroll[4] = scr->charW_;   // one character cell, in pixels
 
     define_viewport(0, scr->bottomY_ - 1, (char) (scr->cols_ - 1), scr->topY_);
     for (int i = 0; i < n; i++) {
@@ -839,13 +854,13 @@ void scr_put_at(screen* scr, char sx, char sy, char ch) {
 
 void scr_scroll_down(
         screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
-    static const char down[] = {23, 7, 0, 2, 8};
+    const char down[] = {23, 7, 0, 2, scr->charH_};
     scroll_region(scr, topY, bottomY, down, sizeof(down), line, sz, ch);
 }
 
 void scr_scroll_up(
         screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
-    static const char up[] = {23, 7, 0, 3, 8};
+    const char up[] = {23, 7, 0, 3, scr->charH_};
     scroll_region(scr, topY, bottomY, up, sizeof(up), line, sz, ch);
 }
 

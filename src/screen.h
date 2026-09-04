@@ -40,6 +40,16 @@ typedef struct _screen {
     int cols_;
     char colors_;
 
+    // Size of one character cell in pixels, which is what VDU 23,7 scrolls by.
+    // Its movement byte has two meanings: 0 is "one character cell", anything
+    // else is a pixel count. Zero is the obvious choice and cannot be used --
+    // it only gained that meaning in Console8 VDP 2.5.0, and on the VDP 1.04
+    // this editor still supports it means no movement at all, which would stop
+    // the screen scrolling entirely. So a pixel count it is, and it has to be
+    // the real cell size rather than the 8 the system font happens to use.
+    char charW_;
+    char charH_;
+
     char currX_;
     char currY_;
 
