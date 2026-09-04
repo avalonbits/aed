@@ -243,10 +243,15 @@ void ed_run(editor* ed) {
         // next one arriving. Bisected to this call: the same editor with the
         // footer drawn fails, and without it works.
         //
-        // These are the modifiers held *now*, not the ones that came with the
-        // last key, so the footer comes back the moment they are released
-        // rather than a keystroke later. Reading them is a load through the
-        // sysvars pointer, not a call into MOS.
+        // These are the modifiers held *now* rather than the ones that came
+        // with the last key, which is the more honest question to ask -- but
+        // it does not make the footer return any sooner. The loop only gets
+        // here when a key arrives, and a modifier being released is not one:
+        // keys_wait drops those. So the footer comes back on the next key
+        // pressed after the chord, not on the release itself.
+        //
+        // Reading them is a load through the sysvars pointer, not a call into
+        // MOS, so asking costs nothing on the path this is protecting.
         if (ed_footer_wanted((char) getsysvar_keymods())) {
             scr_footer(scr, tb_fname(buf), tb_changed(buf),
                        tb_xpos(buf), tb_ypos(buf));

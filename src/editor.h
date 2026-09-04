@@ -86,6 +86,10 @@ key_command read_input(void);
 // back, and doing that between keystrokes stops the next one arriving -- which
 // is exactly what breaks word-wise selection, the one thing that chord is for.
 // The position it reports is also the least interesting then: it is mid-drag.
+//
+// The caller passes the modifiers MOS has now. That does not make the footer
+// return on the release -- the event loop only turns when a key arrives, and a
+// release is not one -- so it comes back on the next key after the chord.
 bool ed_footer_wanted(char held);
 
 // What a key means with CTRL held. Declared here so the bindings can be
