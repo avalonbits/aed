@@ -119,6 +119,47 @@ int main(void) {
     scr_footer(&scr, "a.txt", false, 1, 1);
     check("invalidating forces a redraw", cap_len() > 0, 1);
 
+    /* The common case is that only the cursor moved. That must cost a fraction
+     * of a full row: the row is redrawn a column at a time -- the padding is a
+     * putchar loop, one MOS call per space -- and all of it except the position
+     * field is unchanged. */
+    {
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 1);
+        const int full = cap_len();
+
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 2, 1);
+        const int moved = cap_len();
+
+        check("a full footer covers the row", full >= scr.cols_, 1);
+        check("a moved cursor sends far less", moved * 2 < full, 1);
+        check("...and it is not nothing", moved > 0, 1);
+
+        /* The filename still forces the whole row. */
+        cap_start();
+        scr_footer(&scr, "bb.txt", false, 2, 1);
+        check("a new filename redraws the row", cap_len() >= scr.cols_, 1);
+    }
+
+    /* The position field is fixed width, so a long line number must not push
+     * the column out of it. Before, a four-digit line added a whole field of
+     * padding instead of none. */
+    {
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 1);
+        const int narrow = cap_len();
+
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 1234);
+        const int wide = cap_len();
+
+        check("a four-digit line does not widen the row", wide, narrow);
+    }
+
     /* A full-screen refresh clears the text area with the viewport running to
      * bottomY_ -- which is the footer row -- and then paints only the rows
      * above it. So it erases the footer without drawing it back. */
