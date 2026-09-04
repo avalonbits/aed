@@ -101,12 +101,14 @@ int main(void) {
     /* VDU 28,left,bottom,right,top  then  VDU 23,7,0,dir,8  then  VDU 26.
      * Direction 3 is up, 2 is down -- the one byte that distinguishes them. */
     const unsigned char want_up[] = {
-        28, 0, 20, 80, 3,     /* viewport: left 0, bottom 20, right cols, top 3 */
+        28, 0, 20, 79, 3,     /* viewport: left 0, bottom 20, top 3, and right =
+                               * the last column. VDU 28 takes character
+                               * positions, so it is cols_-1 and not cols_. */
         23, 7, 0, 3, 8,       /* scroll up */
         26,                   /* reset viewport */
     };
     const unsigned char want_down[] = {
-        28, 0, 20, 80, 3,
+        28, 0, 20, 79, 3,
         23, 7, 0, 2, 8,       /* scroll down -- direction byte differs */
         26,
     };
@@ -126,7 +128,7 @@ int main(void) {
 
     /* The viewport must track the caller's region rather than a fixed one --
      * the bug the duplicated define_viewport risked reintroducing. */
-    const unsigned char want_region[] = {28, 0, 12, 80, 7, 23, 7, 0, 3, 8, 26};
+    const unsigned char want_region[] = {28, 0, 12, 79, 7, 23, 7, 0, 3, 8, 26};
     cap_start();
     scr_scroll_up(&scr, 7, 12, line, 5, 'x');
     n = cap_read(got, sizeof(got));
@@ -144,7 +146,7 @@ int main(void) {
     cap_start();
     scr_clear_textarea(&scr, 2, 18);
     n = cap_read(got, sizeof(got));
-    const unsigned char want_clear[] = {28, 0, 18, 80, 2};
+    const unsigned char want_clear[] = {28, 0, 18, 79, 2};
     check_seq("clear_textarea defines the same viewport shape", got, n,
               want_clear, (int) sizeof(want_clear));
     check("clear_textarea resets the viewport", got[n - 1], 26);
@@ -152,14 +154,14 @@ int main(void) {
     /* Horizontal region scroll: same VDU 23,7 mechanism, directions 0 and 1.
      * Scrolling the window right means moving the content left, so a positive
      * column count must emit direction 1. */
-    const unsigned char want_right[] = {28, 0, 23, 80, 1, 23, 7, 0, 1, 8, 26};
+    const unsigned char want_right[] = {28, 0, 23, 79, 1, 23, 7, 0, 1, 8, 26};
     cap_start();
     scr_scroll_h(&scr, 1);
     n = cap_read(got, sizeof(got));
     check_seq("scroll window right -> direction 1", got, n,
               want_right, (int) sizeof(want_right));
 
-    const unsigned char want_left[] = {28, 0, 23, 80, 1, 23, 7, 0, 0, 8, 26};
+    const unsigned char want_left[] = {28, 0, 23, 79, 1, 23, 7, 0, 0, 8, 26};
     cap_start();
     scr_scroll_h(&scr, -1);
     n = cap_read(got, sizeof(got));
@@ -170,7 +172,7 @@ int main(void) {
     cap_start();
     scr_scroll_h(&scr, 3);
     n = cap_read(got, sizeof(got));
-    const unsigned char want3[] = {28, 0, 23, 80, 1,
+    const unsigned char want3[] = {28, 0, 23, 79, 1,
                                    23, 7, 0, 1, 8,
                                    23, 7, 0, 1, 8,
                                    23, 7, 0, 1, 8, 26};
