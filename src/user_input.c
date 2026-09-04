@@ -52,6 +52,7 @@ static int atoi(char* str, char sz) {
 }
 
 RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
+    scr_footer_invalidate(scr);
     scr_write_line(scr, ui->ypos_, goto_line, sizeof(goto_line));
     vdp_cursor_tab(sizeof(goto_line), ui->ypos_);
     scr_show_cursor_ch(scr, scr->cursor_);
@@ -107,6 +108,7 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
 static const char col_select[39] = "Use UP/DOWN LEFT/RIGHT to select FG/BG";
 
 RESPONSE ui_color_picker(user_input* ui, screen* scr) {
+    scr_footer_invalidate(scr);
     char fg = scr->fg_;
     char bg = scr->bg_;
 
@@ -170,6 +172,7 @@ static const char options[13] = " [Y/N/ESC]: ";
 static const char dismiss[17] = " (press any key)";
 
 void ui_message(user_input* ui, screen* scr, char* msg) {
+    scr_footer_invalidate(scr);
     const int msz = strlen(msg);
     scr_write_line(scr, ui->ypos_, msg, msz);
     vdp_cursor_tab(msz, ui->ypos_);
@@ -180,6 +183,7 @@ void ui_message(user_input* ui, screen* scr, char* msg) {
 }
 
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
+    scr_footer_invalidate(scr);
     const int msz = strlen(msg);
     scr_write_line(scr, ui->ypos_, msg, msz);
     vdp_cursor_tab(msz, ui->ypos_);
@@ -211,6 +215,7 @@ RESPONSE ui_text(
     char** buf,
     int* sz
 ) {
+    scr_footer_invalidate(scr);
     const int msz = strlen(title);
     scr_write_line(scr, ui->ypos_, title, msz);
     vdp_cursor_tab(msz, ui->ypos_);

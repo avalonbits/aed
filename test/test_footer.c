@@ -1,0 +1,141 @@
+/*
+ * Host tests for the footer repaint.
+ *
+ * The footer is a whole row of characters plus two colour changes, and the
+ * event loop asks for it on every pass. Drawing it every time is not just
+ * wasteful: those bytes go down the same serial link the VDP sends key packets
+ * back on, and the flood delayed the packets. Holding CTRL+SHIFT and tapping an
+ * arrow did nothing at all until the keys were released -- the events were
+ * queued behind AED's own output.
+ *
+ * So what is pinned here is that an unchanged footer sends *nothing*, and that
+ * a changed one still sends what it should.
+ *
+ * Run under ASan (see test/run.sh).
+ */
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <agon/mos.h>
+
+#include "screen.h"
+
+static int failures = 0;
+
+static void check(const char* name, int got, int want) {
+    if (got == want) {
+        fprintf(stderr, "PASS  %-52s got %d\n", name, got);
+    } else {
+        fprintf(stderr, "FAIL  %-52s got %d, want %d\n", name, got, want);
+        failures++;
+    }
+}
+
+/* The VDU stream is the only place the footer exists, so measure it there.
+ * stdout has to be a real file for that: on a terminal it cannot be seeked. */
+static long mark;
+
+static void cap_start(void) {
+    fflush(stdout);
+    mark = ftell(stdout);
+}
+
+static int cap_len(void) {
+    fflush(stdout);
+    const long end = ftell(stdout);
+
+    return (int) (end - mark);
+}
+
+int main(void) {
+    if (freopen("/tmp/aed_footer_capture", "w+", stdout) == NULL) {
+        fprintf(stderr, "cannot redirect stdout\n");
+
+        return 1;
+    }
+
+    screen scr;
+    scr_init(&scr, 32);
+
+    /* The first one has to draw: nothing is on screen yet. */
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    const int first = cap_len();
+    check("the first footer is drawn", first > 0, 1);
+
+    /* The event loop asks again with the cursor in the same place. */
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("an unchanged footer sends nothing", cap_len(), 0);
+
+    cap_start();
+    for (int i = 0; i < 50; i++) {
+        scr_footer(&scr, "a.txt", false, 1, 1);
+    }
+    check("...still nothing after fifty passes", cap_len(), 0);
+
+    /* Each of the three things it shows has to bring it back. */
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 2, 1);
+    check("a moved column redraws it", cap_len() > 0, 1);
+
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 2, 3);
+    check("a moved line redraws it", cap_len() > 0, 1);
+
+    cap_start();
+    scr_footer(&scr, "a.txt", true, 2, 3);
+    check("the dirty flag redraws it", cap_len() > 0, 1);
+
+    cap_start();
+    scr_footer(&scr, "b.txt", true, 2, 3);
+    check("a new filename redraws it", cap_len() > 0, 1);
+
+    /* Same length, different name -- a pointer comparison would miss this. */
+    cap_start();
+    scr_footer(&scr, "c.txt", true, 2, 3);
+    check("a same-length rename redraws it", cap_len() > 0, 1);
+
+    /* A name arriving as NULL is shown as [NO FILE], and comparing it must not
+     * dereference the null either. */
+    cap_start();
+    scr_footer(&scr, NULL, true, 2, 3);
+    check("no filename redraws it", cap_len() > 0, 1);
+    cap_start();
+    scr_footer(&scr, NULL, true, 2, 3);
+    check("...and then settles", cap_len(), 0);
+
+    /* A prompt takes the footer row, so the editor must not believe its own
+     * footer is still there when the prompt closes. */
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("settled again", cap_len(), 0);
+    scr_footer_invalidate(&scr);
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("invalidating forces a redraw", cap_len() > 0, 1);
+
+    /* Clearing the screen takes the footer with it. */
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    scr_clear(&scr);
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("a cleared screen forces a redraw", cap_len() > 0, 1);
+
+    scr_destroy(&scr);
+    fclose(stdout);
+    remove("/tmp/aed_footer_capture");
+
+    if (failures > 0) {
+        fprintf(stderr, "\n%d test(s) failed\n", failures);
+
+        return 1;
+    }
+    fprintf(stderr, "\nall tests passed\n");
+
+    return 0;
+}
