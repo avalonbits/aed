@@ -46,6 +46,11 @@ void cmd_open(editor* ed);
 // document knowledge, so it lives here rather than in the view.
 void cmd_repaint_rows(editor* ed, char fromY, char toY);
 
+// Repaints one row, but only document columns [from_col, to_col). Used when a
+// selection grows or shrinks within a row: the columns either side of the
+// change already show what they should.
+void cmd_repaint_span(editor* ed, char y, int from_col, int to_col);
+
 // The selection, as two positions in document order. Only meaningful while one
 // is being made.
 void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to);

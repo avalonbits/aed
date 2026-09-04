@@ -141,7 +141,7 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
 }
 
 void ed_selection_repaint(editor* ed, sel_action act, char y_before,
-                          int top_before, int origin_before) {
+                          char x_before, int top_before, int origin_before) {
     if (act == SEL_NONE) {
         return;
     }
@@ -159,10 +159,19 @@ void ed_selection_repaint(editor* ed, sel_action act, char y_before,
         || top_after != top_before
         || scr->originX_ != origin_before) {
         cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    } else if (y_before == scr->currY_) {
+        // The cursor stayed on its row, so the highlight changed only between
+        // the column it was in and the one it is in now -- a character for an
+        // arrow, a word for CTRL with one. The rest of the row already shows
+        // what it should, and a row is eighty characters down a serial link.
+        // One column past the far end, because the cell the cursor vacated has
+        // to be repainted as ordinary text.
+        const char from = x_before < scr->currX_ ? x_before : scr->currX_;
+        const char to = x_before < scr->currX_ ? scr->currX_ : x_before;
+        cmd_repaint_span(ed, scr->currY_, scr->originX_ + from,
+                         scr->originX_ + to + 1);
     } else {
-        // Otherwise the highlight only changed between where the cursor was and
-        // where it is, which for an arrow key is a row or two. A full repaint
-        // costs 33-47ms on the VDP and this runs on every keystroke.
+        // It changed rows without the view moving, so both rows need doing.
         const char lo = y_before < scr->currY_ ? y_before : scr->currY_;
         const char hi = y_before < scr->currY_ ? scr->currY_ : y_before;
         cmd_repaint_rows(ed, lo, hi);
@@ -232,6 +241,7 @@ void ed_run(editor* ed) {
         // Where the view was, so the repaint afterwards can tell a cursor that
         // moved within the screen from one that moved the screen.
         const char y_before = scr->currY_;
+        const char x_before = scr->currX_;
         const int top_before = tb_ypos(buf) - (y_before - scr->topY_);
         const int origin_before = scr->originX_;
 
@@ -260,7 +270,7 @@ void ed_run(editor* ed) {
         // A replace leaves no selection and has moved the text below it, so it
         // repaints like a drop: the whole area.
         ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,
-                             y_before, top_before, origin_before);
+                             y_before, x_before, top_before, origin_before);
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
