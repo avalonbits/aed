@@ -441,6 +441,15 @@ static void reset_viewport(void) {
 }
 
 void scr_clear_textarea(screen* scr, char top, char bottom) {
+    // The viewport includes `bottom`, and the callers that refresh the whole
+    // screen pass bottomY_ -- which is the footer row. So this erases the
+    // footer even though nothing here draws it back. That went unnoticed while
+    // the footer was redrawn on every pass of the event loop; now that an
+    // unchanged one sends nothing, it has to be said out loud or a full
+    // refresh leaves the row blank until the cursor happens to move.
+    if (bottom >= scr->bottomY_) {
+        scr->footerDrawn_ = false;
+    }
     define_viewport(0, bottom, scr->cols_, top);
     vdp_clear_screen();
     reset_viewport();

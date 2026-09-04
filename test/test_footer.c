@@ -119,6 +119,26 @@ int main(void) {
     scr_footer(&scr, "a.txt", false, 1, 1);
     check("invalidating forces a redraw", cap_len() > 0, 1);
 
+    /* A full-screen refresh clears the text area with the viewport running to
+     * bottomY_ -- which is the footer row -- and then paints only the rows
+     * above it. So it erases the footer without drawing it back. */
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("settled before the refresh", cap_len(), 0);
+    scr_clear_textarea(&scr, scr.topY_, scr.bottomY_);
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("a full refresh brings the footer back", cap_len() > 0, 1);
+
+    /* A clear that stops above the footer leaves it alone, and must not throw
+     * the saving away. */
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    scr_clear_textarea(&scr, scr.topY_, (char) (scr.bottomY_ - 1));
+    cap_start();
+    scr_footer(&scr, "a.txt", false, 1, 1);
+    check("a partial clear still sends nothing", cap_len(), 0);
+
     /* Clearing the screen takes the footer with it. */
     scr_footer(&scr, "a.txt", false, 1, 1);
     scr_clear(&scr);
