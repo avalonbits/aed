@@ -168,7 +168,32 @@ screen *scr_init(screen* scr, char cursor) {
 
     vdp_cursor_enable(false);
     scr->rows_ = getsysvar_scrRows();
-    scr->cols_ = getsysvar_scrCols();
+
+    // One column narrower than the screen reports. The rightmost column is
+    // never written, never scrolled, and never holds the cursor.
+    //
+    // Writing the last column of a row stops the next keystroke arriving.
+    // Measured on hardware with a probe that does nothing else: eleven
+    // characters written at column 0 are harmless, and the same eleven written
+    // against the right edge stop the following key until something breaks the
+    // sequence. Not the byte count, not the number of writes, not the colours
+    // around it, not moving the cursor back afterwards -- each ruled out by a
+    // probe differing from a working one in one line.
+    //
+    // The cause is most likely the pending newline that scroll protection
+    // creates (VDU 23,16 bit 0, which this editor turns on): a character in the
+    // last column does not scroll, it leaves a newline pending, and the VDP
+    // waits. VDU 8 cancels one -- which is why drawing the cursor there was
+    // always harmless, since scr_show_cursor_ch has always followed its
+    // character with a cursor-left. Cancelling explicitly after the footer and
+    // the paint was tried and did not hold up: the region scroll shifts content
+    // into that column too, and cancelling after *that* scrolled the screen
+    // diagonally. Not writing the column at all is what works.
+    //
+    // The cost is one column of width. It is a deliberate right margin rather
+    // than a lost column, and it is why cols_ is the usable width everywhere
+    // else in this file.
+    scr->cols_ = getsysvar_scrCols() - 1;
     scr->colors_ = getsysvar_scrColours();
     scr->cursor_ = cursor;
     scr->lastFname_[0] = 0;
@@ -514,6 +539,12 @@ int scr_down(screen* scr, char from_ch, char to_ch,
 }
 
 // VDU 28, left, bottom, right, top -- define a text viewport.
+// VDU 28 takes character *positions*, so `right` is the index of the last
+// column, not the number of columns. Every call here passed cols_, which is one
+// past the end of the screen -- an out-of-range viewport, and the VDP is not
+// documented to say what it does with one. What it did: the horizontal scroll
+// stopped working at the right edge, and writes afterwards went down a column
+// instead of along the row.
 static void define_viewport(char left, char bottom, char right, char top) {
     static char viewport[5] = {28, 0, 0, 0, 0};
     viewport[1] = left;
@@ -538,7 +569,7 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
     if (bottom >= scr->bottomY_) {
         scr->footerDrawn_ = false;
     }
-    define_viewport(0, bottom, scr->cols_, top);
+    define_viewport(0, bottom, (char) (scr->cols_ - 1), top);
     vdp_clear_screen();
     reset_viewport();
 }
@@ -694,7 +725,7 @@ void scr_sync_cursor(screen* scr) {
 static void scroll_region(
         screen* scr, char topY, char bottomY, const char* vdu, char sz,
         char* line, int lsz, char ch) {
-    define_viewport(0, bottomY, scr->cols_, topY);
+    define_viewport(0, bottomY, (char) (scr->cols_ - 1), topY);
     mos_puts((char*) vdu, sz, 0);
     reset_viewport();
     scr_paint_row(scr, scr->currY_, NULL, 0, line, lsz);
@@ -719,7 +750,7 @@ void scr_scroll_h(screen* scr, int cols) {
     }
     scroll[4] = 8;       // one character cell
 
-    define_viewport(0, scr->bottomY_ - 1, scr->cols_, scr->topY_);
+    define_viewport(0, scr->bottomY_ - 1, (char) (scr->cols_ - 1), scr->topY_);
     for (int i = 0; i < n; i++) {
         VDP_PUTS(scroll);
     }
