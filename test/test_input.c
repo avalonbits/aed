@@ -152,19 +152,33 @@ int main(void) {
         check("...all of them", stub_keys_read(), 3);
     }
 
-    /* Pressing shift is its own event, before the key it modifies. It must not
-     * command anything: the selection machinery skips it, but only because it
-     * arrives as a key with no command attached. */
+    /* Pressing shift is its own event, before the key it modifies -- and the
+     * editor has no use for it. What the chord means arrives in the modifier
+     * bits of the arrow or the letter. So the wait swallows them: waking the
+     * editor for one costs a turn of the loop, and it is not reading the queue
+     * while it takes one. */
     {
-        const stub_key shift = { ASC_NONE, VKC_LSHIFT, 0, 0 };
-        const key_command kc = one(shift);
-        check("SHIFT alone commands nothing", kc.cmd == NULL, 1);
-        check("SHIFT alone is a modifier", ed_is_modifier(kc.k.vkey), 1);
+        static const stub_key script[] = {
+            { ASC_NONE, VKC_LCTRL,  0,        0 },   /* CTRL down  */
+            { ASC_NONE, VKC_LSHIFT, MOD_CTRL, 0 },   /* SHIFT down */
+            { ASC_RIGHT, VKC_RIGHT, MOD_CTRL | MOD_SHFT, 0 },
+        };
+        stub_set_keys(script, 3);
+        const key_command kc = read_input();
+        check("the modifiers themselves never reach the editor",
+              kc.cmd == cmd_w_right, 1);
+        check("...and all three were taken from the queue",
+              stub_keys_read(), 3);
+        check("...with the chord's modifiers intact", kc.mods,
+              MOD_CTRL | MOD_SHFT);
+    }
 
-        const stub_key ctrl = { ASC_NONE, VKC_LCTRL, 0, 0 };
-        const key_command cc = one(ctrl);
-        check("CTRL alone commands nothing", cc.cmd == NULL, 1);
-        check("CTRL alone is a modifier", ed_is_modifier(cc.k.vkey), 1);
+    /* The predicate is still what the selection machinery asks with, and still
+     * has to be right: it is what stops a stray modifier ending a selection. */
+    {
+        check("SHIFT is a modifier", ed_is_modifier(VK_LSHIFT), 1);
+        check("CTRL is a modifier", ed_is_modifier(VK_LCTRL), 1);
+        check("an arrow is not", ed_is_modifier(VK_RIGHT), 0);
     }
 
     /* The MOS key vector outlives the process if AED does not take it back

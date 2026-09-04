@@ -164,6 +164,15 @@ int main(void) {
     check("insert repaints from the inserted tab's column",
           n > 9 && memcmp(buf + 1, "    col0", 8) == 0, 1);
 
+    /* An insert paints the tail of the line through the buffer, and the cursor
+     * is put back afterwards. The buffer has to be emptied before that move or
+     * the text lands wherever the cursor went next -- and, worse, sits there
+     * until something else happens to flush it. */
+    stub_writes_reset();
+    scr_putc(&scr, 'Q', "Q", 1, "tail", 4);
+    check("an insert is flushed before the cursor is put back",
+          stub_tab_at(), stub_writes());
+
     /* Same for an ordinary character, which the cursor also sits past. */
     cap_start();
     scr_putc(&scr, 'X', "X", 1, "yz", 2);
