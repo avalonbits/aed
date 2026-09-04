@@ -334,7 +334,46 @@ int main(void) {
     check("the headings survive", strstr(merged, "[colours]") != NULL, 1);
     check("  both of them", strstr(merged, "[editor]") != NULL, 1);
     check("the new fg is written", strstr(merged, "fg = 3") != NULL, 1);
+    check("  ending the way the line it replaced did",
+          strstr(merged, "fg = 3\r\n") != NULL, 1);
+    /* Every line ending in the file is still a CRLF: not one bare LF anywhere,
+     * which is what a half-converted file looks like. */
+    {
+        int bare = 0;
+        for (int i = 0; i < mn; i++) {
+            if (merged[i] == '\n' && (i == 0 || merged[i - 1] != '\r')) {
+                bare++;
+            }
+        }
+        check("  and no line was left with a bare LF", bare, 0);
+    }
     check("the new bg is written", strstr(merged, "bg = 4") != NULL, 1);
+
+    /* A file whose last line has no LF at all, and ends with a stray CR -- a
+     * truncated CRLF. The rewrite keeps the line's CR, and the code that
+     * terminates an unterminated last line then used to append a second one,
+     * leaving \r\r\n. Both the changed line and an untouched one hit it. */
+    {
+        static const char stub_cr[] =
+            "[colours]\r\nbg = 9\r\nfg = 15\r";
+        config trunc;
+        cfg_defaults(&trunc);
+        trunc.fg = 3;
+        trunc.bg = 9;
+
+        stub_file_reset();
+        stub_file_set_content(stub_cr, (int) sizeof(stub_cr) - 1);
+        check("truncated last line updates", cfg_update(&trunc, CFG_PATH) ? 1 : 0, 1);
+        const int tn = stub_file_size();
+        char out[512];
+        memcpy(out, stub_file_bytes(), (size_t) tn);
+        out[tn] = 0;
+
+        check("the changed last line is terminated once",
+              strstr(out, "fg = 3\r\n") != NULL, 1);
+        check("  and no CR was doubled", strstr(out, "\r\r") == NULL, 1);
+    }
+
     check("the old fg is gone", strstr(merged, "fg = 15") == NULL, 1);
 
     /* And it must still parse back to what we asked for. */
@@ -422,6 +461,10 @@ int main(void) {
     merged[cn] = 0;
     check("the changed line keeps its comment",
           strstr(merged, "# my foreground") != NULL, 1);
+    /* And its line ending. lend points at the LF, so the CR of a CRLF sits
+     * inside the text being replaced -- copy from the LF and it is gone, which
+     * turns one line of an otherwise CRLF file into a bare LF. */
+    check("  and its CRLF", strstr(merged, "# my foreground\r\n") != NULL, 1);
     check("  and carries the new value", strstr(merged, "fg = 3") != NULL, 1);
 
     /* --- exit puts the machine back the way it was found --- */
