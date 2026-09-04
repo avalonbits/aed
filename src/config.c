@@ -38,6 +38,7 @@ static const setting_id SETTINGS[] = {
     { "editor",  "tab" },
     { "colours", "fg"  },
     { "colours", "bg"  },
+    { "vdp",     "ctrl_pause_frames" },
 };
 #define N_SETTINGS ((int)(sizeof(SETTINGS) / sizeof(SETTINGS[0])))
 
@@ -46,6 +47,7 @@ static int* cfg_field(config* cfg, int i) {
         case 0:  return &cfg->tab_size;
         case 1:  return &cfg->fg;
         case 2:  return &cfg->bg;
+        case 3:  return &cfg->ctrl_pause;
         default: return NULL;
     }
 }
@@ -55,6 +57,7 @@ static int cfg_value(const config* cfg, int i) {
         case 0:  return cfg->tab_size;
         case 1:  return cfg->fg;
         case 2:  return cfg->bg;
+        case 3:  return cfg->ctrl_pause;
         default: return -1;
     }
 }
@@ -63,6 +66,7 @@ void cfg_defaults(config* cfg) {
     cfg->tab_size = -1;
     cfg->fg = -1;
     cfg->bg = -1;
+    cfg->ctrl_pause = -1;
 }
 
 static bool is_space(char c) {

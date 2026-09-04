@@ -235,6 +235,24 @@ int main(void) {
               stub_tab_at(), stub_writes());
     }
 
+    /* The CTRL pause setting. The VDU that carries it is a later addition, and
+     * a VDP that does not know it reads the four bytes after it as commands --
+     * one of which clears the screen. So nothing is sent unless a value was
+     * actually asked for. */
+    {
+        cap_start();
+        scr_set_ctrl_pause_frames(&scr, -1);
+        check("no value asked for, nothing sent", cap_len(), 0);
+
+        cap_start();
+        scr_set_ctrl_pause_frames(&scr, 999);
+        check("a value that will not fit, nothing sent", cap_len(), 0);
+
+        cap_start();
+        scr_set_ctrl_pause_frames(&scr, 0);
+        check("turning it off is seven bytes", cap_len(), 7);
+    }
+
     scr_destroy(&scr);
     fclose(stdout);
     remove("/tmp/aed_footer_capture");

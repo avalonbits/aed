@@ -41,6 +41,14 @@ typedef struct _config {
     int tab_size;
     int fg;
     int bg;
+    // Frames the VDP pauses for on a line wrap while CTRL is held. It defaults
+    // to 3, which makes CTRL with an arrow key feel sluggish once a line
+    // reaches the right-hand edge. Setting it to 0 turns that off.
+    //
+    // Off by default because the VDU sequence that sets it does not exist on
+    // older VDPs, and one that does not know it reads the four bytes that
+    // follow as commands -- one of which clears the screen.
+    int ctrl_pause;
 } config;
 
 // Every field cleared to "not set".
