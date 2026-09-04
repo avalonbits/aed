@@ -22,11 +22,20 @@
 #include "char_buffer.h"
 #include "line_buffer.h"
 
+// Line ending the document came in with, and the one it goes back out as. The
+// buffer itself is always CRLF -- every consumer of the line index subtracts 2
+// for a break -- so this is purely about what reaches the file.
+typedef enum _tb_eol_style {
+    TB_EOL_CRLF = 0,
+    TB_EOL_LF,
+} tb_eol_style;
+
 typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
     int x_;
     bool dirty_;
+    tb_eol_style eol_;
 
     char fname_[256];
 } text_buffer;

@@ -38,6 +38,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->x_ = 0;
     tb->fname_[0] = 0;
     tb->dirty_ = false;
+    tb->eol_ = TB_EOL_CRLF;
 
     if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
@@ -635,6 +636,7 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->x_ = src->x_;
     dst->fname_[0] = 0;
     dst->dirty_ = false;
+    dst->eol_ = src->eol_;
 }
 
 // Char read.
@@ -720,21 +722,48 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
     //  Now update the line buffer. Tabs are kept as-is -- they are one byte in
     //  the document and the view decides how wide they render. Only line
     //  endings are normalised, since the line index assumes a two-byte CRLF.
+    // `added` counts the CRs put in front of a bare LF, `crlf` the breaks that
+    // already had one. Together they say what the file's endings were, which is
+    // what decides how it goes back out.
     int added = 0;
+    int crlf = 0;
     for (int i = 0; i < sz; i++) {
         lb_cinc(&tb->lb_);
         if (cb_peek(cb) == '\n') {
-            added += ensure_newline(&tb->cb_, &tb->lb_);
+            const int n = ensure_newline(&tb->cb_, &tb->lb_);
+            if (n == 0) {
+                crlf++;
+            }
+            added += n;
         }
         cb_next(cb, 1);
     }
 
     if (cb_peek(cb) == '\n') {
-        added += ensure_newline(&tb->cb_, &tb->lb_);
+        const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n == 0) {
+            crlf++;
+        }
+        added += n;
     }
 
     cb_prev(cb, sz+added);
-    tb->dirty_ = added != 0;
+
+    // A file whose breaks were all bare LFs is written back as bare LFs, so
+    // opening it and saving it leaves it byte for byte as it was. That is what
+    // lets it be clean on open: nothing the user did, and nothing a save would
+    // do, has changed it.
+    //
+    // A file with both kinds cannot have that. It goes back out as CRLF, which
+    // rewrites its LF-only lines -- a real change to the file, so it opens
+    // dirty and the exit prompt is telling the truth.
+    if (added > 0 && crlf == 0) {
+        tb->eol_ = TB_EOL_LF;
+        tb->dirty_ = false;
+    } else {
+        tb->eol_ = TB_EOL_CRLF;
+        tb->dirty_ = added != 0;
+    }
 
     // Now move the line buffer back to the first line.
     while (lb_up(&tb->lb_)) ;
@@ -795,6 +824,9 @@ void tb_clear(text_buffer* tb) {
     lb_clear(&tb->lb_);
     tb->x_ = 0;
     tb->dirty_ = false;
+    // An emptied document has no endings to preserve, so it takes the platform
+    // default rather than keeping the last file's.
+    tb->eol_ = TB_EOL_CRLF;
 }
 
 tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
@@ -850,6 +882,63 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     return ok ? TB_OK : TB_NO_FILE;
 }
 
+// Writes the document with the CR of every CRLF dropped, so a file that came in
+// with bare LFs goes back out with them. Buffered because doing it a byte at a
+// time would be one MOS call per character.
+//
+// Only a CR that is immediately followed by an LF is dropped. A lone CR is text
+// as far as this editor is concerned -- an LF-only file can still contain one,
+// and it survives the round trip.
+typedef struct _lf_writer {
+    char fh;
+    int n;
+    char buf[256];
+} lf_writer;
+
+static void lfw_flush(lf_writer* w) {
+    if (w->n > 0) {
+        mos_fwrite(w->fh, w->buf, (unsigned) w->n);
+        w->n = 0;
+    }
+}
+
+static void lfw_put(lf_writer* w, char c) {
+    if (w->n == (int) sizeof(w->buf)) {
+        lfw_flush(w);
+    }
+    w->buf[w->n++] = c;
+}
+
+// The document is two segments with the gap between them, at wherever the cursor
+// happens to be. This walks them as one stream so that where the split fell is
+// not something the CR test has to care about.
+//
+// Cursor movement steps over a break two bytes at a time, so the gap is not
+// thought to be able to land between a CR and its LF -- a test that breaks only
+// that case fails nothing. The lookahead spans the segments anyway: it costs one
+// comparison, and the alternative is this staying correct only for as long as
+// that remains true of every edit path.
+static void tb_write_lf(char fh, const char* pre, int psz,
+                        const char* suf, int ssz) {
+    lf_writer w;
+    w.fh = fh;
+    w.n = 0;
+
+    const int total = psz + ssz;
+    for (int i = 0; i < total; i++) {
+        const char c = i < psz ? pre[i] : suf[i - psz];
+        if (c == '\r') {
+            const int j = i + 1;
+            const char nx = j < psz ? pre[j] : (j < total ? suf[j - psz] : 0);
+            if (nx == '\n') {
+                continue;
+            }
+        }
+        lfw_put(&w, c);
+    }
+    lfw_flush(&w);
+}
+
 bool tb_save(text_buffer* tb) {
     if (!tb_valid_file(tb)) {
         return false;
@@ -868,11 +957,16 @@ bool tb_save(text_buffer* tb) {
     int ssz = 0;
     tb_content(tb, &prefix, &psz, &suffix, &ssz);
 
-    if (prefix != NULL && psz > 0) {
-        mos_fwrite(fh, prefix, psz);
-    }
-    if (suffix != NULL && ssz > 0) {
-        mos_fwrite(fh, suffix, ssz);
+    if (tb->eol_ == TB_EOL_LF) {
+        tb_write_lf(fh, prefix, prefix != NULL ? psz : 0,
+                    suffix, suffix != NULL ? ssz : 0);
+    } else {
+        if (prefix != NULL && psz > 0) {
+            mos_fwrite(fh, prefix, psz);
+        }
+        if (suffix != NULL && ssz > 0) {
+            mos_fwrite(fh, suffix, ssz);
+        }
     }
 
     mos_fclose(fh);
