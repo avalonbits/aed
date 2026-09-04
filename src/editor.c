@@ -26,6 +26,7 @@
 
 #include "cmd_ops.h"
 #include "config.h"
+#include "keys.h"
 
 #define DEFAULT_CURSOR 32
 
@@ -77,17 +78,20 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     if (tb_used(&ed->buf_) > 0) {
         cmd_show(ed);
     }
+
+    // Last, so that no failure above has to take it back down again.
+    keys_open();
+
     return ed;
 }
 
 void ed_destroy(editor* ed) {
+    keys_close();
     clip_destroy(&ed->clip_);
     ui_destroy(&ed->ui_);
     scr_destroy(&ed->scr_);
     tb_destroy(&ed->buf_);
 }
-
-key_command read_input();
 
 // Shift with a motion key starts a selection if there is none and extends it if
 // there is. Anything else ends it -- which is what makes the mode invisible:
@@ -374,15 +378,20 @@ key_command editCmds(key_command kc) {
     return kc;
 }
 
-key_command read_input() {
+key_command read_input(void) {
     key_command kc = {NULL, {'\0', VK_NONE}, 0};
-    kc.k.key = getch();
-    kc.k.vkey = getsysvar_vkeycode();
 
-    const char mods = getsysvar_keymods();
-    kc.mods = mods;
-    if (mods & MOD_CTRL) {
-        return ctrlCmds(kc, mods);
+    // One event carries the key and the modifiers held with it, so a chord
+    // arrives whole. Reading them separately -- a character, then the keymods
+    // sysvar -- is what used to lose CTRL+SHIFT+<arrow>: the chord produces no
+    // character to read.
+    const key_press kp = keys_wait();
+    kc.k.key = kp.ch;
+    kc.k.vkey = kp.vkey;
+    kc.mods = kp.mods;
+
+    if (kp.mods & MOD_CTRL) {
+        return ctrlCmds(kc, kp.mods);
     }
 
     if (kc.k.key == '\t' || (kc.k.key != 0x7F && kc.k.key >= 32)) {

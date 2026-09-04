@@ -30,16 +30,26 @@ uint8_t  getsysvar_scrCols(void);
 uint8_t  getsysvar_scrRows(void);
 uint8_t  getsysvar_scrColours(void);
 
-/* Keyboard. The prompts in user_input.c drive their own blocking loops; these
- * let the controller link without any test actually pressing a key. The
- * modifier masks come from vkey.h, not here. */
-char     getch(void);
-
-/* A scripted key sequence for the modal prompts, which drive their own blocking
- * getch loops. When it runs out, ESCAPE is returned forever so a test can never
- * hang in one of them. */
-typedef struct { char ch; unsigned char vk; unsigned char mods; } stub_key;
+/* A scripted key sequence, served through the stubbed <agon/keyboard.h> queue.
+ * Every blocking read in AED -- the main loop and the modal prompts alike --
+ * drains that queue, so one script drives all of them. When it runs out,
+ * ESCAPE is returned forever so a test can never hang waiting for a key.
+ *
+ * `up` marks an entry as a key being released rather than pressed. MOS reports
+ * both; AED acts on neither release nor modifier-only press, and leaving the
+ * field out gives a press, which is what nearly every test wants. The modifier
+ * masks come from vkey.h, not here. */
+typedef struct {
+    char ch;
+    unsigned char vk;
+    unsigned char mods;
+    unsigned char up;
+} stub_key;
 void        stub_set_keys(const stub_key* keys, int n);
+
+/* Whether the MOS key vector is currently installed. AED must take it back down
+ * on the way out: MOS keeps calling it otherwise. */
+int         stub_keys_installed(void);
 
 /* The last colours handed to vdp_set_text_colour. Foreground and background are
  * distinguished the way the VDP does it: background is offset by 128. */
@@ -51,8 +61,6 @@ void        stub_emit_colours(int on);
 int         stub_last_fg(void);
 int         stub_last_bg(void);
 void        stub_colours_reset(void);
-uint8_t  getsysvar_vkeycode(void);
-uint8_t  getsysvar_keymods(void);
 
 uint8_t  mos_fopen(const char* filename, uint8_t mode);
 uint8_t  mos_mkdir(const char* path);
