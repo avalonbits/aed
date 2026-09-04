@@ -123,6 +123,9 @@ int main(void) {
      * of a full row: the row is redrawn a column at a time -- the padding is a
      * putchar loop, one MOS call per space -- and all of it except the position
      * field is unchanged. */
+    /* Measured against barW_, not cols_. The footer is a bar: it spans the full
+     * drawable width from column 0, while the text area between the bars is
+     * inset one column on each side and is therefore two narrower. */
     {
         scr_footer_invalidate(&scr);
         cap_start();
@@ -169,12 +172,12 @@ int main(void) {
         scr_footer_invalidate(&scr);
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 1);
-        check("a short line number fills the row", cap_len(), scr.cols_);
+        check("a short line number fills the row", cap_len(), scr.barW_);
 
         scr_footer_invalidate(&scr);
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 123456);
-        check("a six-digit line number also fills it", cap_len(), scr.cols_);
+        check("a six-digit line number also fills it", cap_len(), scr.barW_);
 
         /* Growing into a wider field moves everything left of it, so the whole
          * row has to be drawn even though the file did not change. */
@@ -182,7 +185,7 @@ int main(void) {
         scr_footer(&scr, "a.txt", false, 1, 9999);
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 10000);
-        check("widening the field redraws the row", cap_len(), scr.cols_);
+        check("widening the field redraws the row", cap_len(), scr.barW_);
 
         /* Within one width it stays on the fast path. */
         cap_start();

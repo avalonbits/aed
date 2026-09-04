@@ -172,8 +172,12 @@ screen *scr_init(screen* scr, char cursor) {
     vdp_cursor_enable(false);
     scr->rows_ = getsysvar_scrRows();
 
-    // One column narrower than the screen reports. The rightmost column is
-    // never written, never scrolled, and never holds the cursor.
+    // The screen is laid out as two full-width bars with an inset text area
+    // between them. The header and footer span barW_ columns from column 0; the
+    // text area is cols_ wide starting at textX_, one column in from each side.
+    //
+    // The right-hand margin is not cosmetic and must not be reclaimed. The
+    // rightmost column of the screen is never written by anything.
     //
     // Writing the last column of a row stops the next keystroke arriving.
     // Measured on hardware with a probe that does nothing else: eleven
@@ -223,10 +227,16 @@ screen *scr_init(screen* scr, char cursor) {
     // Sent unconditionally to an older VDP the bracket does nothing and the
     // last-column write wraps. Not writing the column works on every VDP.
     //
-    // The cost is one column of width. It is a deliberate right margin rather
-    // than a lost column, and it is why cols_ is the usable width everywhere
-    // else in this file.
-    scr->cols_ = getsysvar_scrCols() - 1;
+    // barW_ stops one short of the screen for that reason. The text area then
+    // stops one short of barW_ and starts one column in, so the blank column on
+    // the right is matched by one on the left and the text sits centred between
+    // them rather than pushed against one edge.
+    {
+        const int w = getsysvar_scrCols();
+        scr->barW_ = w - 1;
+        scr->textX_ = 1;
+        scr->cols_ = scr->barW_ - 1;
+    }
     scr->colors_ = getsysvar_scrColours();
 
     // Cell size for the VDU 23,7 movement byte, derived rather than assumed.
@@ -399,6 +409,8 @@ void scr_destroy(screen* scr) {
     scr->currY_ = 0;
     scr->rows_ = 0;
     scr->cols_ = 0;
+    scr->barW_ = 0;
+    scr->textX_ = 0;
 }
 
 void scr_footer_invalidate(screen* scr) {
@@ -478,11 +490,11 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     // for this costs a MOS call per column -- the padding is a putchar loop --
     // and the row is mostly spaces that were already spaces.
     if (same_file) {
-        vdp_cursor_tab((char) (scr->cols_ - posw), scr->bottomY_);
+        vdp_cursor_tab((char) (scr->barW_ - posw), scr->bottomY_);
         set_colours(scr->bg_, scr->fg_);
         footer_position(x, y);
         set_colours(scr->fg_, scr->bg_);
-        vdp_cursor_tab(scr->currX_, scr->currY_);
+        scr_tab(scr, scr->currX_, scr->currY_);
 
         return;
     }
@@ -493,11 +505,11 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     out_str(fname, fnsz);
     out_ch(dirty ? '*' : ' ');
     out_ch(' ');
-    out_run(' ', scr->cols_ - fnsz - 2 - posw);
+    out_run(' ', scr->barW_ - fnsz - 2 - posw);
     footer_position(x, y);
 
     set_colours(scr->fg_, scr->bg_);
-    vdp_cursor_tab(scr->currX_, scr->currY_ );
+    scr_tab(scr, scr->currX_, scr->currY_);
 }
 
 char* title = "AED: Another Text Editor";
@@ -507,18 +519,25 @@ void scr_clear(screen* scr) {
     vdp_clear_screen();
     vdp_cursor_home();
     vdp_cursor_tab(0,0);
+    // Split the remainder rather than halving it twice: an odd number of spare
+    // columns would otherwise lose one, leaving the header a column short of
+    // the bar it is supposed to span -- and now that the text area reaches the
+    // column before the bar's last, that shortfall is visible as text sticking
+    // out past the rule above it.
     const int len = strlen(title);
-    const int banner = (scr->cols_ - len)/2;
-    out_run('-', banner);
+    const int spare = scr->barW_ - len;
+    const int left = spare / 2;
+    const int right = spare - left;
+    out_run('-', left);
     set_colours(scr->bg_, scr->fg_);
     out_str(title, strlen(title));
     set_colours(scr->fg_, scr->bg_);
-    out_run('-', banner);
+    out_run('-', right);
     out_flush();
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
     scr->originX_ = 0;
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_tab(scr, scr->currX_, scr->currY_);
 }
 
 void scr_hide_cursor_ch(screen* scr, char ch) {
@@ -588,7 +607,7 @@ int scr_up(screen* scr, char from_ch, char to_ch,
     scr->currY_--;
     const int scrolled = scr_place_cursor(scr, pre, presz);
     if (scrolled == 0) {
-        vdp_cursor_tab(scr->currX_, scr->currY_);
+        scr_tab(scr, scr->currX_, scr->currY_);
         scr_show_cursor_ch(scr, to_ch);
     }
 
@@ -601,7 +620,7 @@ int scr_down(screen* scr, char from_ch, char to_ch,
     scr->currY_++;
     const int scrolled = scr_place_cursor(scr, pre, presz);
     if (scrolled == 0) {
-        vdp_cursor_tab(scr->currX_, scr->currY_);
+        scr_tab(scr, scr->currX_, scr->currY_);
         scr_show_cursor_ch(scr, to_ch);
     }
 
@@ -639,7 +658,7 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
     if (bottom >= scr->bottomY_) {
         scr->footerDrawn_ = false;
     }
-    define_viewport(0, bottom, (char) (scr->cols_ - 1), top);
+    define_viewport(scr->textX_, bottom, (char) (scr->textX_ + scr->cols_ - 1), top);
     vdp_clear_screen();
     reset_viewport();
 }
@@ -695,7 +714,7 @@ void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         return;
     }
 
-    vdp_cursor_tab((char)(from - scr->originX_), ypos);
+    scr_tab(scr, from - scr->originX_, ypos);
     scr->selOn_ = 0;
     int col = 0;
     if (pre != NULL && presz > 0) {
@@ -752,7 +771,7 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
     const int at = scr->originX_ + scr->currX_;
     const int stop = scr->originX_ + scr->cols_;
 
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_tab(scr, scr->currX_, scr->currY_);
     int col = at;
     if (suf != NULL && sufsz > 0) {
         col = emit_span(scr, suf, sufsz, col, at, stop);
@@ -785,9 +804,13 @@ void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
     scr_paint_row(scr, ypos, NULL, 0, buf, sz);
 }
 
+void scr_tab(screen* scr, int col, char row) {
+    vdp_cursor_tab((char) (col + scr->textX_), row);
+}
+
 void scr_sync_cursor(screen* scr) {
     out_flush();
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_tab(scr, scr->currX_, scr->currY_);
 }
 
 // VDU 23,7,extent,direction,movement -- scroll the current text viewport by one
@@ -795,7 +818,7 @@ void scr_sync_cursor(screen* scr) {
 static void scroll_region(
         screen* scr, char topY, char bottomY, const char* vdu, char sz,
         char* line, int lsz, char ch) {
-    define_viewport(0, bottomY, (char) (scr->cols_ - 1), topY);
+    define_viewport(scr->textX_, bottomY, (char) (scr->textX_ + scr->cols_ - 1), topY);
     mos_puts((char*) vdu, sz, 0);
     reset_viewport();
     scr_paint_row(scr, scr->currY_, NULL, 0, line, lsz);
@@ -820,7 +843,7 @@ void scr_scroll_h(screen* scr, int cols) {
     }
     scroll[4] = scr->charW_;   // one character cell, in pixels
 
-    define_viewport(0, scr->bottomY_ - 1, (char) (scr->cols_ - 1), scr->topY_);
+    define_viewport(scr->textX_, scr->bottomY_ - 1, (char) (scr->textX_ + scr->cols_ - 1), scr->topY_);
     for (int i = 0; i < n; i++) {
         VDP_PUTS(scroll);
     }
@@ -847,7 +870,7 @@ char scr_glyph_at(screen* scr, const char* line, int len, int col) {
 }
 
 void scr_put_at(screen* scr, char sx, char sy, char ch) {
-    vdp_cursor_tab(sx, sy);
+    scr_tab(scr, sx, sy);
     putchar(ch);
     scr_sync_cursor(scr);
 }
@@ -871,6 +894,6 @@ void scr_erase(screen* scr, int sz) {
     }
     out_run(' ', sz - scr->currX_);
     out_flush();
-    vdp_cursor_tab(scr->currX_, scr->currY_);
+    scr_tab(scr, scr->currX_, scr->currY_);
 }
 

@@ -57,9 +57,19 @@ int stub_writes(void)   { return stub_write_n; }
 int stub_max_write(void) { return stub_write_max; }
 int stub_tab_at(void)   { return stub_tab_write_n; }
 
+/* Where the last vdp_cursor_tab put the cursor. The tab itself emits nothing
+ * into the captured stream, so without this the column the view chose to paint
+ * at is invisible to every test -- which is exactly where the text-area margin
+ * lives. */
+static int stub_tab_x = -1;
+static int stub_tab_y = -1;
+
+int stub_last_tab_x(void) { return stub_tab_x; }
+int stub_last_tab_y(void) { return stub_tab_y; }
+
 void vdp_cursor_tab(int x, int y) {
-    (void)x;
-    (void)y;
+    stub_tab_x = x;
+    stub_tab_y = y;
     stub_tab_write_n = stub_write_n;
 }
 

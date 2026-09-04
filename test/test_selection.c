@@ -651,10 +651,14 @@ int main(void) {
     stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
     editor widest;
     check("an editor on the widest mode", ed_init(&widest, 8, "wide.txt") != NULL, 1);
-    /* 127, not the 128 the mode reports: the rightmost column is deliberately
-     * unused. What this test is really for is that the width stays positive
-     * and sane on the widest mode -- it used to be -128 in a signed char. */
-    check("  reports its usable columns", widest.scr_.cols_, 127);
+    /* 126, not the 128 the mode reports: the rightmost column is deliberately
+     * unused, and the text area is inset one further on each side so the blank
+     * column on the right is matched on the left. The bars still span 127.
+     * What this test is really for is that the width stays positive and sane on
+     * the widest mode -- it used to be -128 in a signed char. */
+    check("  reports its usable columns", widest.scr_.cols_, 126);
+    check("  while the bars span the full drawable width", widest.scr_.barW_, 127);
+    check("  and the text starts one column in", widest.scr_.textX_, 1);
     check("  and all its rows", widest.scr_.rows_, 96);
     check("  with a positive width", widest.scr_.cols_ > 0, 1);
 
@@ -665,11 +669,11 @@ int main(void) {
     scr_write_line_sel(wscr, wscr->topY_, "hello world", 11, 2, 5);
     {
         static char want[256];
-        memset(want, '-', 127);
+        memset(want, '-', 126);
         want[2] = want[3] = want[4] = '#';
-        want[127] = 0;
+        want[126] = 0;
         check_paint("a row paints its full usable width",
-                    painted(wscr, 127), want);
+                    painted(wscr, 126), want);
     }
     stub_emit_colours(0);
     ed_destroy(&widest);
