@@ -200,6 +200,10 @@ bool ed_key_edits(key_command kc) {
     return kc.cmd == CMD_PUTC;
 }
 
+bool ed_footer_wanted(char held) {
+    return (held & (MOD_CTRL | MOD_SHFT)) != (MOD_CTRL | MOD_SHFT);
+}
+
 bool ed_is_modifier(VKey vkey) {
     switch (vkey) {
         case VK_LSHIFT: case VK_RSHIFT:
@@ -233,7 +237,20 @@ void ed_run(editor* ed) {
     screen* scr = &ed->scr_;
 
     for (;;) {
-        scr_footer(scr, tb_fname(buf), tb_changed(buf), tb_xpos(buf), tb_ypos(buf));
+        // Not while a chord is held down. The footer sits on the bottom row,
+        // so drawing it means moving the cursor off the text, writing, and
+        // moving back -- and doing that between keystrokes is what stops the
+        // next one arriving. Bisected to this call: the same editor with the
+        // footer drawn fails, and without it works.
+        //
+        // These are the modifiers held *now*, not the ones that came with the
+        // last key, so the footer comes back the moment they are released
+        // rather than a keystroke later. Reading them is a load through the
+        // sysvars pointer, not a call into MOS.
+        if (ed_footer_wanted((char) getsysvar_keymods())) {
+            scr_footer(scr, tb_fname(buf), tb_changed(buf),
+                       tb_xpos(buf), tb_ypos(buf));
+        }
         key_command kc = read_input();
 
         const sel_action act = ed_selection_for(ed, kc);

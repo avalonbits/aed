@@ -26,6 +26,7 @@ uint8_t* mos_sysvars(void);
  * real mode is 128 columns, which does not fit in a signed char. */
 void     stub_set_screen(int cols, int rows);
 
+uint8_t  getsysvar_keymods(void);
 uint8_t  getsysvar_scrCols(void);
 uint8_t  getsysvar_scrRows(void);
 uint8_t  getsysvar_scrColours(void);
@@ -50,6 +51,14 @@ void        stub_set_keys(const stub_key* keys, int n);
 /* Whether the MOS key vector is currently installed. AED must take it back down
  * on the way out: MOS keeps calling it otherwise. */
 int         stub_keys_installed(void);
+
+/* Makes the next `n` polls of the event queue come up empty, so a test can see
+ * what the caller does while nothing has arrived. On real hardware that is the
+ * normal case -- the queue is empty far more often than not. */
+void        stub_keys_stall(int n);
+
+/* The modifiers MOS reports as held right now. */
+void        stub_set_keymods(int mods);
 
 /* The last colours handed to vdp_set_text_colour. Foreground and background are
  * distinguished the way the VDP does it: background is offset by 128. */

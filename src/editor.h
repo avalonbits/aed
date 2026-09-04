@@ -79,6 +79,15 @@ typedef struct _key_command {
 // perfectly well can still be lost, and nothing below it would notice.
 key_command read_input(void);
 
+// Whether the footer should be drawn, given the modifiers held right now.
+//
+// It is not, while both CTRL and SHIFT are down. The footer sits on the bottom
+// row, so drawing it means moving the cursor off the text, writing, and moving
+// back, and doing that between keystrokes stops the next one arriving -- which
+// is exactly what breaks word-wise selection, the one thing that chord is for.
+// The position it reports is also the least interesting then: it is mid-drag.
+bool ed_footer_wanted(char held);
+
 // What a key means with CTRL held. Declared here so the bindings can be
 // asserted directly: a command that exists but is not reachable from the
 // keyboard is not a feature, and nothing below this level would notice.
