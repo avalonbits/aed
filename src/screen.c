@@ -119,6 +119,7 @@ screen *scr_init(screen* scr, char cursor) {
     scr->colors_ = getsysvar_scrColours();
     scr->cursor_ = cursor;
     scr->lastFname_[0] = 0;
+    scr->lastPosW_ = 0;
     scr->footerDrawn_ = false;
     scr->topY_ = 1;
     scr->originX_ = 0;
@@ -256,10 +257,25 @@ void scr_footer_invalidate(screen* scr) {
     scr->footerDrawn_ = false;
 }
 
-// The footer's rightmost columns: four for the line, a comma, six for the
-// column. Everything left of that is the filename and its padding, which only
-// change when the file does.
-#define FOOTER_POS_WIDTH 11
+// How wide the position field is for these numbers: four columns for the line
+// and six for the column, or more when a number does not fit. A document can
+// outgrow four digits of line number, and the row still has to total cols_.
+static int position_width(int x, int y) {
+    static char digits[16];
+
+    i2s(y, digits, 16);
+    int w = strlen(digits);
+    if (w < 4) {
+        w = 4;
+    }
+    i2s(x, digits, 16);
+    int xw = strlen(digits);
+    if (xw < 6) {
+        xw = 6;
+    }
+
+    return w + 1 + xw;
+}
 
 // Writes just "  12,34    " at the cursor. Padding is to the field width, and
 // a number that fills the field gets none -- the old code added a full field's
@@ -294,8 +310,10 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     // Nothing has changed, so there is nothing to send. The caller repaints the
     // footer on every pass of the event loop; on all but a handful of those the
     // three things it shows are the same as last time.
+    const int posw = position_width(x, y);
     const bool same_file = scr->footerDrawn_
         && scr->lastDirty_ == dirty
+        && scr->lastPosW_ == posw
         && strcmp(scr->lastFname_, fname) == 0;
     if (same_file && scr->lastX_ == x && scr->lastY_ == y) {
         return;
@@ -308,6 +326,7 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     scr->lastDirty_ = dirty;
     scr->lastX_ = x;
     scr->lastY_ = y;
+    scr->lastPosW_ = posw;
     scr->footerDrawn_ = true;
 
     // The common case by far: the cursor moved and nothing else did. Only the
@@ -315,7 +334,7 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     // for this costs a MOS call per column -- the padding is a putchar loop --
     // and the row is mostly spaces that were already spaces.
     if (same_file) {
-        vdp_cursor_tab((char) (scr->cols_ - FOOTER_POS_WIDTH), scr->bottomY_);
+        vdp_cursor_tab((char) (scr->cols_ - posw), scr->bottomY_);
         set_colours(scr->bg_, scr->fg_);
         footer_position(x, y);
         set_colours(scr->fg_, scr->bg_);
@@ -334,7 +353,7 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
         putchar(' ');
     }
     putchar(' ');
-    for (int i = 0; i < scr->cols_ - fnsz - 2 - FOOTER_POS_WIDTH; i++) {
+    for (int i = 0; i < scr->cols_ - fnsz - 2 - posw; i++) {
         putchar(' ');
     }
     footer_position(x, y);

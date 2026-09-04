@@ -160,6 +160,36 @@ int main(void) {
         check("a four-digit line does not widen the row", wide, narrow);
     }
 
+    /* A document can outgrow four digits of line number. The position field
+     * then needs more columns, and the padding to its left has to give them up
+     * -- otherwise the row runs past the end of the screen, and the fast path
+     * would go on refreshing only the field, leaving the overflow there for
+     * good. */
+    {
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 1);
+        check("a short line number fills the row", cap_len(), scr.cols_);
+
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 123456);
+        check("a six-digit line number also fills it", cap_len(), scr.cols_);
+
+        /* Growing into a wider field moves everything left of it, so the whole
+         * row has to be drawn even though the file did not change. */
+        scr_footer_invalidate(&scr);
+        scr_footer(&scr, "a.txt", false, 1, 9999);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 10000);
+        check("widening the field redraws the row", cap_len(), scr.cols_);
+
+        /* Within one width it stays on the fast path. */
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 10001);
+        check("...but moving within it does not", cap_len() * 2 < scr.cols_, 1);
+    }
+
     /* A full-screen refresh clears the text area with the viewport running to
      * bottomY_ -- which is the footer row -- and then paints only the rows
      * above it. So it erases the footer without drawing it back. */
