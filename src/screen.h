@@ -46,6 +46,18 @@ typedef struct _screen {
     char topY_;
     char bottomY_;
 
+    // What the footer last showed, so an unchanged one is not redrawn. That is
+    // not only a saving: the footer is a whole row of characters plus two
+    // colour changes, and repainting it on every keystroke floods the same
+    // serial link the VDP sends key packets back on -- which delayed those
+    // packets until the flood stopped. Holding CTRL+SHIFT and tapping an arrow
+    // did nothing until the keys were released.
+    char lastFname_[256];
+    bool lastDirty_;
+    int lastX_;
+    int lastY_;
+    bool footerDrawn_;
+
     char tab_size_;
     // Document column shown at screen column 0. The view scrolls horizontally
     // by moving this rather than by slicing lines at a byte offset, which is
@@ -89,7 +101,14 @@ char scr_fg(screen* scr);
 char scr_bg(screen* scr);
 void scr_destroy(screen* scr);
 void scr_clear(screen* scr);
+// Paints the footer, but only when it differs from what is already there. See
+// the cache fields above for why that matters beyond the saved bytes.
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y);
+
+// Forgets what the footer showed, so the next scr_footer paints unconditionally.
+// The modal prompts take the footer row for themselves; without this the editor
+// would come back from one believing its own footer was still on screen.
+void scr_footer_invalidate(screen* scr);
 
 // Input.
 // These return how far the horizontal origin moved (see scr_place_cursor);

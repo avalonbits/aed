@@ -118,6 +118,8 @@ screen *scr_init(screen* scr, char cursor) {
     scr->cols_ = getsysvar_scrCols();
     scr->colors_ = getsysvar_scrColours();
     scr->cursor_ = cursor;
+    scr->lastFname_[0] = 0;
+    scr->footerDrawn_ = false;
     scr->topY_ = 1;
     scr->originX_ = 0;
     scr->selFrom_ = 0;
@@ -250,12 +252,36 @@ void scr_destroy(screen* scr) {
     scr->cols_ = 0;
 }
 
+void scr_footer_invalidate(screen* scr) {
+    scr->footerDrawn_ = false;
+}
+
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     static char* no_file = "[NO FILE]";
     if (fname == NULL) {
         fname = no_file;
     }
     const int fnsz = strlen(fname);
+
+    // Nothing has changed, so there is nothing to send. The caller repaints the
+    // footer on every pass of the event loop; on all but a handful of those the
+    // three things it shows are the same as last time.
+    if (scr->footerDrawn_
+        && scr->lastDirty_ == dirty
+        && scr->lastX_ == x
+        && scr->lastY_ == y
+        && strcmp(scr->lastFname_, fname) == 0) {
+        return;
+    }
+    // Remember it before drawing, not after: a name too long for the cache is
+    // truncated the same way on every pass, so it still compares equal and the
+    // repaint still stops.
+    strncpy(scr->lastFname_, fname, sizeof(scr->lastFname_) - 1);
+    scr->lastFname_[sizeof(scr->lastFname_) - 1] = 0;
+    scr->lastDirty_ = dirty;
+    scr->lastX_ = x;
+    scr->lastY_ = y;
+    scr->footerDrawn_ = true;
     int psz = 13 + fnsz ;
 
     vdp_cursor_tab(0, scr->bottomY_);
@@ -296,6 +322,8 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
 
 char* title = "AED: Another Text Editor";
 void scr_clear(screen* scr) {
+    // The footer goes with everything else, so it has to be drawn again.
+    scr->footerDrawn_ = false;
     vdp_clear_screen();
     vdp_cursor_home();
     vdp_cursor_tab(0,0);
@@ -413,6 +441,15 @@ static void reset_viewport(void) {
 }
 
 void scr_clear_textarea(screen* scr, char top, char bottom) {
+    // The viewport includes `bottom`, and the callers that refresh the whole
+    // screen pass bottomY_ -- which is the footer row. So this erases the
+    // footer even though nothing here draws it back. That went unnoticed while
+    // the footer was redrawn on every pass of the event loop; now that an
+    // unchanged one sends nothing, it has to be said out loud or a full
+    // refresh leaves the row blank until the cursor happens to move.
+    if (bottom >= scr->bottomY_) {
+        scr->footerDrawn_ = false;
+    }
     define_viewport(0, bottom, scr->cols_, top);
     vdp_clear_screen();
     reset_viewport();
