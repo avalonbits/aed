@@ -43,7 +43,25 @@ void stub_emit_colours(int on) { stub_colour_bytes = on; }
 int  stub_last_fg(void) { return stub_fg; }
 int  stub_last_bg(void) { return stub_bg; }
 void stub_colours_reset(void) { stub_fg = -1; stub_bg = -1; }
-void vdp_cursor_tab(int x, int y)    { (void)x; (void)y; }
+static int stub_write_n;
+static int stub_write_max;
+static int stub_tab_write_n;
+
+void stub_writes_reset(void) {
+    stub_write_n = 0;
+    stub_write_max = 0;
+    stub_tab_write_n = 0;
+}
+
+int stub_writes(void)   { return stub_write_n; }
+int stub_max_write(void) { return stub_write_max; }
+int stub_tab_at(void)   { return stub_tab_write_n; }
+
+void vdp_cursor_tab(int x, int y) {
+    (void)x;
+    (void)y;
+    stub_tab_write_n = stub_write_n;
+}
 
 /* --- MOS: screen/system --- */
 void waitvblank(void) {}
@@ -52,6 +70,10 @@ void waitvblank(void) {}
 // one ordered stream, which is what the scroll tests read back.
 void mos_puts(const char* b, unsigned size, char d) {
     (void)d;
+    stub_write_n++;
+    if ((int) size > stub_write_max) {
+        stub_write_max = (int) size;
+    }
     if (b != NULL && size > 0) {
         fwrite(b, 1, size, stdout);
     }

@@ -27,7 +27,45 @@
 
 #define MAX_COLS 255
 
+// Characters on their way to the VDP, held back so they go in one call.
+//
+// putchar is `rst.lil $10` -- one entry into MOS per byte -- so painting a row
+// a character at a time is eighty of them, and the editor does that on a
+// keystroke. Everything that draws runs of text writes here instead, and the
+// run is sent when the colour changes or the row ends.
+static char out_buf[MAX_COLS];
+static int out_len;
+
+static void out_flush(void) {
+    if (out_len > 0) {
+        mos_puts(out_buf, out_len, 0);
+        out_len = 0;
+    }
+}
+
+static void out_ch(char ch) {
+    if (out_len >= (int) sizeof(out_buf)) {
+        out_flush();
+    }
+    out_buf[out_len++] = ch;
+}
+
+static void out_str(const char* str, int n) {
+    for (int i = 0; i < n; i++) {
+        out_ch(str[i]);
+    }
+}
+
+static void out_run(char ch, int n) {
+    for (int i = 0; i < n; i++) {
+        out_ch(ch);
+    }
+}
+
 void set_colours(char fg, char bg) {
+    // Anything buffered belongs to the colours that are still current.
+    out_flush();
+
     vdp_set_text_colour(fg);
     vdp_set_text_colour(bg+128);
 }
@@ -286,18 +324,14 @@ static void footer_position(int x, int y) {
 
     i2s(y, digits, 16);
     int dsz = strlen(digits);
-    for (int i = dsz; i < 4; i++) {
-        putchar(' ');
-    }
-    mos_puts(digits, dsz, 0);
-    putchar(',');
+    out_run(' ', 4 - dsz);
+    out_str(digits, dsz);
+    out_ch(',');
 
     i2s(x, digits, 16);
     dsz = strlen(digits);
-    mos_puts(digits, dsz, 0);
-    for (int i = dsz; i < 6; i++) {
-        putchar(' ');
-    }
+    out_str(digits, dsz);
+    out_run(' ', 6 - dsz);
 }
 
 void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
@@ -346,16 +380,10 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     vdp_cursor_tab(0, scr->bottomY_);
     set_colours(scr->bg_, scr->fg_);
 
-    mos_puts(fname, fnsz, 0);
-    if (dirty) {
-        putchar('*');
-    } else {
-        putchar(' ');
-    }
-    putchar(' ');
-    for (int i = 0; i < scr->cols_ - fnsz - 2 - posw; i++) {
-        putchar(' ');
-    }
+    out_str(fname, fnsz);
+    out_ch(dirty ? '*' : ' ');
+    out_ch(' ');
+    out_run(' ', scr->cols_ - fnsz - 2 - posw);
     footer_position(x, y);
 
     set_colours(scr->fg_, scr->bg_);
@@ -371,15 +399,12 @@ void scr_clear(screen* scr) {
     vdp_cursor_tab(0,0);
     const int len = strlen(title);
     const int banner = (scr->cols_ - len)/2;
-    for (int i = 0; i < banner; i++) {
-        putchar('-');
-    }
+    out_run('-', banner);
     set_colours(scr->bg_, scr->fg_);
-    mos_puts(title, strlen(title), 0);
+    out_str(title, strlen(title));
     set_colours(scr->fg_, scr->bg_);
-    for (int i = 0; i < banner; i++)  {
-        putchar('-');
-    }
+    out_run('-', banner);
+    out_flush();
     scr->currX_ = 0;
     scr->currY_ = scr->topY_;
     scr->originX_ = 0;
@@ -528,7 +553,7 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
         for (int w = 0; w < width && col < stop_col; w++, col++) {
             if (col >= from_col) {
                 highlight(scr, col);
-                putchar(buf[i] == '\t' ? ' ' : buf[i]);
+                out_ch(buf[i] == '\t' ? ' ' : buf[i]);
             }
         }
         continue;
@@ -563,9 +588,10 @@ void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     for (; col < stop; col++) {
         if (col >= from) {
             highlight(scr, col);
-            putchar(' ');
+            out_ch(' ');
         }
     }
+    out_flush();
     if (scr->selOn_) {
         set_colours(scr->fg_, scr->bg_);
         scr->selOn_ = 0;
@@ -609,9 +635,7 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
     if (suf != NULL && sufsz > 0) {
         col = emit_span(scr, suf, sufsz, col, at, stop);
     }
-    for (; col < stop; col++) {
-        putchar(' ');
-    }
+    out_run(' ', stop - col);
     scr_sync_cursor(scr);
 }
 
@@ -640,6 +664,7 @@ void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
 }
 
 void scr_sync_cursor(screen* scr) {
+    out_flush();
     vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 
@@ -722,9 +747,8 @@ void scr_erase(screen* scr, int sz) {
     if (sz > scr->cols_) {
         sz = scr->cols_;
     }
-    for (int i = scr->currX_; i < sz; ++i) {
-        putchar(' ');
-    }
+    out_run(' ', sz - scr->currX_);
+    out_flush();
     vdp_cursor_tab(scr->currX_, scr->currY_);
 }
 

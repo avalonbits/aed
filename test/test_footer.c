@@ -217,6 +217,24 @@ int main(void) {
     scr_footer(&scr, "a.txt", false, 1, 1);
     check("a cleared screen forces a redraw", cap_len() > 0, 1);
 
+    /* Every write is an entry into MOS -- putchar is one per byte -- and the
+     * paint paths batch a run into a single one. The stream is the same either
+     * way, so this is measured in calls rather than bytes. */
+    {
+        scr_footer_invalidate(&scr);
+        stub_writes_reset();
+        scr_footer(&scr, "a.txt", false, 1, 1);
+        const int calls = stub_writes();
+        check("a whole footer row is a handful of writes", calls < 10, 1);
+        check("...and the row itself goes in one", stub_max_write() > 40, 1);
+
+        /* The cursor is put back after the row, not before it: buffered output
+         * has to be flushed before anything moves the cursor, or it lands in
+         * the wrong place. */
+        check("the cursor is moved after the row is written",
+              stub_tab_at(), stub_writes());
+    }
+
     scr_destroy(&scr);
     fclose(stdout);
     remove("/tmp/aed_footer_capture");

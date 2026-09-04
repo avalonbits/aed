@@ -106,6 +106,20 @@ void        stub_file_short_write(int n);
 /* Files mos_del was asked to remove since the last reset. */
 int         stub_deletes(void);
 
+/* Writes to the VDP, counted. The bytes reaching the screen are the same
+ * whether they go one per call or a row at a time, so the stream cannot show
+ * the difference -- but every call is an entry into MOS, and that is what the
+ * paint paths are trying to avoid. stub_max_write is the largest single write,
+ * which says whether a row went out in one piece.
+ *
+ * stub_tab_at is the write count as of the last cursor move. Buffered output
+ * has to be flushed before the cursor is moved, or it lands somewhere else;
+ * when that is done right, the last move comes after the last write. */
+void        stub_writes_reset(void);
+int         stub_writes(void);
+int         stub_max_write(void);
+int         stub_tab_at(void);
+
 /* Sends VDU bytes and MOS diagnostics to /dev/null. Tests that assert on state
  * rather than on what reached the screen should call this first, so the suite's
  * stdout stays clean for anything parsing it. Tests that read the VDU stream

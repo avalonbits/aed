@@ -47,6 +47,15 @@ key_press keys_wait(void) {
         if (!e.isdown) {
             continue;
         }
+        // A modifier going down is not a keystroke. MOS reports one for every
+        // shift or control press, and the editor does nothing with them --
+        // what a chord means is carried in the modifier bits of the key it
+        // modifies. Returning them anyway costs a full turn of the event loop,
+        // repaint and all, for each one, and the editor is not reading the
+        // queue while it does that.
+        if (e.vkey >= VK_LSHIFT && e.vkey <= VK_RGUI) {
+            continue;
+        }
 
         key_press kp;
         kp.ch = (char) e.ascii;
