@@ -46,6 +46,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         if (cfg.tab_size >= 0) {
             scr_set_tab_size(scr, (char) cfg.tab_size);
         }
+        // Only when the file asks for it: see scr_set_ctrl_pause_frames.
+        if (cfg.ctrl_pause >= 0) {
+            scr_set_ctrl_pause_frames(scr, cfg.ctrl_pause);
+        }
         // Each colour applies on its own: a file that sets only fg keeps the
         // measured bg, the same way an unset tab keeps the default.
         if (cfg.fg >= 0 || cfg.bg >= 0) {

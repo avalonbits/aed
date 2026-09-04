@@ -495,6 +495,27 @@ int main(void) {
     ed_destroy(&pe);
     stub_set_keys(NULL, 0);
 
+    /* The VDP pauses for a few frames whenever a line wraps while CTRL is
+     * held -- its own default is 3, which is what makes CTRL with an arrow key
+     * drag once a line reaches the right edge. The setting exists so that can
+     * be turned off, and it is off unless the file asks, because the VDU that
+     * sets it is a later addition and an older VDP reads the bytes after it as
+     * commands. */
+    {
+        config c;
+        cfg_defaults(&c);
+        check("unset unless the file says so", c.ctrl_pause, -1);
+
+        static const char text[] = "[vdp]\r\nctrl_pause_frames = 0\r\n";
+        cfg_parse(&c, text, (int) sizeof(text) - 1);
+        check("the file can turn it off", c.ctrl_pause, 0);
+
+        cfg_defaults(&c);
+        static const char other[] = "[editor]\r\nctrl_pause_frames = 5\r\n";
+        cfg_parse(&c, other, (int) sizeof(other) - 1);
+        check("...and only under its own heading", c.ctrl_pause, -1);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

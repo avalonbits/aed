@@ -214,6 +214,26 @@ screen *scr_init(screen* scr, char cursor) {
     return scr;
 }
 
+void scr_set_ctrl_pause_frames(screen* scr, int frames) {
+    (void) scr;
+    if (frames < 0 || frames > 255) {
+        return;
+    }
+
+    // VDU 23, 0, &F8, flag; value; -- flag and value are 16-bit, low byte
+    // first. The VDU variable block starts at 0x1000 and the frame count is
+    // 0x22 within it.
+    char vdu[7];
+    vdu[0] = 23;
+    vdu[1] = 0;
+    vdu[2] = (char) 0xF8;
+    vdu[3] = 0x22;
+    vdu[4] = 0x10;
+    vdu[5] = (char) (frames & 0xFF);
+    vdu[6] = 0;
+    mos_puts(vdu, sizeof(vdu), 0);
+}
+
 void scr_set_tab_size(screen* scr, char tab_size) {
     if (tab_size < 1) {
         tab_size = 1;

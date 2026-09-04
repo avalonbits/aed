@@ -96,6 +96,15 @@ typedef struct _screen {
 
 // Setup.
 screen* scr_init(screen* scr, char cursor);
+// Tells the VDP how many frames to pause for when a line wraps while CTRL is
+// held. Its own default is 3, which is what makes CTRL with an arrow key drag
+// once a line reaches the right-hand edge; 0 turns it off.
+//
+// Only call this when the user has asked for it. The VDU sequence is a later
+// addition, and a VDP that does not know it reads the four bytes that follow
+// as commands -- among them VDU 16, which clears the screen.
+void scr_set_ctrl_pause_frames(screen* scr, int frames);
+
 void scr_set_tab_size(screen* scr, char tab_size);
 char scr_tab_size(screen* scr);
 
