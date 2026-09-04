@@ -22,6 +22,8 @@
 #include <agon/mos.h>
 
 #include "screen.h"
+#include "user_input.h"
+#include "vkey.h"
 
 static int failures = 0;
 
@@ -49,6 +51,26 @@ static int cap_len(void) {
 
     return (int) (end - mark);
 }
+
+/* The bytes themselves, for the control sequence the bar row opens with. */
+static int cap_bytes(unsigned char* buf, int max) {
+    fflush(stdout);
+    const int n = cap_len();
+    FILE* r = fopen("/tmp/aed_footer_capture", "rb");
+    if (r == NULL) {
+        return -1;
+    }
+    fseek(r, mark, SEEK_SET);
+    const int got = (int) fread(buf, 1, (size_t) (n < max ? n : max), r);
+    fclose(r);
+
+    return got;
+}
+
+/* VDU 28 (five bytes), VDU 12, VDU 26 -- the viewport clear that paints the
+ * footer row's background across its full width, last column included. Printed
+ * characters follow it. */
+#define BG_PRELUDE 7
 
 int main(void) {
     if (freopen("/tmp/aed_footer_capture", "w+", stdout) == NULL) {
@@ -125,7 +147,14 @@ int main(void) {
      * field is unchanged. */
     /* Measured against barW_, not cols_. The footer is a bar: it spans the full
      * drawable width from column 0, while the text area between the bars is
-     * inset one column on each side and is therefore two narrower. */
+     * inset one column on each side and is therefore two narrower.
+     *
+     * barW_ is what the bar can *print*. The screen is one column wider than
+     * that, and nothing may ever print in the last one -- doing so moves the
+     * cursor off the right edge and arms the VDP's CTRL+SHIFT pause. So the row
+     * opens by clearing a viewport over the whole footer row in the bar's own
+     * colours, which colours that column without printing in it, and the
+     * printed part that follows is barW_ wide. */
     {
         scr_footer_invalidate(&scr);
         cap_start();
@@ -172,12 +201,12 @@ int main(void) {
         scr_footer_invalidate(&scr);
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 1);
-        check("a short line number fills the row", cap_len(), scr.barW_);
+        check("a short line number fills the row", cap_len() - BG_PRELUDE, scr.barW_);
 
         scr_footer_invalidate(&scr);
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 123456);
-        check("a six-digit line number also fills it", cap_len(), scr.barW_);
+        check("a six-digit line number also fills it", cap_len() - BG_PRELUDE, scr.barW_);
 
         /* Growing into a wider field moves everything left of it, so the whole
          * row has to be drawn even though the file did not change. */
@@ -185,7 +214,7 @@ int main(void) {
         scr_footer(&scr, "a.txt", false, 1, 9999);
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 10000);
-        check("widening the field redraws the row", cap_len(), scr.barW_);
+        check("widening the field redraws the row", cap_len() - BG_PRELUDE, scr.barW_);
 
         /* Within one width it stays on the fast path. */
         cap_start();
@@ -254,6 +283,70 @@ int main(void) {
         cap_start();
         scr_set_ctrl_pause_frames(&scr, 0);
         check("turning it off is seven bytes", cap_len(), 7);
+    }
+
+    /* The bar's background has to reach the column the bar cannot print in.
+     * VDU 28,left,bottom,right,top over the footer row, then VDU 12 to fill it,
+     * then VDU 26 to put the viewport back. `right` is barW_ -- the last column
+     * of the screen, one past the last the row prints in. */
+    {
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "a.txt", false, 1, 1);
+        unsigned char b[16];
+        const int n = cap_bytes(b, (int) sizeof(b));
+        check("the row opens with a viewport", n >= 5 && b[0] == 28, 1);
+        check("  spanning from column 0", n >= 5 && b[1] == 0, 1);
+        check("  to the last column of the screen, not of the bar",
+              n >= 5 && b[3] == (unsigned char) scr.barW_, 1);
+        check("  over the footer row only",
+              n >= 5 && b[2] == (unsigned char) scr.bottomY_
+                     && b[4] == (unsigned char) scr.bottomY_, 1);
+        check("  cleared to fill it", n >= 6 && b[5] == 12, 1);
+        check("  and the viewport put back", n >= 7 && b[6] == 26, 1);
+    }
+
+    /* A prompt stands in for the footer, so it is a bar too: full width from
+     * column 0, not inset like the text area between the bars. */
+    {
+        user_input ui;
+        if (ui_init(&ui, 64, scr.bottomY_, scr.cols_) != NULL) {
+            static const stub_key any[] = {{ 'x', VK_x, 0, 0 }};
+            stub_set_keys(any, 1);
+            cap_start();
+            ui_message(&ui, &scr, "saved");
+            const int pn = cap_len();
+            /* 5 for "saved", counted from the screen edge. Inset like the
+             * text area it would be 6, which is the whole difference between a
+             * bar and a text row. */
+            check("a prompt is positioned in bar columns", stub_last_tab_x(), 5);
+            /* "saved" padded to the bar, then the tab and the dismissal text. */
+            check("  and is at least a full bar wide", pn >= scr.barW_, 1);
+            ui_destroy(&ui);
+        }
+    }
+
+    /* The picker centres its own text across the bar. Where the spare columns
+     * do not divide evenly, halving them and using that count on both sides
+     * leaves the bar a column short -- the trap the header fell into. At 80
+     * columns the spare happens to be even and the bug is invisible, so this
+     * uses a width where it is not. */
+    {
+        stub_set_screen(79, 25);
+        screen odd;
+        scr_init(&odd, 32);
+        user_input pick;
+        if (ui_init(&pick, 64, odd.bottomY_, odd.cols_) != NULL) {
+            static const stub_key esc[] = {{ 27, VK_ESCAPE, 0, 0 }};
+            stub_set_keys(esc, 1);
+            cap_start();
+            ui_color_picker(&pick, &odd);
+            check("the picker fills a bar of odd spare width",
+                  cap_len(), odd.barW_);
+            ui_destroy(&pick);
+        }
+        scr_destroy(&odd);
+        stub_set_screen(80, 25);
     }
 
     scr_destroy(&scr);

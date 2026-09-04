@@ -417,6 +417,11 @@ void scr_footer_invalidate(screen* scr) {
     scr->footerDrawn_ = false;
 }
 
+// Defined below with the rest of the viewport handling; the footer needs them
+// to paint its last column, which is above their definitions.
+static void define_viewport(char left, char bottom, char right, char top);
+static void reset_viewport(void);
+
 // How wide the position field is for these numbers: four columns for the line
 // and six for the column, or more when a number does not fit. A document can
 // outgrow four digits of line number, and the row still has to total cols_.
@@ -499,8 +504,25 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
         return;
     }
 
-    vdp_cursor_tab(0, scr->bottomY_);
+    // Paint the whole row, last column included, before writing any of it.
+    //
+    // The bar can only *print* as far as barW_: the rightmost column of the
+    // screen is the one that must never hold a character, because printing
+    // there moves the cursor off the right edge and that is what arms the VDP's
+    // CTRL+SHIFT pause. So the footer used to stop one short and leave that cell
+    // showing the document's colours, with the bar visibly not reaching the edge.
+    //
+    // A colour does not need a character. VDU 12 fills the current text viewport
+    // with the text background and homes the cursor -- Context::cls does not
+    // call cursorRight and never reaches checkPagedMode -- so a viewport over
+    // the footer row, cleared in the bar's own colours, covers every column of
+    // it including the one nothing may be printed in.
     set_colours(scr->bg_, scr->fg_);
+    define_viewport(0, scr->bottomY_, (char) scr->barW_, scr->bottomY_);
+    vdp_clear_screen();
+    reset_viewport();
+
+    vdp_cursor_tab(0, scr->bottomY_);
 
     out_str(fname, fnsz);
     out_ch(dirty ? '*' : ' ');
@@ -806,6 +828,21 @@ void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
 
 void scr_tab(screen* scr, int col, char row) {
     vdp_cursor_tab((char) (col + scr->textX_), row);
+}
+
+void scr_tab_bar(screen* scr, int col, char row) {
+    (void) scr;
+    vdp_cursor_tab((char) col, row);
+}
+
+void scr_bar_line(screen* scr, char row, const char* buf, int sz) {
+    if (sz > scr->barW_) {
+        sz = scr->barW_;
+    }
+    vdp_cursor_tab(0, row);
+    out_str(buf, sz);
+    out_run(' ', scr->barW_ - sz);
+    out_flush();
 }
 
 void scr_sync_cursor(screen* scr) {

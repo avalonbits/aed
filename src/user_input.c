@@ -53,8 +53,8 @@ static int atoi(char* str, char sz) {
 
 RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
     scr_footer_invalidate(scr);
-    scr_write_line(scr, ui->ypos_, goto_line, sizeof(goto_line));
-    scr_tab(scr, sizeof(goto_line), ui->ypos_);
+    scr_bar_line(scr, ui->ypos_, goto_line, sizeof(goto_line));
+    scr_tab_bar(scr, sizeof(goto_line), ui->ypos_);
     scr_show_cursor_ch(scr, scr->cursor_);
 
     char_buffer* cb = &ui->cb_;
@@ -112,15 +112,20 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
     char fg = scr->fg_;
     char bg = scr->bg_;
 
-    const int pad =  (scr->cols_ - sizeof(col_select)) / 2;
+    // Centred across the bar, not the text area -- this row stands in for the
+    // footer. The remainder is split rather than halved twice, so an odd number
+    // of spare columns still fills the bar instead of leaving one uncovered.
+    const int spare = scr->barW_ - (int) sizeof(col_select);
+    const int lpad = spare / 2;
+    const int rpad = spare - lpad;
     do {
-        scr_tab(scr, 0, ui->ypos_);
+        scr_tab_bar(scr, 0, ui->ypos_);
         set_colours(fg, bg);
-        for (int i = 0; i < pad; i++) {
+        for (int i = 0; i < lpad; i++) {
             putchar(' ');
         }
         VDP_PUTS(col_select);
-        for (int i = 0; i <= pad; i++) {
+        for (int i = 0; i < rpad; i++) {
             putchar(' ');
         }
 
@@ -174,8 +179,8 @@ static const char dismiss[17] = " (press any key)";
 void ui_message(user_input* ui, screen* scr, char* msg) {
     scr_footer_invalidate(scr);
     const int msz = strlen(msg);
-    scr_write_line(scr, ui->ypos_, msg, msz);
-    scr_tab(scr, msz, ui->ypos_);
+    scr_bar_line(scr, ui->ypos_, msg, msz);
+    scr_tab_bar(scr, msz, ui->ypos_);
     VDP_PUTS(dismiss);
     scr_show_cursor_ch(scr, scr->cursor_);
 
@@ -185,8 +190,8 @@ void ui_message(user_input* ui, screen* scr, char* msg) {
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     scr_footer_invalidate(scr);
     const int msz = strlen(msg);
-    scr_write_line(scr, ui->ypos_, msg, msz);
-    scr_tab(scr, msz, ui->ypos_);
+    scr_bar_line(scr, ui->ypos_, msg, msz);
+    scr_tab_bar(scr, msz, ui->ypos_);
     VDP_PUTS(options);
     scr_show_cursor_ch(scr, scr->cursor_);
 
@@ -217,8 +222,8 @@ RESPONSE ui_text(
 ) {
     scr_footer_invalidate(scr);
     const int msz = strlen(title);
-    scr_write_line(scr, ui->ypos_, title, msz);
-    scr_tab(scr, msz, ui->ypos_);
+    scr_bar_line(scr, ui->ypos_, title, msz);
+    scr_tab_bar(scr, msz, ui->ypos_);
 
     *buf = NULL;
     *sz = 0;

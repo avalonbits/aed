@@ -193,6 +193,16 @@ void scr_put_at(screen* scr, char sx, char sy, char ch);
 // drawing a bar and does not go through here.
 void scr_tab(screen* scr, int col, char row);
 
+// The same for a bar row, where columns are counted from the screen edge. The
+// prompt row replaces the footer while it is up, so it is a bar and not part of
+// the inset text area.
+void scr_tab_bar(screen* scr, int col, char row);
+
+// Paints `row` as a bar: from column 0, padded with spaces to the full bar
+// width, so it covers the footer it stands in for rather than leaving the
+// margins showing.
+void scr_bar_line(screen* scr, char row, const char* buf, int sz);
+
 // Paints one row from a line held as a gap-buffer split (either half may be
 // NULL/0), starting at the current horizontal origin, expanding tabs and
 // padding to the full width.
