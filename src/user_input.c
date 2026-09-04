@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "keys.h"
 #include "vkey.h"
 
 user_input* ui_init(user_input* ui, int size, char ypos, int cols) {
@@ -59,8 +60,9 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
     cb_clear(cb);
 
     do {
-        char key = getch();
-        VKey vkey = getsysvar_vkeycode();
+        const key_press kp = keys_wait();
+        const char key = kp.ch;
+        const VKey vkey = kp.vkey;
 
         if (key >= '0' && key <= '9') {
             if (cb_put(cb, key)) {
@@ -120,8 +122,7 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
             putchar(' ');
         }
 
-        getch();
-        VKey vkey = getsysvar_vkeycode();
+        const VKey vkey = keys_wait().vkey;
 
         switch (vkey) {
             case VK_ESCAPE:
@@ -175,8 +176,7 @@ void ui_message(user_input* ui, screen* scr, char* msg) {
     VDP_PUTS(dismiss);
     scr_show_cursor_ch(scr, scr->cursor_);
 
-    getch();
-    getsysvar_vkeycode();
+    keys_wait();
 }
 
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
@@ -187,9 +187,9 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     scr_show_cursor_ch(scr, scr->cursor_);
 
     do {
-        char key = getch();
-        VKey vkey = getsysvar_vkeycode();
-        if (vkey == VK_ESCAPE) {
+        const key_press kp = keys_wait();
+        const char key = kp.ch;
+        if (kp.vkey == VK_ESCAPE) {
             break;
         }
         if (key == 'Y' || key == 'y') {
@@ -232,8 +232,9 @@ RESPONSE ui_text(
     scr_show_cursor_ch(scr, scr->cursor_);
 
     do {
-        char key = getch();
-        VKey vkey = getsysvar_vkeycode();
+        const key_press kp = keys_wait();
+        const char key = kp.ch;
+        const VKey vkey = kp.vkey;
 
         if (key != 0x7F && key > 0x20) {
             if (cb_put(cb, key)) {

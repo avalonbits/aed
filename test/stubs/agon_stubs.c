@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <agon/keyboard.h>
 #include <agon/mos.h>
 #include <agon/vdp.h>
 
@@ -73,27 +74,41 @@ void stub_set_keys(const stub_key* keys, int n) {
     stub_key_at = 0;
 }
 
-char getch(void) {
-    if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
-        return 27;                      /* ESC, so no prompt loops forever */
-    }
+/* --- MOS: the key event queue --- */
 
-    return stub_keys[stub_key_at].ch;
+static int stub_kb_installed;
+
+void kbuf_init(uint8_t buf_len) {
+    (void) buf_len;
+    stub_kb_installed = 1;
 }
 
-uint8_t getsysvar_vkeycode(void) {
-    if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
-        return 125;                     /* VK_ESCAPE */
-    }
-
-    return stub_keys[stub_key_at++].vk;
+void kbuf_deinit(void) {
+    stub_kb_installed = 0;
 }
-uint8_t getsysvar_keymods(void) {
+
+void kbuf_clear(void) {}
+
+int stub_keys_installed(void) { return stub_kb_installed; }
+
+bool kbuf_poll_event(struct keyboard_event_t* e) {
     if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
-        return 0;
+        /* ESC, pressed, forever: no prompt loop can hang on an empty script. */
+        e->ascii = 27;
+        e->kmod = 0;
+        e->vkey = 125;                  /* VK_ESCAPE */
+        e->isdown = 1;
+
+        return true;
     }
 
-    return stub_keys[stub_key_at].mods;
+    const stub_key k = stub_keys[stub_key_at++];
+    e->ascii = (uint8_t) k.ch;
+    e->kmod = k.mods;
+    e->vkey = k.vk;
+    e->isdown = k.up ? 0 : 1;
+
+    return true;
 }
 
 int stub_keys_read(void) { return stub_key_at; }

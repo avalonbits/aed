@@ -74,6 +74,11 @@ typedef struct _key_command {
     char mods;
 } key_command;
 
+// Blocks for the next key and works out what it means. Declared here so the
+// translation can be tested directly: it is where a chord that MOS reports
+// perfectly well can still be lost, and nothing below it would notice.
+key_command read_input(void);
+
 // What a key means with CTRL held. Declared here so the bindings can be
 // asserted directly: a command that exists but is not reachable from the
 // keyboard is not a feature, and nothing below this level would notice.
