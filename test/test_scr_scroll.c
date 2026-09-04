@@ -14,6 +14,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <agon/mos.h>
+
 #include "screen.h"
 
 static int failures = 0;
@@ -97,6 +99,24 @@ int main(void) {
     screen scr = mkscreen();
     unsigned char got[64];
     char line[] = "hello";
+
+    /* The fixture above sets cols_ by hand, so the assertions below are about
+     * the shape of the sequence rather than the width production runs at. This
+     * one goes through scr_init instead: MOS reports 80 columns, the editor
+     * keeps the last one unused, and the viewport it emits has to stop at the
+     * column before that. Without the reserved margin this reads 79. */
+    {
+        stub_set_screen(80, 25);
+        screen real;
+        scr_init(&real, 32);
+        check("scr_init reserves the last column", real.cols_, 79);
+
+        cap_start();
+        scr_scroll_h(&real, 1);
+        const int rn = cap_read(got, sizeof(got));
+        check("a scroll viewport stops before it", rn > 3 && got[3] == 78, 1);
+        scr_destroy(&real);
+    }
 
     /* VDU 28,left,bottom,right,top  then  VDU 23,7,0,dir,8  then  VDU 26.
      * Direction 3 is up, 2 is down -- the one byte that distinguishes them. */
