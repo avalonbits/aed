@@ -207,10 +207,21 @@ screen *scr_init(screen* scr, char cursor) {
     // It cannot be switched off. Paged mode does not gate it, VDP variable
     // 0x1022 covers only the CTRL-alone branch, kbEnabled is never cleared,
     // !textCursorActive() means VDU 5, and scrollProtect guards only the
-    // post-string newline. cursorBehaviour.xHold (bit 5) would skip the block
-    // outright, but a VDP that does not implement it wraps and, on the bottom
-    // row, scrolls the screen -- and MOS offers no way to ask the VDP its
-    // version. Not writing the column at all is what works on every VDP.
+    // post-string newline.
+    //
+    // cursorBehaviour.xHold (bit 5) would skip the block outright, and it is
+    // old enough to rely on where the pause exists at all: the pause arrived in
+    // VDP 2.14.0, xHold has worked since Console8 VDP 2.7.0. Note "worked" --
+    // the Quark 1.04 documentation claims bits 4 and 5, but that firmware never
+    // implemented them and the cursor always moved right, so on the floor this
+    // editor supports, setting bit 5 is a silent no-op.
+    //
+    // That is what rules it out. There is no way to send it only to the VDPs
+    // that honour it: MOS cannot report the VDP version, an unsupported VDP
+    // variable "will not be stored, and cannot be read", and the read path
+    // needs 2.12.0 itself, so probing means a serial round trip with a timeout.
+    // Sent unconditionally to an older VDP the bracket does nothing and the
+    // last-column write wraps. Not writing the column works on every VDP.
     //
     // The cost is one column of width. It is a deliberate right margin rather
     // than a lost column, and it is why cols_ is the usable width everywhere
