@@ -20,6 +20,41 @@
 
 #include <agon/keyboard.h>
 
+// On AgonDev's key handler, and why AED uses it anyway.
+//
+// MOS calls the key vector from inside its UART0 interrupt handler, with DE
+// holding the address of the four-byte VDP keyboard packet. An interrupt
+// handler is supposed to give every register back as it found it, and
+// <agon/keyboard.h>'s does not. Disassembled from libagon.a:
+//
+//     kbuf_event_handler:  push af / push bc / push hl
+//                          call kbuf_append
+//                          pop hl / pop bc / pop af / ret
+//
+//     kbuf_append:         ... ex de,hl / ld bc,4 / ldir
+//
+// DE is not saved, and the ex+ldir leaves it pointing four bytes into AED's own
+// ring buffer -- not merely advanced within MOS's packet, but somewhere else
+// entirely.
+//
+// It does not matter, and that is worth writing down because the obvious
+// reading says it should. MOS never reads DE after the vector returns. From
+// vdp_protocol.asm, vdp_protocol_KEY passes the packet address in DE, and on
+// the way back reloads every field absolutely:
+//
+//     LD A, (_vdp_protocol_data + 0)    ; ASCII
+//     LD A, (_vdp_protocol_data + 1)    ; modifiers
+//     ...then sets B and C itself before JP keyboard_handler
+//
+// keyboard_handler takes B and C and loads its own DE. So the clobber is a
+// contract violation with nothing downstream of it.
+//
+// A replacement vector in assembly was written and measured (branch
+// fix/own-key-vector). It is not merged: it puts hand-written code inside an
+// interrupt handler, where a mistake hangs the machine, to fix something no
+// caller can observe. Checked against MOS 3.x; the vector call has had this
+// shape since 2023.
+
 // Room for a burst without dropping any. The longest one AED can provoke is a
 // chord being released -- CTRL+SHIFT+RIGHT alone is six events, down and up for
 // three keys -- and holding a key repeats faster than a slow repaint returns
