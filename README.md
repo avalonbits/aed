@@ -77,6 +77,28 @@ bg = 0
 | `[editor]` | `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
+| `[vdp]` | `ctrl_pause_frames` | how long the VDP pauses when a line wraps while CTRL is held, in frames. Not written by default -- see below. |
+
+### `ctrl_pause_frames`
+
+Holding CTRL while moving right along a line longer than the screen feels
+sluggish. That is the VDP, not AED: every time a line wraps with CTRL held it
+pauses for three frames. Setting the count to zero stops it.
+
+```ini
+[vdp]
+ctrl_pause_frames = 0
+```
+
+**AED never sends this unless you ask for it, and you should only ask on a
+Console8 VDP.** The VDU sequence that carries it is a later addition. A VDP that
+does not recognise it reads the four bytes that follow as commands, and one of
+them clears the screen. AED supports VDP 1.04 upwards and has no way to ask the
+VDP which version it is, so it cannot decide this for you.
+
+The related CTRL+SHIFT pause -- the VDP stops drawing entirely while both are
+held -- cannot be switched off at all. AED works around it by never writing the
+last column of a row.
 
 A setting only counts inside the section that owns it: `tab = 8` under `[colours]` is
 ignored, which is what leaves room for a future section to use a name like `fg` for
