@@ -348,6 +348,32 @@ int main(void) {
         check("  and no line was left with a bare LF", bare, 0);
     }
     check("the new bg is written", strstr(merged, "bg = 4") != NULL, 1);
+
+    /* A file whose last line has no LF at all, and ends with a stray CR -- a
+     * truncated CRLF. The rewrite keeps the line's CR, and the code that
+     * terminates an unterminated last line then used to append a second one,
+     * leaving \r\r\n. Both the changed line and an untouched one hit it. */
+    {
+        static const char stub_cr[] =
+            "[colours]\r\nbg = 9\r\nfg = 15\r";
+        config trunc;
+        cfg_defaults(&trunc);
+        trunc.fg = 3;
+        trunc.bg = 9;
+
+        stub_file_reset();
+        stub_file_set_content(stub_cr, (int) sizeof(stub_cr) - 1);
+        check("truncated last line updates", cfg_update(&trunc, CFG_PATH) ? 1 : 0, 1);
+        const int tn = stub_file_size();
+        char out[512];
+        memcpy(out, stub_file_bytes(), (size_t) tn);
+        out[tn] = 0;
+
+        check("the changed last line is terminated once",
+              strstr(out, "fg = 3\r\n") != NULL, 1);
+        check("  and no CR was doubled", strstr(out, "\r\r") == NULL, 1);
+    }
+
     check("the old fg is gone", strstr(merged, "fg = 15") == NULL, 1);
 
     /* And it must still parse back to what we asked for. */

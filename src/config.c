@@ -460,6 +460,12 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
     // The last section in the file, then any section the file never had at all.
     // A file whose last line has no newline needs one before anything is added.
     if (at > 0 && out[at - 1] != '\n') {
+        // A lone CR here is a truncated CRLF, not text: the file's last line
+        // lost its LF somewhere. Appending a whole ending after it would leave
+        // \r\r\n. Drop it and write one proper ending instead.
+        if (out[at - 1] == '\r') {
+            at--;
+        }
         at = put_text(out, at, max, "\r\n");
     }
     at = flush_section(cfg, section, seclen, done, out, at, max);
