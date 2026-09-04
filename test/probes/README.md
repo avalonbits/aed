@@ -11,3 +11,7 @@ See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
 - `kbev.c` — prints every `agon/keyboard.h` event (ascii, kmod, vkey, up/down)
   as it arrives. This is the input path AED should use; the other two probes
   are from the superseded keyboard-map investigation.
+- `arrows.c` — moves a marker with the arrow keys and counts what arrives,
+  alongside MOS's own packet counter. Written to answer whether the platform
+  delivers arrow keys while CTRL and SHIFT are held. It does: 4/4, where AED
+  managed 1/4. This is the control the investigation needed.
