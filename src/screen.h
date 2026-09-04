@@ -56,6 +56,12 @@ typedef struct _screen {
     bool lastDirty_;
     int lastX_;
     int lastY_;
+    // Width the position field last occupied. It is normally eleven columns,
+    // but a document long enough to need five digits of line number needs more,
+    // and then the filename padding has to shrink to match or the row runs off
+    // the end. A change in it means the columns left of the field moved too, so
+    // the whole row has to be drawn.
+    int lastPosW_;
     bool footerDrawn_;
 
     char tab_size_;
