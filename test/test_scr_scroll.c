@@ -168,7 +168,10 @@ int main(void) {
          * using that on both sides drops the odd one, which left the rule a
          * column short -- invisible until the text area reached the column
          * before the bar's last and started sticking out past it. */
-        check("the header spans the whole bar", hn, real.barW_);
+        /* scr_clear opens with a VDU 12 of its own, so the header's own bytes
+         * are what follows it. */
+        check("the clear comes first", hn > 0 && hdr[0] == 12, 1);
+        check("the header spans the whole bar", hn - 1, real.barW_);
         scr_destroy(&real);
     }
 

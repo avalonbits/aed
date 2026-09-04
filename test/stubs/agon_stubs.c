@@ -16,7 +16,10 @@
 /* --- VDP: inert --- */
 void vdp_cursor_left(void) {}
 void vdp_cursor_home(void) {}
-void vdp_clear_screen(void) {}
+/* VDU 12. It used to emit nothing, which meant no test could see a clear
+ * happen at all -- and the footer now paints its last column with one, since
+ * that column may hold a colour but never a character. */
+void vdp_clear_screen(void) { putchar(12); }
 void vdp_cursor_enable(bool flag)    { (void)flag; }
 static int stub_fg = -1;
 static int stub_colour_bytes = 0;
