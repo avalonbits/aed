@@ -102,12 +102,13 @@ bool ed_key_edits(key_command kc);
 // and the answer is needed again afterwards.
 sel_action ed_selection_for(editor* ed, key_command kc);
 
-// Repaints whatever the selection changed, after the command has run. The three
-// "before" values are read before it: the cursor's screen row, the document
-// line then at the top of the screen, and the horizontal scroll origin. Between
-// them they say whether the view moved under the text, which decides how much
-// has to be redrawn.
+// Repaints whatever the selection changed, after the command has run. The
+// "before" values are read before it: the cursor's screen row and column, the
+// document line then at the top of the screen, and the horizontal scroll
+// origin. Between them they say whether the view moved under the text, which
+// decides how much has to be redrawn -- and when it did not move, x_before says
+// which columns of the row changed, so only those need sending.
 void ed_selection_repaint(editor* ed, sel_action act, char y_before,
-                          int top_before, int origin_before);
+                          char x_before, int top_before, int origin_before);
 
 #endif  // _EDITOR_H_

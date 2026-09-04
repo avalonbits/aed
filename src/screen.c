@@ -539,10 +539,14 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
 
 // Paints the row from document column `from_col` rightwards. Columns left of
 // the window, or left of from_col, are skipped rather than redrawn.
-void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
-                    const char* suf, int sufsz, int from_col) {
+void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
+                    const char* suf, int sufsz, int from_col, int to_col) {
+    const int edge = scr->originX_ + scr->cols_;
     const int from = from_col > scr->originX_ ? from_col : scr->originX_;
-    const int stop = scr->originX_ + scr->cols_;
+    const int stop = to_col < edge ? to_col : edge;
+    if (from >= stop) {
+        return;
+    }
 
     vdp_cursor_tab((char)(from - scr->originX_), ypos);
     scr->selOn_ = 0;
@@ -569,11 +573,24 @@ void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
     scr_sync_cursor(scr);
 }
 
+void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
+                    const char* suf, int sufsz, int from_col) {
+    scr_paint_span(scr, ypos, pre, presz, suf, sufsz, from_col,
+                   scr->originX_ + scr->cols_);
+}
+
 void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
                         int from_col, int to_col) {
+    scr_write_line_span(scr, ypos, buf, sz, from_col, to_col,
+                        scr->originX_, scr->originX_ + scr->cols_);
+}
+
+void scr_write_line_span(screen* scr, char ypos, char* buf, int sz,
+                         int from_col, int to_col, int paint_from,
+                         int paint_to) {
     scr->selFrom_ = from_col;
     scr->selTo_ = to_col;
-    scr_paint_row(scr, ypos, NULL, 0, buf, sz);
+    scr_paint_span(scr, ypos, NULL, 0, buf, sz, paint_from, paint_to);
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
 }

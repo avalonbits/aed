@@ -127,6 +127,26 @@ static int top_line_of(editor* ed) {
  * "just this row" from "the whole area" without depending on the contents.
  * The colour bytes are skipped: a background is offset by 128 and would
  * otherwise count as a character. */
+/* Printable characters that reached the stream, colour changes excluded. A row
+ * is `cols` of them, so this measures a partial repaint that painted_rows
+ * rounds away. */
+static int painted_chars(void) {
+    static char raw[65536];
+    const int n = cap_read(raw, sizeof(raw));
+    int printable = 0;
+    for (int i = 0; i < n; i++) {
+        if (raw[i] == 17 && i + 1 < n) {
+            i++;
+            continue;
+        }
+        if ((unsigned char) raw[i] >= 32) {
+            printable++;
+        }
+    }
+
+    return printable;
+}
+
 static int painted_rows(screen* scr, int cols) {
     (void) scr;
     static char raw[65536];
@@ -507,39 +527,81 @@ int main(void) {
     scr->currY_ = (char)(scr->topY_ + 1);
     scr->originX_ = 0;
 
-    /* The cursor stayed on its row and nothing scrolled: only that row needs
-     * doing, so the row above keeps whatever was on it. */
+    /* The cursor stayed on its row and nothing scrolled, so neither the rows
+     * around it nor the columns either side of the move have changed. Only the
+     * columns the cursor crossed are sent -- plus the one it left, which has to
+     * go back to being ordinary text. */
+    scr->currX_ = 10;
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_,
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 4,
                          top_line_of(&ed), scr->originX_);
-    check("an ordinary extend repaints one row",
-          painted_rows(scr, cols), 1);
+    const int span = painted_chars();
+    check("an extend within a row paints a span, not a row", span * 4 < cols, 1);
+    check("...and it does paint it", span > 0, 1);
+
+    /* Backwards over the same columns costs the same: the span is the two
+     * positions, whichever order they came in. */
+    scr->currX_ = 4;
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 10,
+                         top_line_of(&ed), scr->originX_);
+    check("shrinking one paints the same columns", painted_chars(), span);
+
+    /* The cell the cursor was in has to be repainted even when it did not move
+     * -- it is showing a cursor, and the character under it has to come back.
+     * So the span is the columns crossed *plus one*, and a move of nothing is
+     * still a column. */
+    scr->currX_ = 10;
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 10,
+                         top_line_of(&ed), scr->originX_);
+    /* One character for the span, one for the cursor drawn over it. Without
+     * the span the cursor is all that is sent, and the cell keeps whatever it
+     * was showing underneath. */
+    check("a move of no columns still repaints the one it is on",
+          painted_chars(), 2);
+
+    /* And a longer move costs more, which is the point: the bill follows the
+     * change rather than the width of the screen. */
+    scr->currX_ = 30;
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 4,
+                         top_line_of(&ed), scr->originX_);
+    check("a longer move paints more", painted_chars() > span, 1);
+    scr->currX_ = 10;
+
+    /* Changing rows without scrolling still costs both rows in full: the
+     * highlight on the row being left has to be taken off all of it. */
+    cap_start();
+    ed_selection_repaint(&ed, SEL_EXTEND, (char)(scr->currY_ - 1), 4,
+                         top_line_of(&ed), scr->originX_);
+    check("crossing rows repaints both", painted_rows(scr, cols), 2);
 
     /* A horizontal scroll moves every row at once -- originX_ is screen-wide --
      * so the rows not repainted are left showing their old columns. This is the
      * same trap as the stale rows in #60, one layer up. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_,
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, scr->currX_,
                          top_line_of(&ed), scr->originX_ + 4);
     check("a horizontal scroll repaints the whole text area",
           painted_rows(scr, cols) > 1, 1);
 
     /* So does a vertical one. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_,
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, scr->currX_,
                          top_line_of(&ed) + 1, scr->originX_);
     check("a vertical scroll does too",
           painted_rows(scr, cols) > 1, 1);
 
     /* And dropping a selection, since the highlight could be anywhere. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_DROP, scr->currY_,
+    ed_selection_repaint(&ed, SEL_DROP, scr->currY_, scr->currX_,
                          top_line_of(&ed), scr->originX_);
     check("dropping one does too", painted_rows(scr, cols) > 1, 1);
 
     /* With nothing selected there is nothing to repaint at all. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_NONE, scr->currY_,
+    ed_selection_repaint(&ed, SEL_NONE, scr->currY_, scr->currX_,
                          top_line_of(&ed), scr->originX_);
     check("and with no selection nothing is painted",
           painted_rows(scr, cols), 0);

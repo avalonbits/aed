@@ -168,6 +168,13 @@ void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
 
 // As above, but starting at an arbitrary document column -- used after an
 // insertion, which must repaint from the inserted character, not the cursor.
+// Paints only document columns [from_col, to_col) of a row, clipped to the
+// window. Repainting a whole row to change a few columns is a row's worth of
+// bytes down a serial link, on a keystroke; a selection that grows by a word
+// changes a word's worth.
+void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
+                    const char* suf, int sufsz, int from_col, int to_col);
+
 void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
                     const char* suf, int sufsz, int from_col);
 
@@ -198,6 +205,13 @@ void scr_write_line(screen* scr, char ypos, char* buf, int sz);
 // reversed scheme. Columns are screen columns, so the caller has already
 // resolved tabs -- scr_column_of turns a byte offset into one. An empty or
 // backwards span paints the row plainly.
+// scr_write_line_sel over a bounded range of columns. The selection is still
+// described in whole-row terms -- [from_col, to_col) is where the highlight is
+// -- and [paint_from, paint_to) says how much of the row to send.
+void scr_write_line_span(screen* scr, char ypos, char* buf, int sz,
+                         int from_col, int to_col, int paint_from,
+                         int paint_to);
+
 void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
                         int from_col, int to_col);
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz);

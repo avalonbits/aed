@@ -266,6 +266,30 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     scr_sync_cursor(scr);
 }
 
+void cmd_repaint_span(editor* ed, char y, int from_col, int to_col) {
+    SCR(ed);
+    TB(ed);
+
+    if (y < scr->topY_ || y >= scr->bottomY_) {
+        return;
+    }
+
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_pos start;
+    start.line = top_line(scr, tb) + (y - scr->topY_);
+    start.x = 0;
+    tb_seek(&cp, start);
+
+    int sz = 0;
+    char* text = tb_suffix(&cp, &sz);
+    int from = 0;
+    int to = 0;
+    row_selection(ed, tb_ypos(&cp), text, sz, &from, &to);
+    scr_write_line_span(scr, y, text, sz, from, to, from_col, to_col);
+    scr_sync_cursor(scr);
+}
+
 void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
     tb_pos a = ed->anchor_;
     tb_pos b = tb_tell(&ed->buf_);
