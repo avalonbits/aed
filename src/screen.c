@@ -163,8 +163,11 @@ static void get_active_colours(screen* scr) {
 }
 
 screen *scr_init(screen* scr, char cursor) {
-    static char disable_cursor_wrap[4] = {23, 16, 1, 0};
-    VDP_PUTS(disable_cursor_wrap);
+    // VDU 23,16,setting,mask -- new = (current AND mask) EOR setting. With
+    // mask 0 this sets the whole byte to 1: bit 0, scroll protection. It has
+    // never had anything to do with cursor wrap, which is bit 4.
+    static char enable_scroll_protect[4] = {23, 16, 1, 0};
+    VDP_PUTS(enable_scroll_protect);
 
     vdp_cursor_enable(false);
     scr->rows_ = getsysvar_scrRows();
@@ -180,15 +183,34 @@ screen *scr_init(screen* scr, char cursor) {
     // around it, not moving the cursor back afterwards -- each ruled out by a
     // probe differing from a working one in one line.
     //
-    // The cause is most likely the pending newline that scroll protection
-    // creates (VDU 23,16 bit 0, which this editor turns on): a character in the
-    // last column does not scroll, it leaves a newline pending, and the VDP
-    // waits. VDU 8 cancels one -- which is why drawing the cursor there was
-    // always harmless, since scr_show_cursor_ch has always followed its
-    // character with a cursor-left. Cancelling explicitly after the footer and
-    // the paint was tried and did not hold up: the region scroll shifts content
-    // into that column too, and cancelling after *that* scrolled the screen
-    // diagonally. Not writing the column at all is what works.
+    // The cause is in the VDP, in Context::plotString (video/context/graphics.h):
+    //
+    //     if (!cursorBehaviour.xHold) {
+    //         cursorRight();
+    //         if (cursorIsOffRight()) {
+    //             checkPagedMode();
+    //         }
+    //     }
+    //
+    // and checkPagedMode, with CTRL and SHIFT both down, sets the processor to
+    // CtrlShiftPaused -- the BBC "pause output" chord. This editor's selection
+    // chord is that chord. Writing the last column is what moves the cursor off
+    // the right edge, so it is what arms the pause; a row that stops one column
+    // short never makes the call.
+    //
+    // The pending newline that scroll protection leaves is *not* the cause: it
+    // is consumed by cursorAutoNewline -> cursorCR + cursorDown, and none of
+    // those reach checkPagedMode. That is why every probe that tried to cancel
+    // it with VDU 8 failed -- there was nothing to cancel. The pause is
+    // synchronous with the off-right transition, not deferred to the wrap.
+    //
+    // It cannot be switched off. Paged mode does not gate it, VDP variable
+    // 0x1022 covers only the CTRL-alone branch, kbEnabled is never cleared,
+    // !textCursorActive() means VDU 5, and scrollProtect guards only the
+    // post-string newline. cursorBehaviour.xHold (bit 5) would skip the block
+    // outright, but a VDP that does not implement it wraps and, on the bottom
+    // row, scrolls the screen -- and MOS offers no way to ask the VDP its
+    // version. Not writing the column at all is what works on every VDP.
     //
     // The cost is one column of width. It is a deliberate right margin rather
     // than a lost column, and it is why cols_ is the usable width everywhere
@@ -336,8 +358,10 @@ int scr_place_cursor(screen* scr, const char* line, int len) {
 }
 
 void scr_destroy(screen* scr) {
-    static char enable_cursor_wrap[4] = {23, 16, 1, 1};
-    VDP_PUTS(enable_cursor_wrap);
+    // mask 1 keeps only the current bit 0 and the EOR flips it, so this clears
+    // scroll protection and leaves the rest of the byte zeroed.
+    static char disable_scroll_protect[4] = {23, 16, 1, 1};
+    VDP_PUTS(disable_scroll_protect);
     vdp_cursor_enable(true);
 
     // Hand the machine back as it was found: restore the colours first, then
