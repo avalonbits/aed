@@ -74,8 +74,31 @@ void mos_puts(const char* b, unsigned size, char d) {
     if ((int) size > stub_write_max) {
         stub_write_max = (int) size;
     }
-    if (b != NULL && size > 0) {
-        fwrite(b, 1, size, stdout);
+    if (b == NULL || size == 0) {
+        return;
+    }
+
+    /* Colours travel as VDU 17 pairs inside ordinary writes now rather than
+     * through vdp_set_text_colour, so they are recognised here instead. They
+     * are recorded either way; whether they reach the stream stays opt-in,
+     * because colour 0 puts a NUL in it and that ends the string for every
+     * test that reads the stream back as text. */
+    for (unsigned i = 0; i < size; i++) {
+        if ((unsigned char) b[i] == 17 && i + 1 < size) {
+            const int colour = (unsigned char) b[i + 1];
+            if (colour >= 128) {
+                stub_bg = colour - 128;
+            } else {
+                stub_fg = colour;
+            }
+            if (stub_colour_bytes) {
+                putchar(17);
+                putchar(colour & 0xFF);
+            }
+            i++;
+            continue;
+        }
+        putchar(b[i]);
     }
 }
 
