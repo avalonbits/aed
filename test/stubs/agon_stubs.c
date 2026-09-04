@@ -136,7 +136,18 @@ void kbuf_clear(void) {}
 
 int stub_keys_installed(void) { return stub_kb_installed; }
 
+static int stub_stall;
+
+void stub_keys_stall(int n) {
+    stub_stall = n;
+}
+
 bool kbuf_poll_event(struct keyboard_event_t* e) {
+    if (stub_stall > 0) {
+        stub_stall--;
+
+        return false;               /* nothing has arrived yet */
+    }
     if (stub_keys == NULL || stub_key_at >= stub_nkeys) {
         /* ESC, pressed, forever: no prompt loop can hang on an empty script. */
         e->ascii = 27;
@@ -166,6 +177,13 @@ void stub_set_screen(int cols, int rows) {
     stub_rows = (uint8_t) rows;
 }
 
+/* Modifiers held right now, as MOS reports them -- which is not the same as
+ * the modifiers that came with the last key. Tests set it directly. */
+static uint8_t stub_mods_now;
+
+void stub_set_keymods(int mods) { stub_mods_now = (uint8_t) mods; }
+
+uint8_t getsysvar_keymods(void)    { return stub_mods_now; }
 uint8_t getsysvar_scrCols(void)    { return stub_cols; }
 uint8_t getsysvar_scrRows(void)    { return stub_rows; }
 uint8_t getsysvar_scrColours(void) { return 16; }

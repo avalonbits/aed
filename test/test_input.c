@@ -181,6 +181,20 @@ int main(void) {
         check("an arrow is not", ed_is_modifier(VK_RIGHT), 0);
     }
 
+    /* Drawing the footer between keystrokes is what stops the next one
+     * arriving, and a held chord is when that matters: it is the one thing
+     * CTRL+SHIFT with an arrow is for. So it is left alone while both are
+     * down, and drawn for everything else. */
+    {
+        check("no modifiers: draw it", ed_footer_wanted(0), 1);
+        check("CTRL alone: draw it", ed_footer_wanted(MOD_CTRL), 1);
+        check("SHIFT alone: draw it", ed_footer_wanted(MOD_SHFT), 1);
+        check("ALT alone: draw it", ed_footer_wanted(MOD_ALT), 1);
+        check("CTRL+SHIFT: leave it", ed_footer_wanted(MOD_CTRL | MOD_SHFT), 0);
+        check("...with ALT too: leave it",
+              ed_footer_wanted(MOD_CTRL | MOD_SHFT | MOD_ALT), 0);
+    }
+
     /* The MOS key vector outlives the process if AED does not take it back
      * down, so closing has to be part of shutting down rather than something
      * the exit path is trusted to remember. */
