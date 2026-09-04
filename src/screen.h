@@ -37,7 +37,15 @@ typedef struct _screen {
     // is 127 on the widest mode there is, which is exactly what a signed char
     // holds.
     int rows_;
+    // Width of the *text area*, not of the screen. The header and footer are
+    // wider: see barW_ and textX_ below.
     int cols_;
+    // First screen column of the text area, and the width the header and footer
+    // rows span. The text area sits one column in from each edge; the two bars
+    // run the full drawable width, so they are the only things that reach
+    // column 0.
+    char textX_;
+    int barW_;
     char colors_;
 
     // Size of one character cell in pixels, which is what VDU 23,7 scrolls by.
@@ -178,6 +186,12 @@ char scr_glyph_at(screen* scr, const char* line, int len, int col);
 
 // Prints one character at a screen cell without disturbing the recorded cursor.
 void scr_put_at(screen* scr, char sx, char sy, char ch);
+
+// Positions the cursor at a column of the text area. Callers count columns from
+// the left edge of the text, not of the screen, and this adds the margin. Any
+// caller that wants the screen edge itself -- the header, the footer -- is
+// drawing a bar and does not go through here.
+void scr_tab(screen* scr, int col, char row);
 
 // Paints one row from a line held as a gap-buffer split (either half may be
 // NULL/0), starting at the current horizontal origin, expanding tabs and

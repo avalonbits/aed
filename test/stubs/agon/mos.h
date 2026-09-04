@@ -92,6 +92,11 @@ int         stub_file_size(void);
  * waited for a keypress rather than drawing and moving straight on. */
 int         stub_keys_read(void);
 
+/* Column and row of the last vdp_cursor_tab. The tab emits no bytes, so this is
+ * the only way to assert where a paint was positioned. */
+int         stub_last_tab_x(void);
+int         stub_last_tab_y(void);
+
 /* Makes mos_fread return fewer bytes than asked for, so the read path can be
  * checked against a card that stops part way. */
 void        stub_file_short_read(int n);
