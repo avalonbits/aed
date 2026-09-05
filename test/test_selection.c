@@ -31,6 +31,10 @@
 
 static int failures = 0;
 
+/* The document line on the top text row. Not stored anywhere -- the view derives
+ * it from the cursor, which is why moving the cursor's row moves the view. */
+#define TOP_LINE(e) (tb_ypos(&(e)->buf_) - ((e)->scr_.currY_ - (e)->scr_.topY_))
+
 static void check(const char* name, int got, int want) {
     if (got == want) {
         fprintf(stderr, "PASS  %-52s got %d\n", name, got);
@@ -678,6 +682,150 @@ int main(void) {
     stub_emit_colours(0);
     ed_destroy(&widest);
     stub_set_screen(80, 25);
+
+    /* Cutting must not move the view.
+     *
+     * The line shown on the top row is derived, not stored: it is
+     * tb_ypos - (currY_ - topY_). So whatever sets the cursor's row after a
+     * delete decides which part of the document is on screen. place_cursor_row
+     * walks up from the cursor as far as the screen allows, which on a document
+     * taller than the screen always lands on the last text row -- and the view
+     * jumps by however far the cursor had been from the bottom. Measured on
+     * VDP 2.16.0 before this: cutting two words in a 300-line file moved the
+     * document twenty lines. */
+    {
+        static char many[4096];
+        int mn = 0;
+        for (int i = 1; i <= 100; i++) {
+            mn += sprintf(many + mn, "line %03d alpha beta\r\n", i);
+        }
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor tall;
+        check("an editor on a document taller than the screen",
+              ed_init(&tall, 8, "many.txt") != NULL, 1);
+
+        screen* ts = &tall.scr_;
+        const char mid = (char) (ts->topY_ + 10);
+
+        /* Cursor on line 50, ten rows down the screen: the top row is line 40. */
+        tb_seek(&tall.buf_, (tb_pos){50, 6});
+        ts->currY_ = mid;
+        check("the view starts on line 40", TOP_LINE(&tall), 40);
+
+        /* A selection inside one line. Nothing below it even moves. */
+        tall.anchor_ = (tb_pos){50, 2};
+        tall.selecting_ = true;
+        check("the cut happens", cmd_delete_selection(&tall) ? 1 : 0, 1);
+        check("  the cursor keeps its row", ts->currY_, mid);
+        check("  so the view has not moved", TOP_LINE(&tall), 40);
+
+        /* A selection spanning three lines. Two lines collapse into the row the
+         * selection started on, so the cursor rises two rows -- and the top of
+         * the screen still shows the same line, because nothing above moved. */
+        tb_seek(&tall.buf_, (tb_pos){52, 4});
+        ts->currY_ = (char) (mid + 2);
+        check("the view is still on line 40", TOP_LINE(&tall), 40);
+        tall.anchor_ = (tb_pos){50, 1};
+        tall.selecting_ = true;
+        check("the multi-line cut happens",
+              cmd_delete_selection(&tall) ? 1 : 0, 1);
+        check("  the cursor rises by the lines that collapsed", ts->currY_, mid);
+        check("  and the view still has not moved", TOP_LINE(&tall), 40);
+
+        ed_destroy(&tall);
+    }
+
+    /* Two cases where the row cannot simply be kept. */
+    {
+        static char many[4096];
+        int mn = 0;
+        for (int i = 1; i <= 100; i++) {
+            mn += sprintf(many + mn, "line %03d alpha beta\r\n", i);
+        }
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor e2;
+        check("another tall editor", ed_init(&e2, 8, "many2.txt") != NULL, 1);
+        screen* s2 = &e2.scr_;
+
+        /* The selection starts above the window: there is no row on screen to
+         * keep, so the join goes to the top row and the document is shown from
+         * there rather than the view jumping somewhere unrelated. */
+        tb_seek(&e2.buf_, (tb_pos){50, 3});
+        s2->currY_ = (char) (s2->topY_ + 5);
+        e2.anchor_ = (tb_pos){20, 0};
+        e2.selecting_ = true;
+        check("a cut reaching above the window", cmd_delete_selection(&e2) ? 1 : 0, 1);
+        check("  puts the join on the top row", s2->currY_, s2->topY_);
+        check("  and shows the document from there", TOP_LINE(&e2), 20);
+
+        /* Near the start of the document there are not enough lines above to
+         * fill the rows above the cursor, so the row has to come up to match or
+         * the view shows blanks above line 1. */
+        tb_seek(&e2.buf_, (tb_pos){3, 2});
+        s2->currY_ = (char) (s2->topY_ + 10);
+        e2.anchor_ = (tb_pos){3, 0};
+        e2.selecting_ = true;
+        check("a cut near the top of the document",
+              cmd_delete_selection(&e2) ? 1 : 0, 1);
+        check("  pulls the row up to what the document can fill",
+              s2->currY_, (char) (s2->topY_ + 2));
+        check("  so the top row is line 1", TOP_LINE(&e2), 1);
+
+        ed_destroy(&e2);
+    }
+
+    /* A refresh must not clear the text area first.
+     *
+     * Every row it paints is padded to the full width, so the clear only ever
+     * covered the rows past the end of the document -- at the cost of writing
+     * the whole area twice and showing it blank in between, which is the flash
+     * on every cut and paste. The rows past the end are blanked directly now.
+     *
+     * The clear also overlapped the footer row and erased it, so a refresh cost
+     * a footer repaint as well. */
+    {
+        static const char THREE[] = "aaa\r\nbbb\r\nccc\r\n";
+        stub_file_reset();
+        stub_file_set_content(THREE, (int) sizeof(THREE) - 1);
+        editor sh;
+        check("an editor on a short document", ed_init(&sh, 8, "short.txt") != NULL, 1);
+
+        /* Cut lines 2 and 3 away, leaving one line and a screenful of nothing. */
+        tb_seek(&sh.buf_, (tb_pos){3, 3});
+        sh.anchor_ = (tb_pos){1, 3};
+        sh.selecting_ = true;
+
+        cap_start();
+        check("the cut happens", cmd_delete_selection(&sh) ? 1 : 0, 1);
+        static char raw[8192];
+        const int n = cap_read(raw, (int) sizeof(raw));
+        check("the refresh wrote something", n > 0, 1);
+
+        int clears = 0;
+        for (int i = 0; i < n; i++) {
+            if (raw[i] == 12) {
+                clears++;
+            }
+        }
+        check("a refresh clears nothing", clears, 0);
+
+        /* Blanking is not optional in place of the clear: the rows the document
+         * no longer reaches have to be written as spaces, or the lines that used
+         * to be there stay on screen. One row of text, the rest blank. */
+        int spaces = 0;
+        for (int i = 0; i < n; i++) {
+            if (raw[i] == ' ') {
+                spaces++;
+            }
+        }
+        const int rows = sh.scr_.bottomY_ - sh.scr_.topY_;
+        check("  and pads every row past the end instead",
+              spaces > (rows - 1) * sh.scr_.cols_, 1);
+
+        ed_destroy(&sh);
+    }
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);

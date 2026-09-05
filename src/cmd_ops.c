@@ -31,10 +31,18 @@
 #define TB(ed) text_buffer* tb = &ed->buf_
 
 static void fill_screen(screen* scr, text_buffer* tb) {
-    scr_clear_textarea(scr, scr->topY_, scr->bottomY_);
-
+    // No clear first. scr_write_line pads every row it paints to the full width,
+    // so it covers whatever was there -- clearing the area and then painting
+    // over all of it writes the whole text area twice, and the blank moment
+    // between the two is the flash on every cut, paste and refresh.
+    //
+    // The clear was doing one thing besides that: covering the rows past the end
+    // of the document, which the loop below stops before. Those are blanked
+    // explicitly now. It also used to erase the footer, whose viewport it
+    // overlapped; not erasing it is one fewer full-width row per refresh.
+    char ypos = scr->topY_;
     char tpos = tb_ypos(tb);
-    for (char ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
+    for (; ypos < scr->bottomY_; ypos++) {
         int sz = 0;
         char* suffix = tb_suffix(tb, &sz);
         scr_write_line(scr, ypos, suffix, sz);
@@ -42,9 +50,14 @@ static void fill_screen(screen* scr, text_buffer* tb) {
         tb_down(tb);
         const int npos = tb_ypos(tb);
         if (npos == tpos) {
+            ypos++;
             break;
         }
         tpos = npos;
+    }
+
+    for (; ypos < scr->bottomY_; ypos++) {
+        scr_write_line(scr, ypos, NULL, 0);
     }
 }
 
@@ -333,6 +346,33 @@ static void reshow(editor* ed) {
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 
+// Where the cursor's row belongs after a selection delete: the row the top of
+// the selection is already on. Everything between there and the cursor collapses
+// into that row, so the row moves up by exactly the number of lines the
+// selection spanned -- and for a selection inside one line, it does not move.
+//
+// Deriving it instead, as place_cursor_row does, walks up from the cursor as far
+// as the screen allows. On any document taller than the screen that lands the
+// cursor on the last text row, and because the line shown at the top is derived
+// from the cursor's row, the whole view moves with it: cutting two words in the
+// middle of a 300-line file scrolled the document twenty lines.
+static void keep_cursor_row(editor* ed, int top_line, int cursor_line) {
+    SCR(ed);
+
+    int y = scr->currY_ - (cursor_line - top_line);
+    if (y < scr->topY_) {
+        // The selection began above the window, so there is no row to keep.
+        // Put the join on the top row and show the document from there.
+        y = scr->topY_;
+    }
+    if (y - scr->topY_ > top_line - 1) {
+        // Never leave more rows above the cursor than the document has lines to
+        // fill them with, or the view shows blank rows above line 1.
+        y = scr->topY_ + top_line - 1;
+    }
+    scr->currY_ = (char) y;
+}
+
 bool cmd_delete_selection(editor* ed) {
     if (!ed->selecting_) {
         return false;
@@ -344,14 +384,17 @@ bool cmd_delete_selection(editor* ed) {
     cmd_selection_range(ed, &a, &b);
     ed->selecting_ = false;
 
+    // Read before the delete: afterwards the cursor is at `a` and this is gone.
+    const int cursor_line = tb_ypos(tb);
+
     if (!tb_range_del(tb, a, b)) {
         return false;
     }
 
-    // The cursor is at the start of what was deleted, which may be several rows
-    // above where it was, and the lines below have all moved up. Work out which
-    // row it belongs on by walking back from it, then rebuild the view.
-    place_cursor_row(ed);
+    // The cursor is at the start of what was deleted and the lines below have
+    // moved up, but the text above it has not moved at all -- so neither should
+    // the view.
+    keep_cursor_row(ed, a.line, cursor_line);
     reshow(ed);
 
     return true;
