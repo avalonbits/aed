@@ -262,7 +262,8 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     start.x = 0;
     tb_seek(&cp, start);
 
-    for (char y = fromY; y <= toY; y++) {
+    char y = fromY;
+    for (; y <= toY; y++) {
         int sz = 0;
         char* text = tb_suffix(&cp, &sz);
         int from = 0;
@@ -273,8 +274,18 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
         const int prev = tb_ypos(&cp);
         tb_down(&cp);
         if (tb_ypos(&cp) == prev) {
+            y++;
             break;      // ran out of document
         }
+    }
+
+    // Rows the document no longer reaches. This used to stop at the break and
+    // leave whatever was there, which was harmless only because every caller
+    // either cleared first or was repainting a document that had not shrunk.
+    // A cut shrinks it, so those rows would keep the lines that used to be on
+    // them.
+    for (; y <= toY; y++) {
+        scr_write_line(scr, y, NULL, 0);
     }
     scr_sync_cursor(scr);
 }
@@ -356,21 +367,72 @@ static void reshow(editor* ed) {
 // cursor on the last text row, and because the line shown at the top is derived
 // from the cursor's row, the whole view moves with it: cutting two words in the
 // middle of a 300-line file scrolled the document twenty lines.
-static void keep_cursor_row(editor* ed, int top_line, int cursor_line) {
+// Returns false when the row could not be kept and the view has therefore moved,
+// which means every row on screen is wrong and only a full repaint will do.
+static bool keep_cursor_row(editor* ed, int top_line, int cursor_line) {
     SCR(ed);
 
+    bool kept = true;
     int y = scr->currY_ - (cursor_line - top_line);
     if (y < scr->topY_) {
         // The selection began above the window, so there is no row to keep.
         // Put the join on the top row and show the document from there.
         y = scr->topY_;
+        kept = false;
     }
     if (y - scr->topY_ > top_line - 1) {
         // Never leave more rows above the cursor than the document has lines to
         // fill them with, or the view shows blank rows above line 1.
         y = scr->topY_ + top_line - 1;
+        kept = false;
     }
     scr->currY_ = (char) y;
+
+    return kept;
+}
+
+// Repaints after a selection delete without redrawing the text area.
+//
+// A delete does one thing to the screen, however many lines it spanned: the row
+// the selection started on becomes the join of the text before it and the text
+// after it, the rows below move up by the number of lines that collapsed, and
+// that many rows come into view at the bottom. So one row is repainted, the rest
+// are moved by the VDP's own region scroll rather than resent, and only the rows
+// newly exposed are drawn.
+//
+// Returns false if it cannot, having drawn nothing, so the caller can fall back.
+static bool reshow_span(editor* ed, int collapsed) {
+    SCR(ed);
+    TB(ed);
+
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    if (scr_place_cursor(scr, prefix, psz) != 0) {
+        // The horizontal origin moved. It is screen-wide, so every other row is
+        // now drawn against the old one and none of them can be kept.
+        return false;
+    }
+
+    cmd_repaint_rows(ed, scr->currY_, scr->currY_);
+
+    const char first = (char) (scr->currY_ + 1);
+    const char last = (char) (scr->bottomY_ - 1);
+    if (collapsed > 0 && first <= last) {
+        const int height = last - first + 1;
+        if (collapsed < height) {
+            scr_scroll_rows_up(scr, first, last, collapsed);
+            cmd_repaint_rows(ed, (char) (last - collapsed + 1), last);
+        } else {
+            // More lines went than there are rows below: nothing down there
+            // survives, so scrolling it would be wasted bytes.
+            cmd_repaint_rows(ed, first, last);
+        }
+    }
+
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+
+    return true;
 }
 
 bool cmd_delete_selection(editor* ed) {
@@ -394,8 +456,10 @@ bool cmd_delete_selection(editor* ed) {
     // The cursor is at the start of what was deleted and the lines below have
     // moved up, but the text above it has not moved at all -- so neither should
     // the view.
-    keep_cursor_row(ed, a.line, cursor_line);
-    reshow(ed);
+    if (!keep_cursor_row(ed, a.line, cursor_line)
+            || !reshow_span(ed, b.line - a.line)) {
+        reshow(ed);
+    }
 
     return true;
 }

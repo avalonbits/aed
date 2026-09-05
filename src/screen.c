@@ -912,6 +912,19 @@ void scr_put_at(screen* scr, char sx, char sy, char ch) {
     scr_sync_cursor(scr);
 }
 
+void scr_scroll_rows_up(screen* scr, char topY, char bottomY, int rows) {
+    if (rows <= 0 || topY > bottomY) {
+        return;
+    }
+    const char up[] = {23, 7, 0, 3, scr->charH_};
+    define_viewport(scr->textX_, bottomY,
+                    (char) (scr->textX_ + scr->cols_ - 1), topY);
+    for (int i = 0; i < rows; i++) {
+        mos_puts((char*) up, sizeof(up), 0);
+    }
+    reset_viewport();
+}
+
 void scr_scroll_down(
         screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
     const char down[] = {23, 7, 0, 2, scr->charH_};

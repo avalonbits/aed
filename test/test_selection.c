@@ -31,6 +31,36 @@
 
 static int failures = 0;
 
+/* Whether the captured VDU stream contains this run of bytes. The painted text
+ * goes to the VDP as ordinary characters, so a line that was drawn is literally
+ * in there and one that was not is not -- which is how a test tells a repainted
+ * row from one the VDP scrolled into place itself. */
+/* The longest run of spaces in the stream. A row blanked because the document
+ * no longer reaches it is a full width of them in one go. */
+static int longest_space_run(const char* hay, int n) {
+    int best = 0;
+    int run = 0;
+    for (int i = 0; i < n; i++) {
+        run = hay[i] == ' ' ? run + 1 : 0;
+        if (run > best) {
+            best = run;
+        }
+    }
+
+    return best;
+}
+
+static int stream_has(const char* hay, int n, const char* needle) {
+    const int m = (int) strlen(needle);
+    for (int i = 0; i + m <= n; i++) {
+        if (memcmp(hay + i, needle, (size_t) m) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 /* The document line on the top text row. Not stored anywhere -- the view derives
  * it from the cursor, which is why moving the cursor's row moves the view. */
 #define TOP_LINE(e) (tb_ypos(&(e)->buf_) - ((e)->scr_.currY_ - (e)->scr_.topY_))
@@ -825,6 +855,179 @@ int main(void) {
               spaces > (rows - 1) * sh.scr_.cols_, 1);
 
         ed_destroy(&sh);
+    }
+
+    /* Cutting repaints what changed, not the screen.
+     *
+     * A delete does one thing to the screen however many lines it spanned: the
+     * row the selection started on becomes the join, the rows below move up by
+     * the number of lines that collapsed, and that many come into view at the
+     * bottom. The rows that survive are moved by the VDP's own region scroll
+     * rather than resent. Before this a cut of any size sent 1796 bytes -- 23
+     * rows at the full width -- over a serial link, on every keystroke. */
+    {
+        static char many[8192];
+        int mn = 0;
+        for (int i = 1; i <= 100; i++) {
+            mn += sprintf(many + mn, "line %03d alpha beta\r\n", i);
+        }
+        static char raw[8192];
+
+        /* Inside one line: nothing below it moves, so one row is all that is
+         * sent. */
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor one;
+        check("an editor for a one-line cut", ed_init(&one, 8, "one.txt") != NULL, 1);
+        tb_seek(&one.buf_, (tb_pos){50, 6});
+        one.scr_.currY_ = (char) (one.scr_.topY_ + 10);
+        one.anchor_ = (tb_pos){50, 2};
+        one.selecting_ = true;
+
+        cap_start();
+        check("the one-line cut happens", cmd_delete_selection(&one) ? 1 : 0, 1);
+        int n = cap_read(raw, (int) sizeof(raw));
+        check("  the joined row is drawn",
+              stream_has(raw, n, "li50 alpha beta"), 1);
+        check("  the row below it is not",
+              stream_has(raw, n, "line 051"), 0);
+        check("  and it costs about one row, not a screenful",
+              n < one.scr_.cols_ * 3, 1);
+        ed_destroy(&one);
+
+        /* Across three lines: two collapse, so the rows below scroll up by two
+         * and two rows are drawn at the bottom. */
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor three;
+        check("an editor for a three-line cut",
+              ed_init(&three, 8, "three.txt") != NULL, 1);
+        screen* t3 = &three.scr_;
+        tb_seek(&three.buf_, (tb_pos){52, 4});
+        t3->currY_ = (char) (t3->topY_ + 12);
+        three.anchor_ = (tb_pos){50, 1};
+        three.selecting_ = true;
+
+        cap_start();
+        check("the three-line cut happens",
+              cmd_delete_selection(&three) ? 1 : 0, 1);
+        n = cap_read(raw, (int) sizeof(raw));
+        check("  the joined row is drawn",
+              stream_has(raw, n, "l 052 alpha beta"), 1);
+        /* VDU 23,7,extent,direction,movement with direction 3 -- scroll up. */
+        {
+            const char up[4] = {23, 7, 0, 3};
+            int scrolls = 0;
+            for (int i = 0; i + 4 <= n; i++) {
+                if (memcmp(raw + i, up, 4) == 0) {
+                    scrolls++;
+                }
+            }
+            check("  the rows below are scrolled, one per collapsed line",
+                  scrolls, 2);
+        }
+        /* Two lines went, so the bottom of the screen now reaches two lines
+         * further into the document and those rows have to be drawn. */
+        check("  and the rows that came into view are drawn",
+              stream_has(raw, n, "line 064"), 1);
+        check("  while the rows that merely moved are not",
+              stream_has(raw, n, "line 055"), 0);
+        check("  costing a fraction of a screenful",
+              n < t3->cols_ * 6, 1);
+        ed_destroy(&three);
+
+        /* A selection reaching above the window moves the view, so every row is
+         * wrong and the whole area is repainted. The incremental path must not
+         * be taken here -- it would leave the rows above the join showing the
+         * old document and still highlighted. */
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor up_ed;
+        check("an editor for a cut from above the window",
+              ed_init(&up_ed, 8, "up.txt") != NULL, 1);
+        tb_seek(&up_ed.buf_, (tb_pos){50, 3});
+        up_ed.scr_.currY_ = (char) (up_ed.scr_.topY_ + 5);
+        up_ed.anchor_ = (tb_pos){20, 0};
+        up_ed.selecting_ = true;
+
+        /* A cut that scrolls the view sideways cannot be done incrementally
+         * either: the horizontal origin is screen-wide, so every other row is
+         * drawn against the old one. Here the cursor is far along a long line
+         * with the window scrolled right, and the cut brings it back to the
+         * start. */
+        stub_file_reset();
+        {
+            static char wide[8192];
+            int wn = 0;
+            for (int i = 1; i <= 60; i++) {
+                if (i == 50) {
+                    wn += sprintf(wide + wn, "line 050 ");
+                    for (int k = 0; k < 200; k++) {
+                        wide[wn++] = 'x';
+                    }
+                    wn += sprintf(wide + wn, "\r\n");
+                } else {
+                    wn += sprintf(wide + wn, "line %03d alpha beta\r\n", i);
+                }
+            }
+            stub_file_set_content(wide, wn);
+        }
+        editor wide_ed;
+        check("an editor scrolled along a long line",
+              ed_init(&wide_ed, 8, "wide2.txt") != NULL, 1);
+        tb_seek(&wide_ed.buf_, (tb_pos){50, 180});
+        wide_ed.scr_.currY_ = (char) (wide_ed.scr_.topY_ + 8);
+        wide_ed.scr_.originX_ = 150;
+        wide_ed.anchor_ = (tb_pos){50, 4};
+        wide_ed.selecting_ = true;
+
+        cap_start();
+        check("the cut back to the start of the line happens",
+              cmd_delete_selection(&wide_ed) ? 1 : 0, 1);
+        n = cap_read(raw, (int) sizeof(raw));
+        check("  the window scrolled back to the left",
+              wide_ed.scr_.originX_, 0);
+        check("  so every row is repainted, not just the one",
+              n > wide_ed.scr_.cols_ * 10, 1);
+        ed_destroy(&wide_ed);
+
+        /* Rows the shortened document no longer reaches have to be blanked. The
+         * scroll brings whatever was below into view; past the end of the
+         * document there is nothing to bring, and without blanking those rows
+         * keep the lines that used to be on them. */
+        stub_file_reset();
+        {
+            static const char five[] =
+                "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n";
+            stub_file_set_content(five, (int) sizeof(five) - 1);
+        }
+        editor shrink;
+        check("an editor on a five-line document",
+              ed_init(&shrink, 8, "five.txt") != NULL, 1);
+        tb_seek(&shrink.buf_, (tb_pos){4, 2});
+        shrink.scr_.currY_ = (char) (shrink.scr_.topY_ + 3);
+        shrink.anchor_ = (tb_pos){2, 0};
+        shrink.selecting_ = true;
+
+        cap_start();
+        check("the shrinking cut happens",
+              cmd_delete_selection(&shrink) ? 1 : 0, 1);
+        n = cap_read(raw, (int) sizeof(raw));
+        /* Two rows' worth in one run. One row of spaces proves nothing: the
+         * joined row is short and pads itself to the full width anyway. The two
+         * blanked rows are written back to back with only a cursor tab between,
+         * and a tab emits no bytes, so they land as one run twice as long. */
+        check("  rows past the end of the document are blanked",
+              longest_space_run(raw, n) >= shrink.scr_.cols_ * 2, 1);
+        ed_destroy(&shrink);
+
+        cap_start();
+        check("the cut from above happens",
+              cmd_delete_selection(&up_ed) ? 1 : 0, 1);
+        n = cap_read(raw, (int) sizeof(raw));
+        check("  falls back to repainting the area",
+              n > up_ed.scr_.cols_ * 10, 1);
+        ed_destroy(&up_ed);
     }
 
     if (failures > 0) {
