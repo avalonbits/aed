@@ -1021,6 +1021,39 @@ int main(void) {
               longest_space_run(raw, n) >= shrink.scr_.cols_ * 2, 1);
         ed_destroy(&shrink);
 
+        /* The same cut on a document whose last line has text on it.
+         *
+         * The repaint range for the exposed rows starts past the end of the
+         * document, and tb_seek clamps to the last line rather than failing. So
+         * that line gets painted into a row that should be blank, and appears on
+         * screen twice -- once where it belongs and once near the bottom.
+         *
+         * The fixture above cannot see this. Its document ends in a newline, so
+         * the line tb_seek clamps to is the empty one after it, and painting an
+         * empty line is indistinguishable from blanking the row. Without a
+         * trailing newline the last line is "five" and the duplicate shows. */
+        stub_file_reset();
+        {
+            static const char noeol[] = "one\r\ntwo\r\nthree\r\nfour\r\nfive";
+            stub_file_set_content(noeol, (int) sizeof(noeol) - 1);
+        }
+        editor last;
+        check("an editor whose last line has text",
+              ed_init(&last, 8, "noeol.txt") != NULL, 1);
+        tb_seek(&last.buf_, (tb_pos){4, 2});
+        last.scr_.currY_ = (char) (last.scr_.topY_ + 3);
+        last.anchor_ = (tb_pos){2, 0};
+        last.selecting_ = true;
+
+        cap_start();
+        check("the cut on it happens", cmd_delete_selection(&last) ? 1 : 0, 1);
+        n = cap_read(raw, (int) sizeof(raw));
+        check("  the last line is not painted a second time",
+              stream_has(raw, n, "five"), 0);
+        check("  and those rows are blanked instead",
+              longest_space_run(raw, n) >= last.scr_.cols_ * 2, 1);
+        ed_destroy(&last);
+
         cap_start();
         check("the cut from above happens",
               cmd_delete_selection(&up_ed) ? 1 : 0, 1);

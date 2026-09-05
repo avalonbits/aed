@@ -261,6 +261,19 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     start.line = top_line(scr, tb) + (fromY - scr->topY_);
     start.x = 0;
     tb_seek(&cp, start);
+    if (tb_ypos(&cp) != start.line) {
+        // The range begins past the end of the document. tb_seek clamps to the
+        // last line, and painting from there would put that line on screen a
+        // second time, in a row that should be blank. Only visible when the
+        // last line has text on it: a document ending in a newline has an empty
+        // line after it, and painting that looks exactly like blanking the row.
+        for (char blank = fromY; blank <= toY; blank++) {
+            scr_write_line(scr, blank, NULL, 0);
+        }
+        scr_sync_cursor(scr);
+
+        return;
+    }
 
     char y = fromY;
     for (; y <= toY; y++) {
