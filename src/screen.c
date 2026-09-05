@@ -208,10 +208,22 @@ screen *scr_init(screen* scr, char cursor) {
     // it with VDU 8 failed -- there was nothing to cancel. The pause is
     // synchronous with the off-right transition, not deferred to the wrap.
     //
+    // Measured, not just read: test/probes/lastcol.c writes one character in a
+    // chosen column and counts key events beside it. On VDP 2.16.0, six taps
+    // with the chord held leave the counter blank until the keys come up when
+    // it writes this column, and reading 8 while they are still down when it
+    // writes the one before it. Two builds, one column apart.
+    //
     // It cannot be switched off. Paged mode does not gate it, VDP variable
-    // 0x1022 covers only the CTRL-alone branch, kbEnabled is never cleared,
-    // !textCursorActive() means VDU 5, and scrollProtect guards only the
-    // post-string newline.
+    // 0x1022 covers only the CTRL-alone branch, kbEnabled is never cleared, and
+    // scrollProtect guards only the post-string newline.
+    //
+    // One route does exist and is deliberately not taken. checkPagedMode opens
+    // with `if (!textCursorActive()) return;`, so text plotted at the graphics
+    // cursor -- VDU 5 -- never reaches the pause and could hold this column.
+    // It would cost graphics-coordinate positioning per write, in OS units that
+    // vary with the screen mode, for text that does not scroll with the rest.
+    // Declined 2026-09-05; the column is cheaper.
     //
     // cursorBehaviour.xHold (bit 5) would skip the block outright, and it is
     // old enough to rely on where the pause exists at all: the pause arrived in
