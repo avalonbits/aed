@@ -236,6 +236,12 @@ void set_colours(char fg, char bg);
 // Scrolls one row of the text area and paints the newly exposed line. The
 // caller decides which region moves and what belongs on the new row; the VDU
 // sequences that make it happen live in the view.
+// Scrolls the text rows in [topY, bottomY] up by `rows` character rows and
+// leaves the exposed rows at the bottom for the caller to paint. The region
+// scroll is a VDP operation: the rows that survive move without being resent,
+// which is the point of using it instead of repainting them.
+void scr_scroll_rows_up(screen* scr, char topY, char bottomY, int rows);
+
 void scr_scroll_up(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
 void scr_scroll_down(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
 
