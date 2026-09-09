@@ -18,6 +18,22 @@ See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
   last column of the screen freezes the counter and it catches up to 8 on
   release; writing the column before it shows 8 while the keys are still down.
   That is the evidence for the reserved column in `scr_init`.
+- `sdrate.c` — times bulk reads and writes, 1 KiB against 4 KiB operations, and
+  ascending against descending seeks. Written for the paging design in
+  `.internal/docs/PAGING.md`, which needs all three: throughput sets how long a
+  save takes, per-operation overhead sets the floor on the chunk size, and the
+  seek ratio says whether scrolling up costs more than scrolling down.
+
+  **Run it on hardware.** On the emulator with `--sdcard <path>` the host
+  filesystem serves the calls and MOS's FatFS does not appear to run at all:
+  reads and seeks both measure 0 cs, and two identical runs gave 673 and
+  1706 KiB/s for writes. The one thing that does come through is that the eZ80
+  side is not the bottleneck — with MOS and the C code in the loop throughout,
+  writes still exceeded 1.5 MiB/s. Whatever the real rate is, the card sets it.
+
+  A raw image (`--sdcard-img`) would make FatFS run for real and would answer
+  the seek and overhead questions, but still not throughput. It needs
+  `dosfstools` and `mtools`, neither of which is installed here.
 - `kbev.c` — prints every `agon/keyboard.h` event (ascii, kmod, vkey, up/down)
   as it arrives. This is the input path AED should use; the other two probes
   are from the superseded keyboard-map investigation.
