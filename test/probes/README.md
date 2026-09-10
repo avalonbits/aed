@@ -56,3 +56,24 @@ See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
   installed here, but `SDL_VIDEODRIVER=dummy` works, and `log_word` smuggles
   numbers to the host through the VDP's debug log, which `--verbose` surfaces.
   See `.internal/docs/FONTS.md`.
+- `fonttest.c` — loads a font and shows the result, so a person can look at it.
+  Takes the path as an argument, so several can be compared without editing the
+  settings file:
+
+      fonttest /config/aed/unscii8x9.bin
+
+  Does what `scr_load_font` does and puts the workings on screen: whether the
+  VDP has the font API at all, the height the file implies, the measured ascent,
+  whether the mode packet came back, and the geometry afterwards. The sample
+  puts descenders directly above capitals, which is the comparison that matters
+  when choosing a height -- a 9- or 10-row font has a blank row between the two
+  and an 8-row font does not.
+
+  **A pass does not mean the font is correct.** The read-back asks the VDP to
+  match the screen against the font it is holding, so a font uploaded at the
+  wrong offset agrees with itself and reads back perfectly while the screen
+  shows nonsense. "renders" means glyphs are reaching the screen; whether they
+  are the *right* glyphs is what the sample text is for.
+
+  It reported everything healthy throughout the hunt for #109, and was right to:
+  the editor's blank screen was a stale object file, not the font path.
