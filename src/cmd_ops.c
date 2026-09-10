@@ -483,6 +483,19 @@ void cmd_undo(editor* ed) {
     reshow(ed);
 }
 
+void cmd_redo(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    const int top_before = top_line(scr, tb);
+    if (!redo_apply(&ed->undo_, tb)) {
+        return;
+    }
+    ed->selecting_ = false;
+    show_line_at(ed, tb_ypos(tb), top_before);
+    reshow(ed);
+}
+
 bool cmd_delete_selection(editor* ed) {
     if (!ed->selecting_) {
         return false;

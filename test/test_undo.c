@@ -191,13 +191,21 @@ int main(void) {
      * the first CTRL+Z would unpick the file's own CRLFs. */
     check("loading records nothing", undo_count(u), 0);
 
-    /* Typing. One record per byte at this stage; coalescing comes later. */
+    /* Typing runs together into one record, so one CTRL+Z takes back the run
+     * rather than a letter. */
     tb_seek(tb, (tb_pos){1, 0});
     put_str(tb, "abc");
-    check("typing records one per byte", undo_count(u), 3);
-    check("  as inserts", rec_op(u, 0), UNDO_INSERT);
+    check("typing coalesces into one record", undo_count(u), 1);
+    check("  an insert", rec_op(u, 0), UNDO_INSERT);
     check("  at the line typed on", rec_line(u, 0), 1);
-    check("  advancing across the line", rec_x(u, 2), 2);
+    check("  starting where the run began", rec_x(u, 0), 0);
+    check("  as long as the run", rec_len(u, 0), 3);
+
+    /* Moving the cursor away ends the run -- not because anything watches the
+     * cursor, but because the next edit is no longer adjacent to the last. */
+    tb_seek(tb, (tb_pos){1, 8});
+    put_str(tb, "Z");
+    check("an edit elsewhere starts a new record", undo_count(u), 2);
 
     /* A newline is two puts, so it needs no hook of its own. */
     undo_clear(u);
@@ -246,7 +254,8 @@ int main(void) {
     tb_range_del(tb, (tb_pos){1, 0}, (tb_pos){1, 4});
     check("a range delete reaches the log without its own hook",
           undo_count(u) > 0, 1);
-    check("  one record per byte removed", undo_count(u), len);
+    check("  coalesced into one record", undo_count(u), 1);
+    check("  holding every byte it removed", rec_len(u, 0), len);
 
     undo_clear(u);
     tb_del_line(tb);
@@ -284,8 +293,8 @@ int main(void) {
         put_str(lt, "XY");
         check_txt("typed", line_text(lt, 1), "helloXY world");
         check("undo reports something to do", undo_apply(lu, lt) ? 1 : 0, 1);
-        check("  twice", undo_apply(lu, lt) ? 1 : 0, 1);
-        check_txt("  and the line is back", line_text(lt, 1), "hello world");
+        check_txt("  and the whole run is gone at once",
+                  line_text(lt, 1), "hello world");
         check("  with nothing left", undo_apply(lu, lt) ? 1 : 0, 0);
 
         /* A delete comes back too, with its bytes. */
@@ -294,8 +303,7 @@ int main(void) {
         tb_del(lt);
         tb_del(lt);
         check_txt("deleted two", line_text(lt, 1), "llo world");
-        undo_apply(lu, lt);
-        undo_apply(lu, lt);
+        check("undoing the pair is one step", undo_apply(lu, lt) ? 1 : 0, 1);
         check_txt("  and they are back", line_text(lt, 1), "hello world");
 
         /* A line break is one record, and undoing it joins the lines again --
@@ -327,6 +335,89 @@ int main(void) {
         undo_apply(lu, lt);
         check("replaying does not record", undo_count(lu), held);
 
+        ed_destroy(&e);
+    }
+
+    /* --- coalescing and redo --- */
+    {
+        stub_file_reset();
+        static const char D4[] = "abcdefgh\r\nsecond\r\n";
+        stub_file_set_content(D4, (int) sizeof(D4) - 1);
+        editor e;
+        check("an editor for runs", ed_init(&e, 8, "c.txt") != NULL, 1);
+        undo* lu = &e.undo_;
+        text_buffer* lt = &e.buf_;
+
+        /* Backspace runs leftward, so its bytes arrive reversed. Getting that
+         * wrong puts the text back inside out, which is why the run is checked
+         * as text and not as a byte count. */
+        tb_seek(lt, (tb_pos){1, 5});
+        tb_bksp(lt);
+        tb_bksp(lt);
+        tb_bksp(lt);
+        check_txt("three backspaces", line_text(lt, 1), "abfgh");
+        check("  coalesce into one record", undo_count(lu), 1);
+        check("  a backward delete", rec_op(lu, 0), UNDO_DELETE_BACK);
+        check("  starting at the leftmost byte", rec_x(lu, 0), 2);
+        check("undoing the run is one step", undo_apply(lu, lt) ? 1 : 0, 1);
+        check_txt("  and the text comes back in order",
+                  line_text(lt, 1), "abcdefgh");
+
+        /* Redo puts it back again, which is the only reason an insert record
+         * carries its bytes. */
+        check("there is something to redo", undo_can_redo(lu) ? 1 : 0, 1);
+        check("redo reports something to do", redo_apply(lu, lt) ? 1 : 0, 1);
+        check_txt("  and the run is gone again", line_text(lt, 1), "abfgh");
+        check("  with nothing further to redo", undo_can_redo(lu) ? 1 : 0, 0);
+
+        /* Undo, then a new edit: the redo tail describes a document that no
+         * longer exists, so it goes. */
+        undo_apply(lu, lt);
+        check("undone again", undo_can_redo(lu) ? 1 : 0, 1);
+        tb_seek(lt, (tb_pos){1, 0});
+        put_str(lt, "Q");
+        check("a new edit discards the redo tail",
+              undo_can_redo(lu) ? 1 : 0, 0);
+
+        /* A run stops at UNDO_RUN_MAX so one step never swallows a paragraph. */
+        undo_clear(lu);
+        tb_seek(lt, (tb_pos){1, 0});
+        for (int i = 0; i < UNDO_RUN_MAX + 20; i++) {
+            tb_put(lt, 'x');
+        }
+        check("a long run is capped, not endless", undo_count(lu) > 1, 1);
+        check("  at the cap", rec_len(lu, 0), UNDO_RUN_MAX);
+
+        /* undo_break ends a run that position alone would have joined. */
+        undo_clear(lu);
+        tb_seek(lt, (tb_pos){2, 0});
+        put_str(lt, "ab");
+        check("a run of two", undo_count(lu), 1);
+        undo_break(lu);
+        put_str(lt, "cd");
+        check("  broken, so the next is its own record", undo_count(lu), 2);
+
+        ed_destroy(&e);
+    }
+
+    /* Typing then ENTER coalesces, and undoing that has to take the line break
+     * with it -- the delete_span loop needs tb_del_merge for the CRLF. */
+    {
+        stub_file_reset();
+        static const char D5[] = "start\r\n";
+        stub_file_set_content(D5, (int) sizeof(D5) - 1);
+        editor e;
+        check("an editor for a run ending in a break",
+              ed_init(&e, 8, "n.txt") != NULL, 1);
+        tb_seek(&e.buf_, (tb_pos){1, 5});
+        put_str(&e.buf_, "XY");
+        tb_newline(&e.buf_);
+        check("the run absorbed the line break", undo_count(&e.undo_), 1);
+        check("  four bytes of it", rec_len(&e.undo_, 0), 4);
+        undo_apply(&e.undo_, &e.buf_);
+        check_txt("undoing takes the break with it",
+                  line_text(&e.buf_, 1), "start");
+        check("  and the line count is back", tb_ymax(&e.buf_), 2);
         ed_destroy(&e);
     }
 

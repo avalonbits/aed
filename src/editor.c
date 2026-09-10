@@ -370,6 +370,10 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_z:
             kc.cmd = cmd_undo;
             break;
+        case VK_Y:
+        case VK_y:
+            kc.cmd = cmd_redo;
+            break;
         case VK_V:
         case VK_v:
             kc.cmd = cmd_paste;

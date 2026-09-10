@@ -65,6 +65,7 @@ void undo_clear(undo* u) {
     u->head_ = 0;
     u->top_ = 0;
     u->cur_ = 0;
+    u->broken_ = false;
 }
 
 void undo_suspend(undo* u) { if (u != NULL) u->off_ = true; }
@@ -136,19 +137,47 @@ void undo_release(undo* u, bool was_on) {
     }
 }
 
-// Both kinds keep their bytes. A delete needs them to put the text back; an
-// insert needs them so the edit can be done again after being undone.
-static void record(undo* u, uint8_t op, tb_pos at, const char* text, int len) {
-    if (!undo_recording(u) || len <= 0 || text == NULL) {
-        return;
+void undo_break(undo* u) {
+    if (u != NULL) {
+        u->broken_ = true;
     }
-    discard_redo(u);
-    if (!make_room(u, len)) {
-        // Bigger than the whole ring. Keeping the records either side would
-        // leave a history that silently skips this edit, so the log goes.
-        undo_clear(u);
-        return;
+}
+
+// Whether this edit continues the last record rather than starting one.
+//
+// Position does most of the work: an edit that is not adjacent to the last one
+// cannot be a continuation of it, which means moving the cursor breaks a run
+// without anything having to notice that the cursor moved.
+static bool joins_last(undo* u, uint8_t op, tb_pos at, int len) {
+    if (u->broken_ || u->top_ == 0) {
+        return false;
     }
+    const undo_rec* last = rec_at(u, u->top_ - 1);
+    if (last->op != op || last->line != at.line) {
+        return false;
+    }
+    if (last->len + len > UNDO_RUN_MAX) {
+        return false;
+    }
+    switch (op) {
+        case UNDO_INSERT:
+            // Typing on: the new byte sits where the run ended.
+            return at.x == last->x + last->len;
+        case UNDO_DELETE:
+            // DELETE eats forward from a cursor that does not move.
+            return at.x == last->x;
+        case UNDO_DELETE_BACK:
+            // BACKSPACE eats leftward, so the run's start moves with it.
+            return at.x == last->x - len;
+        default:
+            return false;
+    }
+}
+
+// Appends to the ring. Only sound for the most recent record, whose bytes end
+// exactly where the next allocation begins -- which is the only record that is
+// ever extended.
+static void append_text(undo* u, const char* text, int len) {
     const int at_off = (u->text_head_ + u->text_used_) % u->text_size_;
     const int first = u->text_size_ - at_off < len ? u->text_size_ - at_off : len;
     memcpy(u->text_ + at_off, text, (size_t) first);
@@ -156,7 +185,43 @@ static void record(undo* u, uint8_t op, tb_pos at, const char* text, int len) {
         memcpy(u->text_, text + first, (size_t) (len - first));
     }
     u->text_used_ += len;
+}
+
+// Both kinds keep their bytes. A delete needs them to put the text back; an
+// insert needs them so the edit can be done again after being undone.
+static void record(undo* u, uint8_t op, tb_pos at, const char* text, int len) {
+    if (!undo_recording(u) || len <= 0 || text == NULL) {
+        return;
+    }
+    discard_redo(u);
+
+    if (joins_last(u, op, at, len)) {
+        // Extending, so only the text has to fit; there is no new record.
+        if (u->text_size_ - u->text_used_ >= len) {
+            undo_rec* last = rec_at(u, u->top_ - 1);
+            append_text(u, text, len);
+            last->len += len;
+            if (op == UNDO_DELETE_BACK) {
+                // The run now starts where this byte was.
+                last->x = at.x;
+            }
+
+            return;
+        }
+        // Not enough room to extend without dropping records, and dropping the
+        // oldest cannot free the newest. Fall through and start a record.
+    }
+
+    if (!make_room(u, len)) {
+        // Bigger than the whole ring. Keeping the records either side would
+        // leave a history that silently skips this edit, so the log goes.
+        undo_clear(u);
+        return;
+    }
+    const int at_off = (u->text_head_ + u->text_used_) % u->text_size_;
+    append_text(u, text, len);
     push(u, op, at, len, at_off);
+    u->broken_ = false;
 }
 
 void undo_insert(undo* u, tb_pos at, const char* text, int len) {
@@ -167,6 +232,10 @@ void undo_delete(undo* u, tb_pos at, const char* text, int len) {
     record(u, UNDO_DELETE, at, text, len);
 }
 
+void undo_delete_back(undo* u, tb_pos at, const char* text, int len) {
+    record(u, UNDO_DELETE_BACK, at, text, len);
+}
+
 // The saved bytes, as up to two runs -- the ring may have wrapped in the middle
 // of a record.
 static int text_runs(undo* u, const undo_rec* r, const char** a, const char** b) {
@@ -175,6 +244,56 @@ static int text_runs(undo* u, const undo_rec* r, const char** a, const char** b)
     *b = u->text_;
 
     return first;
+}
+
+static char byte_at(undo* u, const undo_rec* r, int i) {
+    return u->text_[(r->at + i) % u->text_size_];
+}
+
+// Puts a reversed run back. The bytes were stored as backspace met them, right
+// to left, so inserting each at the same position rebuilds the original order.
+// A run is broken at a line break, so there is never a CRLF in one of these and
+// tb_put is enough.
+static void insert_reversed(text_buffer* tb, undo* u, const undo_rec* r,
+                            tb_pos at) {
+    for (int i = 0; i < r->len; i++) {
+        tb_seek(tb, at);
+        tb_put(tb, byte_at(u, r, i));
+    }
+}
+
+// Takes len bytes out from `at`, through the same primitives an ordinary delete
+// uses so the line index is maintained by code that already gets it right.
+static void delete_span(text_buffer* tb, int len) {
+    int left = len;
+    while (left > 0) {
+        if (tb_eol(tb)) {
+            if (!tb_del_merge(tb)) {
+                break;
+            }
+            left -= 2;
+        } else {
+            if (!tb_del(tb)) {
+                break;
+            }
+            left -= 1;
+        }
+    }
+}
+
+// Puts a forward run back, letting tb_insert_span turn a CRLF into a real line
+// break. Its pending_cr also carries a record split across the end of the ring.
+static void insert_forward(text_buffer* tb, undo* u, const undo_rec* r) {
+    const int first = u->text_size_ - r->at < r->len
+        ? u->text_size_ - r->at : r->len;
+    bool pending_cr = false;
+    tb_insert_span(tb, u->text_ + r->at, first, &pending_cr);
+    if (first < r->len) {
+        tb_insert_span(tb, u->text_, r->len - first, &pending_cr);
+    }
+    if (pending_cr) {
+        tb_newline(tb);
+    }
 }
 
 bool undo_apply(undo* u, text_buffer* tb) {
@@ -190,46 +309,56 @@ bool undo_apply(undo* u, text_buffer* tb) {
     tb_seek(tb, at);
 
     if (r->op == UNDO_INSERT) {
-        // Put it back by taking it out again. Through the same primitives an
-        // ordinary delete uses, so the line index is maintained by code that
-        // already gets it right -- a line break is two bytes and needs the
-        // merge, not two plain deletes.
-        int left = r->len;
-        while (left > 0) {
-            if (tb_eol(tb)) {
-                if (!tb_del_merge(tb)) {
-                    break;
-                }
-                left -= 2;
-            } else {
-                if (!tb_del(tb)) {
-                    break;
-                }
-                left -= 1;
-            }
-        }
+        delete_span(tb, r->len);
+    } else if (r->op == UNDO_DELETE_BACK) {
+        insert_reversed(tb, u, r, at);
+        tb_seek(tb, at);
     } else {
-        // tb_insert_span turns a CRLF into a real line break, and carries a
-        // trailing CR across calls -- which is exactly what a record split
-        // across the end of the ring needs.
-        const char* a;
-        const char* b;
-        const int first = text_runs(u, r, &a, &b);
-        bool pending_cr = false;
-        tb_insert_span(tb, a, first, &pending_cr);
-        if (first < r->len) {
-            tb_insert_span(tb, b, r->len - first, &pending_cr);
-        }
-        if (pending_cr) {
-            tb_newline(tb);
-        }
+        insert_forward(tb, u, r);
         tb_seek(tb, at);
     }
 
     undo_release(u, was);
     u->cur_--;
+    u->broken_ = true;
 
     return true;
+}
+
+bool redo_apply(undo* u, text_buffer* tb) {
+    if (u == NULL || u->cur_ >= u->top_) {
+        return false;
+    }
+    const undo_rec* r = rec_at(u, u->cur_);
+    tb_pos at;
+    at.line = r->line;
+    at.x = r->x;
+
+    const bool was = undo_hold(u);
+    tb_seek(tb, at);
+
+    if (r->op == UNDO_INSERT) {
+        // Doing it again, which is why an insert keeps its bytes at all.
+        insert_forward(tb, u, r);
+    } else {
+        // Both kinds of delete took a run starting at the record's position,
+        // whichever end the cursor was working from.
+        delete_span(tb, r->len);
+    }
+
+    undo_release(u, was);
+    u->cur_++;
+    u->broken_ = true;
+
+    return true;
+}
+
+bool undo_can_undo(undo* u) {
+    return u != NULL && u->cur_ > 0;
+}
+
+bool undo_can_redo(undo* u) {
+    return u != NULL && u->cur_ < u->top_;
 }
 
 int undo_count(undo* u) {
@@ -249,13 +378,11 @@ int undo_text_used(undo* u) {
 
 bool undo_text_of(undo* u, int i, char* out, int max) {
     const undo_rec* r = undo_at(u, i);
-    if (r == NULL || r->op != UNDO_DELETE || r->len > max) {
+    if (r == NULL || r->len > max) {
         return false;
     }
-    const int first = u->text_size_ - r->at < r->len ? u->text_size_ - r->at : r->len;
-    memcpy(out, u->text_ + r->at, (size_t) first);
-    if (first < r->len) {
-        memcpy(out + first, u->text_, (size_t) (r->len - first));
+    for (int k = 0; k < r->len; k++) {
+        out[k] = byte_at(u, r, k);
     }
 
     return true;

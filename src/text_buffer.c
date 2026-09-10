@@ -139,7 +139,9 @@ bool tb_bksp(text_buffer* tb) {
         lb_cdec(&tb->lb_);
         tb->dirty_ = true;
         // Recorded at where the cursor ended up, which is where the byte was.
-        undo_delete(tb->undo_, tb_tell(tb), &gone, 1);
+        // As a backward delete, so a run of them coalesces in the right order:
+        // each byte is to the left of the one before it.
+        undo_delete_back(tb->undo_, tb_tell(tb), &gone, 1);
     }
     return ok;
 }
