@@ -90,8 +90,25 @@ void undo_destroy(undo* u);
 
 // Called by the model. A NULL log records nothing, which is what makes the
 // pointer an off switch rather than something every caller has to check.
-void undo_insert(undo* u, tb_pos at, int len);
+void undo_insert(undo* u, tb_pos at, const char* text, int len);
 void undo_delete(undo* u, tb_pos at, const char* text, int len);
+
+// Suspends recording and reports whether it was on, for a caller that needs a
+// group of primitive edits to land as one record. A line break is the reason
+// this exists: tb_newline is two tb_put calls, and undoing them separately would
+// remove the LF on its own and leave a CR behind, which the line index -- which
+// assumes a two-byte CRLF -- cannot represent.
+bool undo_hold(undo* u);
+void undo_release(undo* u, bool was_on);
+
+// Undoes the most recent record that has not been undone. False when there is
+// nothing left. Recording is suspended for the duration, so replay does not
+// push its own inverse.
+//
+// Records are only valid applied in order: a record's position describes the
+// document as it stood immediately after that edit, so undoing out of order
+// aims at bytes that have since moved.
+bool undo_apply(undo* u, text_buffer* tb);
 
 // Around replay, so undoing does not record its own inverse.
 void undo_suspend(undo* u);

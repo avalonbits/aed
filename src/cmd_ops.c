@@ -448,6 +448,41 @@ static bool reshow_span(editor* ed, int collapsed) {
     return true;
 }
 
+// Puts the cursor on the row that leaves the view where it was, when the line is
+// still on screen. The line shown on the top row is derived from the cursor's
+// row, so setting that row is how the view is aimed -- see keep_cursor_row.
+static void show_line_at(editor* ed, int line, int top_before) {
+    SCR(ed);
+
+    int y = scr->topY_ + (line - top_before);
+    if (y < scr->topY_ || y >= scr->bottomY_) {
+        // The edit was off screen. Put it half way down rather than at an edge,
+        // so what surrounds it is visible.
+        y = scr->topY_ + (scr->bottomY_ - scr->topY_) / 2;
+    }
+    if (y - scr->topY_ > line - 1) {
+        // Never leave more rows above the cursor than the document has lines.
+        y = scr->topY_ + line - 1;
+    }
+    scr->currY_ = (char) y;
+}
+
+void cmd_undo(editor* ed) {
+    TB(ed);
+    SCR(ed);
+
+    const int top_before = top_line(scr, tb);
+    if (!undo_apply(&ed->undo_, tb)) {
+        return;
+    }
+
+    // A selection describes a document that no longer exists.
+    ed->selecting_ = false;
+
+    show_line_at(ed, tb_ypos(tb), top_before);
+    reshow(ed);
+}
+
 bool cmd_delete_selection(editor* ed) {
     if (!ed->selecting_) {
         return false;

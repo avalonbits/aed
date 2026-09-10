@@ -106,6 +106,23 @@ static const char* deleted(undo* u) {
     return out;
 }
 
+/* A line's text, for comparing the document rather than the log. */
+static const char* line_text(text_buffer* tb, int line) {
+    static char out[256];
+    const tb_pos here = tb_tell(tb);
+    tb_seek(tb, (tb_pos){line, 0});
+    int sz = 0;
+    const char* p = tb_suffix(tb, &sz);
+    if (sz > (int) sizeof(out) - 1) {
+        sz = (int) sizeof(out) - 1;
+    }
+    memcpy(out, p, (size_t) sz);
+    out[sz] = 0;
+    tb_seek(tb, here);
+
+    return out;
+}
+
 static void put_str(text_buffer* tb, const char* s) {
     for (; *s; s++) {
         tb_put(tb, *s);
@@ -122,22 +139,24 @@ int main(void) {
         check("  empty", undo_count(&u), 0);
 
         tb_pos p = {1, 0};
-        undo_insert(&u, p, 1);
+        undo_insert(&u, p, "z", 1);
         check("an insert is recorded", undo_count(&u), 1);
-        check("  and holds no text", undo_text_used(&u), 0);
+        /* Inserts keep their bytes too. Undoing one only needs to delete, but
+         * doing it again afterwards needs to know what to put back. */
+        check("  and holds its byte", undo_text_used(&u), 1);
 
         undo_delete(&u, p, "ab", 2);
         check("a delete is recorded", undo_count(&u), 2);
-        check("  and holds its bytes", undo_text_used(&u), 2);
+        check("  and holds its bytes", undo_text_used(&u), 3);
         check_txt("  which come back out", deleted(&u), "ab");
 
         /* The record ring is four deep, so a fifth drops the oldest. */
-        undo_insert(&u, p, 1);
-        undo_insert(&u, p, 1);
+        undo_insert(&u, p, "z", 1);
+        undo_insert(&u, p, "z", 1);
         check("four records fit", undo_count(&u), 4);
-        undo_insert(&u, p, 1);
+        undo_insert(&u, p, "z", 1);
         check("the fifth drops the oldest", undo_count(&u), 4);
-        check("  and gives back its text", undo_text_used(&u), 2);
+        check("  and gives back its text", undo_text_used(&u), 6);
 
         /* An edit larger than the whole ring cannot be undone at all. Keeping
          * the records either side would leave a history that silently skips
@@ -149,10 +168,10 @@ int main(void) {
 
         /* Suspended, nothing lands. */
         undo_suspend(&u);
-        undo_insert(&u, p, 1);
+        undo_insert(&u, p, "z", 1);
         check("suspended, nothing is recorded", undo_count(&u), 0);
         undo_resume(&u);
-        undo_insert(&u, p, 1);
+        undo_insert(&u, p, "z", 1);
         check("resumed, it records again", undo_count(&u), 1);
 
         undo_destroy(&u);
@@ -183,8 +202,10 @@ int main(void) {
     /* A newline is two puts, so it needs no hook of its own. */
     undo_clear(u);
     tb_newline(tb);
-    check("a newline records its CR and LF", undo_count(u), 2);
-    check("  both as inserts", rec_op(u, 1), UNDO_INSERT);
+    /* One record, not two. Undoing half a line break is not representable. */
+    check("a newline is a single record", undo_count(u), 1);
+    check("  an insert", rec_op(u, 0), UNDO_INSERT);
+    check("  of both bytes", rec_len(u, 0), 2);
 
     /* Deleting keeps what it removed. */
     undo_clear(u);
@@ -244,6 +265,95 @@ int main(void) {
     }
 
     ed_destroy(&ed);
+
+    /* --- replay: does the document actually come back --- */
+
+    /* The whole point, on the simplest case: type, undo, and the line is what
+     * it was. Compared as text rather than by counting records, because a log
+     * that is right and a document that is wrong is the failure worth catching. */
+    {
+        stub_file_reset();
+        static const char D2[] = "hello world\r\nsecond line\r\n";
+        stub_file_set_content(D2, (int) sizeof(D2) - 1);
+        editor e;
+        check("an editor to undo in", ed_init(&e, 8, "u.txt") != NULL, 1);
+        undo* lu = &e.undo_;
+        text_buffer* lt = &e.buf_;
+
+        tb_seek(lt, (tb_pos){1, 5});
+        put_str(lt, "XY");
+        check_txt("typed", line_text(lt, 1), "helloXY world");
+        check("undo reports something to do", undo_apply(lu, lt) ? 1 : 0, 1);
+        check("  twice", undo_apply(lu, lt) ? 1 : 0, 1);
+        check_txt("  and the line is back", line_text(lt, 1), "hello world");
+        check("  with nothing left", undo_apply(lu, lt) ? 1 : 0, 0);
+
+        /* A delete comes back too, with its bytes. */
+        undo_clear(lu);
+        tb_seek(lt, (tb_pos){1, 0});
+        tb_del(lt);
+        tb_del(lt);
+        check_txt("deleted two", line_text(lt, 1), "llo world");
+        undo_apply(lu, lt);
+        undo_apply(lu, lt);
+        check_txt("  and they are back", line_text(lt, 1), "hello world");
+
+        /* A line break is one record, and undoing it joins the lines again --
+         * the case that would break a line index if it went back a byte at a
+         * time. */
+        undo_clear(lu);
+        tb_seek(lt, (tb_pos){1, 5});
+        tb_newline(lt);
+        check_txt("split the line", line_text(lt, 1), "hello");
+        check_txt("  in two", line_text(lt, 2), " world");
+        check("undoing the split is one step", undo_apply(lu, lt) ? 1 : 0, 1);
+        check_txt("  and the line is whole", line_text(lt, 1), "hello world");
+        check("  with the line count back", tb_ymax(lt), 3);
+
+        /* And the reverse: joining two lines, then undoing that. */
+        undo_clear(lu);
+        tb_seek(lt, (tb_pos){1, 11});
+        check("lines merge", tb_del_merge(lt) ? 1 : 0, 1);
+        check_txt("  into one", line_text(lt, 1), "hello worldsecond line");
+        check("undoing the merge is one step", undo_apply(lu, lt) ? 1 : 0, 1);
+        check_txt("  and the first is back", line_text(lt, 1), "hello world");
+        check_txt("  and so is the second", line_text(lt, 2), "second line");
+
+        /* Replay must not record, or the log grows as it is consumed. */
+        undo_clear(lu);
+        tb_seek(lt, (tb_pos){1, 0});
+        put_str(lt, "abc");
+        const int held = undo_count(lu);
+        undo_apply(lu, lt);
+        check("replaying does not record", undo_count(lu), held);
+
+        ed_destroy(&e);
+    }
+
+    /* A bulk delete undone puts every byte back, and it never had a hook of its
+     * own -- so this is the primitives-are-enough bet, checked end to end. */
+    {
+        stub_file_reset();
+        static const char D3[] = "the quick brown fox\r\n";
+        stub_file_set_content(D3, (int) sizeof(D3) - 1);
+        editor e;
+        check("an editor for a range delete", ed_init(&e, 8, "r.txt") != NULL, 1);
+
+        tb_range_del(&e.buf_, (tb_pos){1, 4}, (tb_pos){1, 10});
+        check_txt("a range is gone", line_text(&e.buf_, 1), "the brown fox");
+        // Bounded on purpose. An undo that never reports "nothing left" is a
+        // real failure mode -- cur_ failing to decrement is one -- and a drain
+        // loop that trusts the return value turns that into a hung test rather
+        // than a failed assertion.
+        int steps = 0;
+        while (undo_apply(&e.undo_, &e.buf_) && steps < 1000) {
+            steps++;
+        }
+        check("undoing it all terminates", steps < 1000, 1);
+        check_txt("  and undoing it all puts it back",
+                  line_text(&e.buf_, 1), "the quick brown fox");
+        ed_destroy(&e);
+    }
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);

@@ -111,7 +111,7 @@ bool tb_put(text_buffer* tb, char ch) {
     tb->x_++;
     lb_cinc(&tb->lb_);
     tb->dirty_ = true;
-    undo_insert(tb->undo_, at, 1);
+    undo_insert(tb->undo_, at, &ch, 1);
 
     return true;
 }
@@ -161,11 +161,21 @@ bool tb_newline(text_buffer* tb) {
     }
 
     tb->dirty_ = true;
+
+    // One record, not two. The puts below would each record a byte, and undoing
+    // those separately would take the LF out on its own and leave the CR --
+    // which the line index, built on a two-byte CRLF, cannot represent.
+    const tb_pos at = tb_tell(tb);
+    const bool was = undo_hold(tb->undo_);
     tb_put(tb, '\r');
     tb_put(tb, '\n');
     const bool ok = lb_new(&tb->lb_, tb->x_);
     if (ok) {
         tb->x_ = 0;
+    }
+    undo_release(tb->undo_, was);
+    if (ok) {
+        undo_insert(tb->undo_, at, "\r\n", 2);
     }
 
     return ok;
@@ -193,10 +203,17 @@ bool tb_del_merge(text_buffer* tb) {
 
     // This function is only called when we are the end of the line.
     // If we are not the last, then we have a \r\n sequence.
+    //
+    // One record for the pair, for the same reason tb_newline groups its puts:
+    // half a line break is not a thing the line index can hold.
+    const tb_pos at = tb_tell(tb);
+    const bool was = undo_hold(tb->undo_);
     tb_del(tb);
     tb_del(tb);
     lb_merge_next(&tb->lb_);
     tb->dirty_ = true;
+    undo_release(tb->undo_, was);
+    undo_delete(tb->undo_, at, "\r\n", 2);
 
     return true;
 }

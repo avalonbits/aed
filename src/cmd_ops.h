@@ -37,6 +37,10 @@ typedef void(*cmd_op)(editor* ed);
 
 void cmd_show(editor* ed);
 bool cmd_quit(editor* ed);
+
+// Undoes the most recent edit and rebuilds the view. Does nothing, visibly or
+// otherwise, when there is nothing left to undo.
+void cmd_undo(editor* ed);
 bool cmd_save(editor* ed);
 void cmd_save_as(editor* ed);
 void cmd_open(editor* ed);
