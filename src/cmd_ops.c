@@ -540,21 +540,50 @@ void cmd_undo(editor* ed) {
     reshow_edit(ed, lines_before, top_before);
 }
 
-// Moves the cursor to `at` and brings the view with it, keeping the view put
-// when the target is already on screen.
-static void jump_to(editor* ed, tb_pos at) {
+// Puts `line` halfway down the screen, or as close as the document allows.
+//
+// A match always lands in the same place, so the eye knows where to look
+// instead of hunting the screen for a cursor that could be anywhere. Near the
+// top of a document there is not enough above it to centre against, and then it
+// sits as low as the lines available allow.
+static void centre_line(editor* ed, int line) {
+    SCR(ed);
+
+    int y = scr->topY_ + (scr->bottomY_ - scr->topY_) / 2;
+    if (y - scr->topY_ > line - 1) {
+        y = scr->topY_ + line - 1;
+    }
+    scr->currY_ = (char) y;
+}
+
+// Jumps to a match, centres it, and leaves it selected.
+//
+// Selected because a bare cursor is hard to pick out: the whole of what was
+// found is shown in reversed colours, the way a selection made by hand is. The
+// cursor goes to the end of the match, which is where a selection made by
+// moving right would have left it -- so typing replaces what was found, and the
+// next search starts past it rather than finding it again.
+static void jump_to_match(editor* ed, tb_pos at, int len) {
     SCR(ed);
     TB(ed);
 
-    const int top_before = top_line(scr, tb);
     scr_hide_cursor_ch(scr, tb_peek(tb));
-    tb_seek(tb, at);
-    show_line_at(ed, at.line, top_before);
+
+    ed->anchor_ = at;
+    ed->selecting_ = true;
+    tb_pos end = at;
+    end.x += len;
+    tb_seek(tb, end);
+
+    centre_line(ed, at.line);
 
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
     scr_place_cursor(scr, prefix, psz);
-    refresh_screen(scr, tb);
+    // Through cmd_repaint_rows rather than refresh_screen: only that one asks
+    // row_selection which columns are covered, and without it the match would
+    // be selected without looking selected.
+    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 
@@ -574,6 +603,8 @@ static void find_from_cursor(editor* ed, bool forward) {
 
     tb_pos at;
     if (!tb_find(tb, ed->find_, ed->findsz_, from, forward, &at)) {
+        // Whatever was selected described the last match, not this attempt.
+        ed->selecting_ = false;
         // Left exactly where it was. Someone who cannot find what they wanted
         // has no use for a view that has moved somewhere else in the trying.
         ui_message(ui, scr, "Not found");
@@ -582,7 +613,7 @@ static void find_from_cursor(editor* ed, bool forward) {
 
         return;
     }
-    jump_to(ed, at);
+    jump_to_match(ed, at, ed->findsz_);
 }
 
 void cmd_find(editor* ed) {

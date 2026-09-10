@@ -207,6 +207,11 @@ previous, without asking again.
 
 Matching ignores case, and a match never spans a line break.
 
+What was found is selected and placed halfway down the screen, so a match always
+appears in the same place rather than somewhere you have to look for -- and near
+the top of a file, as close to the middle as the lines above allow. Because it is
+selected, typing replaces it.
+
 If there is no match the editor says so and stays exactly where it was -- giving up
 on a search leaves you where you started, not somewhere else.
 

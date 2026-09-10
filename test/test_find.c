@@ -36,9 +36,34 @@
 #include <agon/mos.h>
 
 #include "editor.h"
+#include "screen.h"
 #include "text_buffer.h"
 
 static int failures = 0;
+
+static long mark;
+
+static void cap_start(void) {
+    fflush(stdout);
+    mark = ftell(stdout);
+}
+
+static int cap_read(char* out, int max) {
+    fflush(stdout);
+    const long end = ftell(stdout);
+    long n = end - mark;
+    if (n < 0) {
+        n = 0;
+    }
+    if (n > max) {
+        n = max;
+    }
+    fseek(stdout, mark, SEEK_SET);
+    const size_t got = fread(out, 1, (size_t) n, stdout);
+    fseek(stdout, end, SEEK_SET);
+
+    return (int) got;
+}
 
 static void check(const char* name, int got, int want) {
     if (got == want) {
@@ -66,6 +91,11 @@ static void check_at(const char* name, bool found, tb_pos at,
 
 int main(void) {
     stub_discard_output();
+    if (freopen("/tmp/aed_find_capture", "w+", stdout) == NULL) {
+        fprintf(stderr, "cannot capture stdout\n");
+
+        return 2;
+    }
 
     static const char DOC[] =
         "the quick brown fox\r\n"
@@ -168,6 +198,125 @@ int main(void) {
     }
 
     ed_destroy(&ed);
+
+    /* --- what a search does to the view --- */
+    {
+        static char many[8192];
+        int mn = 0;
+        for (int i = 1; i <= 100; i++) {
+            mn += sprintf(many + mn, "line %03d alpha beta\r\n", i);
+        }
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor e;
+        check("an editor to search in", ed_init(&e, 8, "v.txt") != NULL, 1);
+        screen* s = &e.scr_;
+        const int middle = s->topY_ + (s->bottomY_ - s->topY_) / 2;
+
+        /* A match well down the document lands halfway down the screen, so the
+         * eye always looks in the same place. */
+        e.find_[0] = 0;
+        strcpy(e.find_, "line 060");
+        e.findsz_ = 8;
+        tb_seek(&e.buf_, (tb_pos){1, 0});
+        cmd_find_next(&e);
+        check("a match is centred", s->currY_, middle);
+        check("  on the line it was found on", tb_ypos(&e.buf_), 60);
+
+        /* And it is selected, from the start of the match to its end -- the
+         * cursor sits past it, which is also what makes the next search move
+         * on rather than finding the same one. */
+        check("  and selected", e.selecting_ ? 1 : 0, 1);
+        check("  anchored at the match", e.anchor_.x, 0);
+        check("  on the match's line", e.anchor_.line, 60);
+        check("  with the cursor at its end", tb_xpos(&e.buf_) - 1, 8);
+
+        /* Repeating moves on rather than finding the same match. Started well
+         * down the document so both matches have room above them to centre
+         * against -- from line 10 the second lands on line 11, which cannot be
+         * centred and would be testing the clamp instead. */
+        strcpy(e.find_, "alpha");
+        e.findsz_ = 5;
+        tb_seek(&e.buf_, (tb_pos){50, 0});
+        cmd_find_next(&e);
+        const int first = tb_ypos(&e.buf_);
+        cmd_find_next(&e);
+        check("repeating finds the next one", tb_ypos(&e.buf_) > first, 1);
+        check("  still centred", s->currY_, middle);
+
+        /* Near the top there is not enough document above to centre against,
+         * so it sits as low as the lines allow rather than scrolling past the
+         * start of the file. */
+        strcpy(e.find_, "line 002");
+        e.findsz_ = 8;
+        tb_seek(&e.buf_, (tb_pos){1, 0});
+        cmd_find_next(&e);
+        check("near the top it cannot centre", s->currY_, s->topY_ + 1);
+        check("  and shows the document from line 1",
+              tb_ypos(&e.buf_) - (s->currY_ - s->topY_), 1);
+
+        /* And it looks selected, not merely is. The state above says the editor
+         * thinks there is a selection; this says the match reaches the screen
+         * in reversed colours, which is what the reader actually sees. Painting
+         * through refresh_screen rather than cmd_repaint_rows would satisfy
+         * every assertion above and show nothing. */
+        strcpy(e.find_, "alpha");
+        e.findsz_ = 5;
+        tb_seek(&e.buf_, (tb_pos){50, 0});
+        // Distinct colours, or the test cannot tell the schemes apart: the
+        // stub's default leaves fg_ and bg_ equal and every column reads as
+        // reversed.
+        scr_set_scheme(&e.scr_, 15, 0);
+        stub_emit_colours(1);
+        cap_start();
+        cmd_find_next(&e);
+        {
+            static char raw[16384];
+            const int n = cap_read(raw, (int) sizeof(raw));
+            /* The longest run of characters painted while the scheme is
+             * reversed. Counting colour changes is not enough: the cursor cell
+             * emits the same swap for a single character, so an unhighlighted
+             * screen still shows one. A run as long as the needle is the
+             * selection and nothing else. */
+            int run = 0;
+            int best = 0;
+            bool inverted = false;
+            for (int i = 0; i < n; i++) {
+                const unsigned char c = (unsigned char) raw[i];
+                if (c == 17 && i + 1 < n) {
+                    const unsigned char col = (unsigned char) raw[i + 1];
+                    if (col < 128) {
+                        inverted = col == (unsigned char) e.scr_.bg_;
+                    }
+                    i++;
+                    continue;
+                }
+                if (c == 31 && i + 2 < n) {
+                    i += 2;
+                    continue;
+                }
+                if (c < 32) {
+                    continue;
+                }
+                run = inverted ? run + 1 : 0;
+                if (run > best) {
+                    best = run;
+                }
+            }
+            check("the match is drawn in reversed colours", best, e.findsz_);
+        }
+        stub_emit_colours(0);
+
+        /* A failed search leaves nothing selected: the highlight described the
+         * last match, not this attempt. */
+        strcpy(e.find_, "zebra");
+        e.findsz_ = 5;
+        cmd_find_next(&e);
+        check("a failed search clears the selection",
+              e.selecting_ ? 1 : 0, 0);
+
+        ed_destroy(&e);
+    }
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
