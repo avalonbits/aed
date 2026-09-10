@@ -119,12 +119,15 @@ not a whole number of 256-byte rows is refused, as is one tall enough to leave
 fewer than four rows on screen. A font that cannot be loaded is not an error --
 AED carries on in whatever font the machine already had.
 
-**AED never sends a font unless you ask for it, and you should only ask on a
-Console8 VDP 2.8.0 or newer.** This is the same bargain as `ctrl_pause_frames`
-and for the same reason: MOS cannot report the VDP version. The stakes are
-higher here, though. An unrecognised `ctrl_pause_frames` costs you a screen
-clear; an unrecognised font upload has an old VDP reading two or four kilobytes
-of bitmap as commands.
+The font API needs a Console8 VDP 2.8.0 or newer, and **AED checks before it
+sends anything**. It asks the VDP to select the font it is already using, which
+costs seven bytes and changes nothing; a VDP with the font API answers, and one
+without does not. If there is no answer the font is skipped and AED carries on
+in the machine's own font.
+
+So this is *not* the bargain `ctrl_pause_frames` asks of you. Setting it says "I
+would like this font", not "I promise my VDP is new enough". On an older VDP you
+get the stock font and nothing worse.
 
 AED puts the system font back when it exits, the same way it puts your colours
 back.

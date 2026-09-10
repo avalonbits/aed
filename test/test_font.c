@@ -174,12 +174,19 @@ int main(void) {
     const unsigned char select[] = {23, 0, 0x95, 0, 0xED, 0x0A, 0};
     check_has("and then selected", got, n, select, sizeof(select));
 
-    /* The glyph bytes have to be all there: the VDP is counting them off the
-     * stream and will take the shortfall out of whatever AED sends next. */
+    /* The glyph bytes have to be all there, and *exactly* there: the VDP is
+     * counting 2304 bytes off the stream and will take any shortfall out of
+     * whatever AED sends next, which is the editor's first screenful.
+     *
+     * Measured as the gap between the end of the write header and the start of
+     * the create command, because that is the only thing that pins the count
+     * down. "at least 2304 bytes followed" is nearly free -- the rest of the
+     * stream is in it -- and would pass on a badly truncated upload. */
     {
-        const int at = find_seq(got, n, write, sizeof(write));
-        const int after = at >= 0 ? n - (at + (int) sizeof(write)) : -1;
-        check("the whole font follows the header", after >= 2304, 1);
+        const int hat = find_seq(got, n, write, sizeof(write));
+        const int cat = find_seq(got, n, create, sizeof(create));
+        const int glyphs = (hat >= 0 && cat >= 0) ? cat - (hat + (int) sizeof(write)) : -1;
+        check("exactly the declared number of glyph bytes is sent", glyphs, 2304);
     }
 
     /* --- the ascent is measured, not assumed --- */
@@ -292,9 +299,11 @@ int main(void) {
         n = cap_read(got, sizeof(got));
         stub_file_short_read(-1);
         const unsigned char write9[] = {23, 0, 0xA0, 0xED, 0x0A, 0, 0x00, 0x09};
-        const int at = find_seq(got, n, write9, sizeof(write9));
-        const int after = at >= 0 ? n - (at + (int) sizeof(write9)) : -1;
-        check("a chunked read still sends every promised byte", after >= 2304, 1);
+        const unsigned char cre9[] = {23, 0, 0x95, 1, 0xED, 0x0A, 8, 9, 7, 0};
+        const int hat = find_seq(got, n, write9, sizeof(write9));
+        const int cat = find_seq(got, n, cre9, sizeof(cre9));
+        const int glyphs = (hat >= 0 && cat >= 0) ? cat - (hat + (int) sizeof(write9)) : -1;
+        check("a chunked read still sends every promised byte", glyphs, 2304);
     }
 
     /* --- a file shorter than it claims still delivers the promised count --- */
@@ -314,10 +323,12 @@ int main(void) {
         scr_load_font(&scr, "/f.bin");
         n = cap_read(got, sizeof(got));
         const unsigned char w9[] = {23, 0, 0xA0, 0xED, 0x0A, 0, 0x00, 0x09};
-        const int at = find_seq(got, n, w9, sizeof(w9));
-        const int after = at >= 0 ? n - (at + (int) sizeof(w9)) : -1;
+        const unsigned char c9[] = {23, 0, 0x95, 1, 0xED, 0x0A, 8, 9, 7, 0};
+        const int hat = find_seq(got, n, w9, sizeof(w9));
+        const int cat = find_seq(got, n, c9, sizeof(c9));
+        const int glyphs = (hat >= 0 && cat >= 0) ? cat - (hat + (int) sizeof(w9)) : -1;
         check("a truncated file is padded out to the declared length",
-              after >= 2304, 1);
+              glyphs, 2304);
     }
 
     /* --- the system font goes back on the way out, and only if AED changed it --- */
@@ -344,16 +355,43 @@ int main(void) {
                   got, n, sysfont, sizeof(sysfont));
     }
 
-    /* --- a VDP that never answers must not hang the editor --- */
+    /* --- a VDP with no font API is detected before anything is uploaded --- */
     {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
         install_font(9, 6);
+
+        /* A VDP that has the font API answers a font selection with mode
+         * information. One that does not answers nothing, which is what the
+         * probe reads -- and is also what stops the editor waiting forever. */
         stub_vdp_mode_reply(0);
+        cap_start();
         const bool loaded = scr_load_font(&scr, "/f.bin");
+        n = cap_read(got, sizeof(got));
         stub_vdp_mode_reply(1);
-        check("the wait for the mode packet is bounded", loaded, 1);
+
+        check("a VDP with no font API loads nothing", loaded, 0);
+        check("  and no font to put back", scr.fontLoaded_, 0);
+        check("  and the rows are left alone", scr.rows_, 60);
+
+        /* The whole cost of finding out: selecting font 65535, the system font,
+         * which is already selected and so changes nothing on a VDP that knows
+         * it. 2304 bytes of glyph data would have gone to a VDP that does not. */
+        const unsigned char probe[] = {23, 0, 0x95, 0, 0xFF, 0xFF, 0};
+        check("  and the probe is all that was sent", n, (int) sizeof(probe));
+        check_has("  which is a system-font selection", got, n, probe, sizeof(probe));
+
+        /* The probe is the last check, so a file that can be rejected without
+         * asking the VDP anything still costs nothing at all. */
+        scr_init(&scr, 32);
+        install_raw(2300);
+        stub_vdp_mode_reply(0);
+        cap_start();
+        scr_load_font(&scr, "/f.bin");
+        n = cap_read(got, sizeof(got));
+        stub_vdp_mode_reply(1);
+        check("a bad file is rejected without probing", n, 0);
     }
 
     /* --- the settings file carries the path --- */
