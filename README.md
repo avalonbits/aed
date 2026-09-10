@@ -71,6 +71,15 @@ A freshly written file looks like this:
 # How wide a tab renders, in columns. 1 to 16.
 tab = 4
 
+# A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,
+# one byte per row. Its height is the file size divided by 256, so a
+# 2304-byte file is 9 rows -- an 8-row font with a blank row added, which
+# separates the text lines without costing a column.
+#
+# Needs a VDP with the font API (Console8 2.8.0+). AED cannot check, so
+# uncommenting this is what says yours has it.
+#font = /config/aed/unscii8x9.bin
+
 [colours]
 # Text and background colour, as Agon colour numbers. These were
 # taken from the colours your Agon was already using.
@@ -81,9 +90,44 @@ bg = 0
 | Section | Setting | Meaning |
 |---|---|---|
 | `[editor]` | `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
+| `[editor]` | `font` | path to a font to load at startup. Commented out by default -- see below. |
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
 | `[vdp]` | `ctrl_pause_frames` | how long the VDP pauses when a line wraps while CTRL is held, in frames. Not written by default -- see below. |
+
+### `font`
+
+The stock Agon font is eight pixels tall and uses every one of them: `p`, `y`
+and `j` put their tails on the last row, so consecutive lines of text touch.
+Nothing can be done about that within an 8x8 cell -- every mechanical way of
+freeing a row wrecks the capitals.
+
+The way out is that the VDP's font height is a **parameter**, not a fixed eight.
+Take any 8x8 font, add a blank ninth row to every glyph, and the text lines
+separate without a single column being given up: 80 columns still, 53 rows
+instead of 60. A 16-row font works the same way and gives 30 rows.
+
+```ini
+[editor]
+font = /config/aed/unscii8x9.bin
+```
+
+The file is a raw bitmap and has no header: 256 glyphs, 8 pixels wide, one byte
+per row, lowest character first. **The height is the file size divided by 256**,
+so a 2048-byte file is 8 rows, 2304 is 9, and 4096 is 16. A file whose size is
+not a whole number of 256-byte rows is refused, as is one tall enough to leave
+fewer than four rows on screen. A font that cannot be loaded is not an error --
+AED carries on in whatever font the machine already had.
+
+**AED never sends a font unless you ask for it, and you should only ask on a
+Console8 VDP 2.8.0 or newer.** This is the same bargain as `ctrl_pause_frames`
+and for the same reason: MOS cannot report the VDP version. The stakes are
+higher here, though. An unrecognised `ctrl_pause_frames` costs you a screen
+clear; an unrecognised font upload has an old VDP reading two or four kilobytes
+of bitmap as commands.
+
+AED puts the system font back when it exits, the same way it puts your colours
+back.
 
 ### `ctrl_pause_frames`
 

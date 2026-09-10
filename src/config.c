@@ -24,21 +24,42 @@
 // A settings file is a handful of short lines; reading it whole costs less than
 // buffering, and anything longer is not a settings file. Sized to leave room for
 // the sections this version writes plus a good deal of the reader's own notes.
-#define CFG_MAX 1024
+//
+// It is not only the render buffer: cfg_update refuses to rewrite a file this
+// long or longer, because it would be holding only the front of it. So the
+// headroom above what cfg_render produces is the room a reader has to add notes
+// before their colour changes quietly stop being saved. The font setting's
+// commented example took the rendered file to around 950 bytes, which left far
+// too little of it.
+#define CFG_MAX 2048
 
 // The settings this version knows, each identified by its INI section and name.
 // Adding one is a line here plus a case in cfg_field: parsing, writing and
 // updating all read from this table.
+//
+// Almost all of them are numbers. `font` is a path, and the writing side of
+// this file -- cfg_render, flush_section, merge -- is built entirely on
+// cfg_value returning an int. Rather than teach all of that about strings for
+// one setting AED never writes, the kind is recorded and the writers skip
+// anything that is not CFG_INT. A string setting is read from the file and left
+// exactly as the reader wrote it.
+typedef enum _setting_kind {
+    CFG_INT,
+    CFG_STR,
+} setting_kind;
+
 typedef struct _setting_id {
     const char* section;
     const char* name;
+    setting_kind kind;
 } setting_id;
 
 static const setting_id SETTINGS[] = {
-    { "editor",  "tab" },
-    { "colours", "fg"  },
-    { "colours", "bg"  },
-    { "vdp",     "ctrl_pause_frames" },
+    { "editor",  "tab", CFG_INT },
+    { "colours", "fg" , CFG_INT },
+    { "colours", "bg" , CFG_INT },
+    { "vdp",     "ctrl_pause_frames", CFG_INT },
+    { "editor",  "font", CFG_STR },
 };
 #define N_SETTINGS ((int)(sizeof(SETTINGS) / sizeof(SETTINGS[0])))
 
@@ -52,6 +73,19 @@ static int* cfg_field(config* cfg, int i) {
     }
 }
 
+// Where a string setting's text lives, or NULL if `i` is not one. Paired with
+// cfg_field the way cfg_value is: one place that knows which struct member a
+// table row refers to.
+static char* cfg_text(config* cfg, int i) {
+    switch (i) {
+        case 4:  return cfg->font;
+        default: return NULL;
+    }
+}
+
+// Deliberately -1 for every string setting, which is what keeps them out of the
+// writers: both flush_section and merge treat a negative value as "this
+// version has nothing to say about that line", and copy it through untouched.
 static int cfg_value(const config* cfg, int i) {
     switch (i) {
         case 0:  return cfg->tab_size;
@@ -67,6 +101,7 @@ void cfg_defaults(config* cfg) {
     cfg->fg = -1;
     cfg->bg = -1;
     cfg->ctrl_pause = -1;
+    cfg->font[0] = 0;
 }
 
 static bool is_space(char c) {
@@ -275,6 +310,17 @@ void cfg_parse(config* cfg, const char* text, int len) {
         if (idx < 0) {
             continue;   // unknown section or name: a later version's, perhaps
         }
+        if (SETTINGS[idx].kind == CFG_STR) {
+            // A value too long to hold is dropped rather than truncated: half a
+            // path names a different file, and opening the wrong one silently
+            // is worse than not opening one at all.
+            char* dst = cfg_text(cfg, idx);
+            if (dst != NULL && ln.valuelen > 0 && ln.valuelen < CFG_FONT_MAX) {
+                memcpy(dst, ln.value, (size_t) ln.valuelen);
+                dst[ln.valuelen] = 0;
+            }
+            continue;
+        }
         int n = 0;
         if (parse_number(ln.value, ln.valuelen, &n)) {
             *cfg_field(cfg, idx) = n;
@@ -339,6 +385,15 @@ int cfg_render(const config* cfg, char* buf, int max) {
         "# How wide a tab renders, in columns. 1 to 16.\r\n");
     at = put_setting(buf, at, max, "tab", cfg->tab_size);
     at = put_text(buf, at, max,
+        "\r\n# A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,\r\n"
+        "# one byte per row. Its height is the file size divided by 256, so a\r\n"
+        "# 2304-byte file is 9 rows -- an 8-row font with a blank row added, which\r\n"
+        "# separates the text lines without costing a column.\r\n"
+        "#\r\n"
+        "# Needs a VDP with the font API (Console8 2.8.0+). AED cannot check, so\r\n"
+        "# uncommenting this is what says yours has it.\r\n"
+        "#font = /config/aed/unscii8x9.bin\r\n");
+    at = put_text(buf, at, max,
         "\r\n[colours]\r\n"
         "# Text and background colour, as Agon colour numbers. These were\r\n"
         "# taken from the colours your Agon was already using.\r\n");
@@ -353,7 +408,7 @@ int cfg_render(const config* cfg, char* buf, int max) {
 static int flush_section(const config* cfg, const char* section, int seclen,
                          const bool* done, char* out, int at, int max) {
     for (int k = 0; k < N_SETTINGS; k++) {
-        if (done[k] || cfg_value(cfg, k) < 0) {
+        if (SETTINGS[k].kind != CFG_INT || done[k] || cfg_value(cfg, k) < 0) {
             continue;
         }
         if (!name_is(section, seclen, SETTINGS[k].section)) {
@@ -475,7 +530,7 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
         }
     }
     for (int k = 0; k < N_SETTINGS; k++) {
-        if (done[k] || cfg_value(cfg, k) < 0) {
+        if (SETTINGS[k].kind != CFG_INT || done[k] || cfg_value(cfg, k) < 0) {
             continue;
         }
         at = put_text(out, at, max, "\r\n[");

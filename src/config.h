@@ -36,6 +36,12 @@
 // make room for growth -- syntax highlighting will want names like `fg` that
 // mean something different from the ones in [colours].
 
+// Longest font path the settings file can name. A font lives beside the other
+// per-application files, so `/config/aed/unscii8x9.bin` is the shape of it;
+// this leaves room for a deeper directory without inviting a path that no
+// longer fits on the footer.
+#define CFG_FONT_MAX 64
+
 typedef struct _config {
     // Negative means "not set in the file", so the caller keeps its own value.
     int tab_size;
@@ -49,6 +55,16 @@ typedef struct _config {
     // older VDPs, and one that does not know it reads the four bytes that
     // follow as commands -- one of which clears the screen.
     int ctrl_pause;
+
+    // Path to a font file to load at startup, or an empty string for "not set".
+    // Unlike every other setting this one is a string, and unlike every other
+    // setting AED only ever reads it: see cfg_render for why it is written as a
+    // commented example rather than a value.
+    //
+    // Setting it is also the declaration that the VDP is new enough for the
+    // font API (Console8 2.8.0). MOS cannot report the VDP version, so there is
+    // nothing else to gate on -- the same shape ctrl_pause_frames took.
+    char font[CFG_FONT_MAX];
 } config;
 
 // Every field cleared to "not set".
