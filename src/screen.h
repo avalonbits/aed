@@ -242,6 +242,10 @@ void set_colours(char fg, char bg);
 // which is the point of using it instead of repainting them.
 void scr_scroll_rows_up(screen* scr, char topY, char bottomY, int rows);
 
+// The mirror, for an edit that puts lines back: the rows move down and the gap
+// they leave at the top is the caller's to paint.
+void scr_scroll_rows_down(screen* scr, char topY, char bottomY, int rows);
+
 void scr_scroll_up(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
 void scr_scroll_down(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
 

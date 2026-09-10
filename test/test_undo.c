@@ -40,6 +40,31 @@
 
 static int failures = 0;
 
+static long mark;
+static char raw[8192];
+
+static void cap_start(void) {
+    fflush(stdout);
+    mark = ftell(stdout);
+}
+
+static int cap_read(char* out, int max) {
+    fflush(stdout);
+    const long end = ftell(stdout);
+    long n = end - mark;
+    if (n < 0) {
+        n = 0;
+    }
+    if (n > max) {
+        n = max;
+    }
+    fseek(stdout, mark, SEEK_SET);
+    const size_t got = fread(out, 1, (size_t) n, stdout);
+    fseek(stdout, end, SEEK_SET);
+
+    return (int) got;
+}
+
 static void check(const char* name, int got, int want) {
     if (got == want) {
         fprintf(stderr, "PASS  %-52s got %d\n", name, got);
@@ -56,6 +81,20 @@ static void check_txt(const char* name, const char* got, const char* want) {
         fprintf(stderr, "FAIL  %-52s got '%s', want '%s'\n", name, got, want);
         failures++;
     }
+}
+
+/* Whether the captured VDU stream contains this run of bytes. Painted text
+ * reaches the VDP as ordinary characters, so a line that was drawn is literally
+ * in there and one the VDP scrolled into place is not. */
+static int stream_has(const char* hay, int n, const char* needle) {
+    const int m = (int) strlen(needle);
+    for (int i = 0; i + m <= n; i++) {
+        if (memcmp(hay + i, needle, (size_t) m) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 /* Field accessors that survive a missing record. Without these, a hook that
@@ -131,6 +170,11 @@ static void put_str(text_buffer* tb, const char* s) {
 
 int main(void) {
     stub_discard_output();
+    if (freopen("/tmp/aed_undo_capture", "w+", stdout) == NULL) {
+        fprintf(stderr, "cannot capture stdout\n");
+
+        return 2;
+    }
 
     /* --- the log on its own --- */
     {
@@ -418,6 +462,176 @@ int main(void) {
         check_txt("undoing takes the break with it",
                   line_text(&e.buf_, 1), "start");
         check("  and the line count is back", tb_ymax(&e.buf_), 2);
+        ed_destroy(&e);
+    }
+
+    /* --- the save point --- */
+    {
+        stub_file_reset();
+        static const char D6[] = "one\r\ntwo\r\n";
+        stub_file_set_content(D6, (int) sizeof(D6) - 1);
+        editor e;
+        check("an editor to save from", ed_init(&e, 8, "s.txt") != NULL, 1);
+        undo* lu = &e.undo_;
+        text_buffer* lt = &e.buf_;
+
+        check("a freshly opened file is clean", tb_changed(lt) ? 1 : 0, 0);
+        tb_seek(lt, (tb_pos){1, 3});
+        put_str(lt, "ZZ");
+        check("typing makes it dirty", tb_changed(lt) ? 1 : 0, 1);
+
+        /* Undoing back to what is on disk means the document matches the file
+         * again, so the marker goes -- which is the whole point of tracking a
+         * save point rather than a boolean. */
+        undo_apply(lu, lt);
+        check("undoing back to the file makes it clean",
+              tb_changed(lt) ? 1 : 0, 0);
+        redo_apply(lu, lt);
+        check("  and redoing makes it dirty again", tb_changed(lt) ? 1 : 0, 1);
+
+        /* Saving moves the point, so undoing past it is dirty once more. */
+        stub_file_reset();
+        check("it saves", tb_save(lt) ? 1 : 0, 1);
+        check("  and is clean at the new point", tb_changed(lt) ? 1 : 0, 0);
+        undo_apply(lu, lt);
+        check("  undoing past a save is dirty again",
+              tb_changed(lt) ? 1 : 0, 1);
+
+        ed_destroy(&e);
+    }
+
+    /* The save point is an index, and dropping the oldest record shifts every
+     * index down. Whether it survives depends on which side of it was dropped.
+     *
+     * Two logs rather than one, because reaching into cur_ and then recording
+     * again is a new edit after an undo -- which discards the log, and would
+     * quietly test something else. */
+    {
+        tb_pos p = {1, 0};
+
+        /* Records older than the save point are dropped. The save is still
+         * reachable: undoing everything held lands on it. */
+        undo keep;
+        check("a small log", undo_init(&keep, 4096, 4) != NULL, 1);
+        undo_insert(&keep, p, "a", 1);
+        undo_break(&keep);
+        undo_insert(&keep, p, "b", 1);
+        undo_break(&keep);
+        undo_mark_saved(&keep);
+        check("saved at the second record",
+              undo_at_save_point(&keep) ? 1 : 0, 1);
+        for (int i = 0; i < 4; i++) {
+            undo_insert(&keep, p, "x", 1);
+            undo_break(&keep);
+        }
+        while (keep.cur_ > 0) {
+            keep.cur_--;
+        }
+        check("dropping older records keeps the save point reachable",
+              undo_at_save_point(&keep) ? 1 : 0, 1);
+        undo_destroy(&keep);
+
+        /* Enough further edits and records from *after* the save go too. The
+         * earliest state the log can reach is then already past it, so no
+         * amount of undoing gets back and the document counts as changed until
+         * it is written again. */
+        undo lost;
+        check("another small log", undo_init(&lost, 4096, 4) != NULL, 1);
+        undo_insert(&lost, p, "a", 1);
+        undo_break(&lost);
+        undo_insert(&lost, p, "b", 1);
+        undo_break(&lost);
+        undo_mark_saved(&lost);
+        for (int i = 0; i < 6; i++) {
+            undo_insert(&lost, p, "x", 1);
+            undo_break(&lost);
+        }
+        while (lost.cur_ > 0) {
+            lost.cur_--;
+        }
+        check("dropping newer ones loses it for good",
+              undo_at_save_point(&lost) ? 1 : 0, 0);
+        undo_destroy(&lost);
+    }
+
+    /* --- what an undo costs to draw --- */
+    {
+        static char many[8192];
+        int mn = 0;
+        for (int i = 1; i <= 100; i++) {
+            mn += sprintf(many + mn, "line %03d alpha beta\r\n", i);
+        }
+
+        /* A record holds line breaks or it does not, and that decides the
+         * shape: undoing an insert of k breaks takes k lines out, undoing a
+         * delete of k puts k back, and a record with none touches one line. So
+         * the count before and after is enough to pick the repaint, and none of
+         * the three redraws the screen. */
+        stub_file_reset();
+        stub_file_set_content(many, mn);
+        editor e;
+        check("an editor to measure in", ed_init(&e, 8, "m.txt") != NULL, 1);
+        e.scr_.currY_ = (char) (e.scr_.topY_ + 10);
+        const int full = e.scr_.cols_ * (e.scr_.bottomY_ - e.scr_.topY_);
+
+        tb_seek(&e.buf_, (tb_pos){50, 4});
+        put_str(&e.buf_, "XYZ");
+        cap_start();
+        cmd_undo(&e);
+        int n = cap_read(raw, (int) sizeof(raw));
+        check("undoing a one-line edit costs about a row",
+              n < e.scr_.cols_ * 3, 1);
+        check("  not a screenful", n < full / 4, 1);
+
+        /* Lines removed: the rows below scroll up. One break per record here --
+         * two newlines land on different lines and so cannot join, which is
+         * why one undo takes one line back rather than both. */
+        undo_clear(&e.undo_);
+        tb_seek(&e.buf_, (tb_pos){50, 4});
+        tb_newline(&e.buf_);
+        tb_newline(&e.buf_);
+        check("two newlines are two records", undo_count(&e.undo_), 2);
+        cap_start();
+        cmd_undo(&e);
+        n = cap_read(raw, (int) sizeof(raw));
+        check("undoing an added line scrolls rather than redraws",
+              n < full / 4, 1);
+        {
+            const char up[4] = {23, 7, 0, 3};
+            int found = 0;
+            for (int i = 0; i + 4 <= n; i++) {
+                if (memcmp(raw + i, up, 4) == 0) {
+                    found++;
+                }
+            }
+            check("  scrolling up, once per line taken back", found, 1);
+        }
+
+        /* Lines restored: the rows below scroll down, the mirror case. */
+        undo_clear(&e.undo_);
+        tb_seek(&e.buf_, (tb_pos){50, 0});
+        tb_range_del(&e.buf_, (tb_pos){50, 0}, (tb_pos){52, 0});
+        cap_start();
+        cmd_undo(&e);
+        n = cap_read(raw, (int) sizeof(raw));
+        check("undoing removed lines scrolls the other way",
+              n < full / 2, 1);
+        {
+            const char down[4] = {23, 7, 0, 2};
+            int found = 0;
+            for (int i = 0; i + 4 <= n; i++) {
+                if (memcmp(raw + i, down, 4) == 0) {
+                    found++;
+                }
+            }
+            check("  scrolling down, once per line", found, 2);
+        }
+        /* Counting scrolls is not enough: the rows the scroll opens up hold
+         * whatever was there before, and have to be drawn with the lines that
+         * came back. */
+        check("  and the restored lines are drawn",
+              stream_has(raw, n, "line 051"), 1);
+
         ed_destroy(&e);
     }
 

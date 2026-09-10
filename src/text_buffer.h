@@ -45,6 +45,10 @@ typedef struct _text_buffer {
     // Where edits are recorded, or NULL to record nothing. NULL during tb_load,
     // which is what keeps the file's own CRLF normalisation out of the history.
     undo* undo_;
+    // Set when loading itself changed the document -- a file of mixed line
+    // endings is rewritten on save whatever the user does. None of that is in
+    // the undo log, so undoing everything cannot make it go away.
+    bool load_dirty_;
 
     char fname_[256];
 } text_buffer;

@@ -467,20 +467,75 @@ static void show_line_at(editor* ed, int line, int top_before) {
     scr->currY_ = (char) y;
 }
 
+// Repaints after an edit that put `added` lines back, the mirror of the
+// `collapsed` case in reshow_span: the rows below the cursor move down, and the
+// gap that opens under it holds the restored lines.
+static bool reshow_expand(editor* ed, int added) {
+    SCR(ed);
+    TB(ed);
+
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    if (scr_place_cursor(scr, prefix, psz) != 0) {
+        return false;
+    }
+
+    cmd_repaint_rows(ed, scr->currY_, scr->currY_);
+
+    const char first = (char) (scr->currY_ + 1);
+    const char last = (char) (scr->bottomY_ - 1);
+    if (added > 0 && first <= last) {
+        const int height = last - first + 1;
+        if (added < height) {
+            scr_scroll_rows_down(scr, first, last, added);
+            cmd_repaint_rows(ed, first, (char) (first + added - 1));
+        } else {
+            // More lines arrived than there are rows below, so nothing already
+            // down there survives and scrolling it would be wasted bytes.
+            cmd_repaint_rows(ed, first, last);
+        }
+    }
+
+    scr_sync_cursor(scr);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+
+    return true;
+}
+
+// Repaints after an undo or a redo.
+//
+// A record either holds line breaks or it does not, and that decides everything:
+// undoing an insert of k breaks takes k lines out, undoing a delete of k puts k
+// back, and a record with none changes one line and no others. So the line count
+// before and after says which of the three shapes this was, without the view
+// having to know anything about what the record contained.
+static void reshow_edit(editor* ed, int lines_before, int top_before) {
+    TB(ed);
+
+    ed->selecting_ = false;
+    show_line_at(ed, tb_ypos(tb), top_before);
+
+    const int delta = tb_ymax(tb) - lines_before;
+    const bool done = delta == 0 ? reshow_span(ed, 0)
+                    : delta < 0  ? reshow_span(ed, -delta)
+                                 : reshow_expand(ed, delta);
+    if (!done) {
+        // The horizontal origin moved, so every row is drawn against the old
+        // one and none can be kept.
+        reshow(ed);
+    }
+}
+
 void cmd_undo(editor* ed) {
     TB(ed);
     SCR(ed);
 
     const int top_before = top_line(scr, tb);
+    const int lines_before = tb_ymax(tb);
     if (!undo_apply(&ed->undo_, tb)) {
         return;
     }
-
-    // A selection describes a document that no longer exists.
-    ed->selecting_ = false;
-
-    show_line_at(ed, tb_ypos(tb), top_before);
-    reshow(ed);
+    reshow_edit(ed, lines_before, top_before);
 }
 
 void cmd_redo(editor* ed) {
@@ -488,12 +543,11 @@ void cmd_redo(editor* ed) {
     SCR(ed);
 
     const int top_before = top_line(scr, tb);
+    const int lines_before = tb_ymax(tb);
     if (!redo_apply(&ed->undo_, tb)) {
         return;
     }
-    ed->selecting_ = false;
-    show_line_at(ed, tb_ypos(tb), top_before);
-    reshow(ed);
+    reshow_edit(ed, lines_before, top_before);
 }
 
 bool cmd_delete_selection(editor* ed) {
