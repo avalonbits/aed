@@ -29,7 +29,7 @@ static const char SCRATCH_SUFFIX[] = ".scratch";
 // tested either, and this catches the mistake when someone changes a size
 // rather than when someone opens a file with a very long name.
 _Static_assert(sizeof(((clipboard*) 0)->path_)
-                   >= sizeof(((text_buffer*) 0)->fname_) + sizeof(SCRATCH_SUFFIX),
+                   >= TB_FNAME_MAX + sizeof(SCRATCH_SUFFIX),
                "clipboard path must hold any document name plus .scratch");
 
 clipboard* clip_init(clipboard* c, int size) {

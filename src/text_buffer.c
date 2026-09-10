@@ -37,6 +37,12 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
         cb_destroy(&tb->cb_);
         return NULL;
     }
+    tb->fname_ = (char*) malloc(TB_FNAME_MAX);
+    if (tb->fname_ == NULL) {
+        lb_destroy(&tb->lb_);
+        cb_destroy(&tb->cb_);
+        return NULL;
+    }
     tb->x_ = 0;
     tb->fname_[0] = 0;
     tb->dirty_ = false;
@@ -45,6 +51,8 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->load_dirty_ = false;
 
     if (fname != NULL && !tb_load(tb, fname)) {
+        free(tb->fname_);
+        tb->fname_ = NULL;
         lb_destroy(&tb->lb_);
         cb_destroy(&tb->cb_);
         return NULL;
@@ -55,6 +63,8 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
 void tb_destroy(text_buffer* tb) {
     cb_destroy(&tb->cb_);
     lb_destroy(&tb->lb_);
+    free(tb->fname_);
+    tb->fname_ = NULL;
 }
 
 // Info ops.
@@ -79,7 +89,9 @@ bool tb_bol(text_buffer* tb) {
 }
 
 char* tb_fname(text_buffer* tb) {
-    if (tb->fname_[0] == 0) {
+    // NULL on a copy, which has no name of its own -- and on a buffer that has
+    // never been given one. Both mean the same thing to a caller.
+    if (tb->fname_ == NULL || tb->fname_[0] == 0) {
         return NULL;
     }
     return tb->fname_;
@@ -104,8 +116,8 @@ static void tb_saved(text_buffer* tb) {
 }
 
 void tb_set_fname(text_buffer* tb, const char* fname, int sz) {
-    if (sz >= (int) sizeof(tb->fname_)) {
-        sz = sizeof(tb->fname_) - 1;
+    if (sz >= TB_FNAME_MAX) {
+        sz = TB_FNAME_MAX - 1;
     }
     strncpy(tb->fname_, fname, sz);
     tb->fname_[sz] = 0;
@@ -788,7 +800,7 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->cb_.size_ = src->cb_.size_;
 
     dst->x_ = src->x_;
-    dst->fname_[0] = 0;
+    dst->fname_ = NULL;
     dst->dirty_ = false;
     dst->load_dirty_ = false;
     dst->eol_ = src->eol_;
@@ -942,7 +954,13 @@ bool tb_load(text_buffer* tb, const char* fname) {
         return false;
     }
 
+    // Clamped, as tb_set_fname does. This name comes from argv, and copying
+    // strlen(fname) bytes into a fixed buffer was an overflow waiting for
+    // someone to type a long enough path.
     int fsz = strlen(fname);
+    if (fsz >= TB_FNAME_MAX) {
+        fsz = TB_FNAME_MAX - 1;
+    }
     strncpy(tb->fname_, fname, fsz);
     tb->fname_[fsz] = 0;
 
@@ -1004,7 +1022,7 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
         return TB_NO_FILE;
     }
 
-    char name[sizeof(tb->fname_)];
+    char name[TB_FNAME_MAX];
     if (sz >= (int) sizeof(name)) {
         sz = sizeof(name) - 1;
     }
@@ -1152,5 +1170,5 @@ bool tb_save(text_buffer* tb) {
 }
 
 bool tb_valid_file(text_buffer* tb) {
-    return tb->fname_[0] != 0;
+    return tb->fname_ != NULL && tb->fname_[0] != 0;
 }

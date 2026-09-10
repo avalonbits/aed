@@ -223,6 +223,25 @@ int main(void) {
         tb_destroy(&cr);
     }
 
+    /* A name longer than the buffer holds. It arrives from argv, and tb_load
+     * used to copy strlen(fname) bytes into a fixed 256 -- an overflow waiting
+     * for a long enough path. ASan is what makes this test bite. */
+    {
+        static char longname[TB_FNAME_MAX + 200];
+        memset(longname, 'n', sizeof(longname) - 1);
+        longname[sizeof(longname) - 1] = 0;
+
+        stub_file_reset();
+        static const char small2[] = "x\r\n";
+        stub_file_set_content(small2, (int) sizeof(small2) - 1);
+        text_buffer big;
+        check("a very long file name loads",
+              tb_init(&big, 1, longname) != NULL, 1);
+        check("  and the name is clamped, not overflowed",
+              (int) strlen(tb_fname(&big)), TB_FNAME_MAX - 1);
+        tb_destroy(&big);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
