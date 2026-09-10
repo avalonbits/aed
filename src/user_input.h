@@ -47,6 +47,20 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg);
 // through the main loop, so a message that did not wait would be gone before it
 // could be read.
 void ui_message(user_input* ui, screen* scr, char* msg);
+// Draws the command list over the text area and waits. Pages when the list is
+// longer than the area, which it is on a 16-row font. Any key that is not a
+// paging key closes it.
+//
+// It only draws: putting the document back is the caller's job, because the
+// view cannot -- it has no access to the document. cmd_help does it the same
+// way cmd_color_picker does.
+void ui_help(user_input* ui, screen* scr);
+
+// The startup banner, centred in the text area, for a session started with no
+// file. Says what this is and where the commands are, and is wiped by the first
+// keystroke rather than lingering behind the text.
+void ui_banner(user_input* ui, screen* scr);
+
 RESPONSE ui_text(
     user_input* ui,
     screen* scr,

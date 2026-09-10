@@ -38,6 +38,11 @@ typedef struct _editor {
     // it is about intent, not about the document: the model has no idea any of
     // this is happening, and a selection means nothing once the file changes.
     tb_pos anchor_;
+    // A startup banner is on the text area, waiting to be wiped. It cannot
+    // just be painted over: a keystroke repaints one row, which would leave the
+    // rest of it sitting behind the document. So the first key clears the whole
+    // text area before anything else happens.
+    bool banner_;
     bool selecting_;
 
     clipboard clip_;
@@ -99,6 +104,12 @@ key_command read_input(void);
 // return on the release -- the event loop only turns when a key arrives, and a
 // release is not one -- so it comes back on the next key after the chord.
 bool ed_footer_wanted(char held);
+
+// Takes the startup banner off the text area, if one is up. Called on every
+// key: it is a no-op after the first. Separate from the loop so that what it
+// does can be checked -- painting over the banner instead of clearing would
+// leave most of it behind, and that is invisible until someone looks.
+void ed_clear_banner(editor* ed);
 
 // What a key means with CTRL held. Declared here so the bindings can be
 // asserted directly: a command that exists but is not reachable from the

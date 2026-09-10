@@ -70,10 +70,23 @@ static int stub_tab_y = -1;
 int stub_last_tab_x(void) { return stub_tab_x; }
 int stub_last_tab_y(void) { return stub_tab_y; }
 
+/* Whether the tab reaches the captured stream. Off by default: it puts control
+ * bytes into what most tests read back as text. On, the stream carries what the
+ * real call carries -- VDU 31, x, y -- which is the only way to see *where* a
+ * row was painted, as opposed to what was in it. */
+static int stub_tab_bytes;
+
+void stub_emit_tabs(int on) { stub_tab_bytes = on; }
+
 void vdp_cursor_tab(int x, int y) {
     stub_tab_x = x;
     stub_tab_y = y;
     stub_tab_write_n = stub_write_n;
+    if (stub_tab_bytes) {
+        putchar(31);
+        putchar(x & 0xFF);
+        putchar(y & 0xFF);
+    }
 }
 
 /* --- MOS: screen/system --- */

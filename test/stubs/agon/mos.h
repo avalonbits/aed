@@ -112,6 +112,10 @@ int         stub_keys_read(void);
 int         stub_last_tab_x(void);
 int         stub_last_tab_y(void);
 
+/* Whether vdp_cursor_tab puts its VDU 31,x,y into the captured stream, so a
+ * test can see which row something was painted on. */
+void        stub_emit_tabs(int on);
+
 /* Makes mos_fread return fewer bytes than asked for, so the read path can be
  * checked against a card that stops part way. */
 void        stub_file_short_read(int n);

@@ -361,8 +361,6 @@ static bool wait_mode_packet(int frames) {
 // 80x60 and 640x480 afterwards -- the probe leaves it healthy. On VDP 2.16.0
 // and Console8 the flag arrives within a frame.
 static bool font_api_present(void) {
-    static char probe[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
-
     volatile uint8_t* sysvar = mos_sysvars();
     sysvar[sysvar_vdp_pflags] = 0;
     font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
@@ -988,6 +986,14 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
     define_viewport(scr->textX_, bottom, (char) (scr->textX_ + scr->cols_ - 1), top);
     vdp_clear_screen();
     reset_viewport();
+
+    // VDU 26 homes the text cursor as well as resetting the viewport, so the
+    // VDP is left pointing at 0,0 -- the title bar. Anything drawn next lands
+    // there, and scr_show_cursor_ch draws wherever the cursor is rather than
+    // tabbing first: the cursor block appeared on the title bar and ate the
+    // dash under it. Putting the cursor back here rather than in the callers,
+    // because the surprise belongs to this function.
+    scr_sync_cursor(scr);
 }
 
 // Emits one line's worth of cells starting at document column `from_col`,

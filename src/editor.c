@@ -40,6 +40,9 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     // On first run there is no file. Write one holding what AED is starting
     // with, including the colours it just measured off the Agon, so the user
     // has something to edit instead of a format to guess at.
+    bool font_asked = false;
+    bool font_loaded = false;
+
     config cfg;
     cfg_defaults(&cfg);
     if (cfg_load(&cfg, CFG_PATH)) {
@@ -56,7 +59,8 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         // scr_load_font. A font that will not load is not worth stopping for;
         // the editor runs in whatever font the machine already had.
         if (cfg.font[0] != 0) {
-            scr_load_font(scr, cfg.font);
+            font_asked = true;
+            font_loaded = scr_load_font(scr, cfg.font);
         }
         // Each colour applies on its own: a file that sets only fg keeps the
         // measured bg, the same way an unset tab keeps the default.
@@ -105,9 +109,34 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     // VDP link for nothing. The cursor is drawn either way, which it was not:
     // starting AED with no file left no cursor on screen at all until the first
     // keystroke happened to repaint the row it was on.
+    // A font was asked for and did not load: the file is missing, or it is not
+    // a whole number of 256-byte rows, or this VDP has no font API. Whichever
+    // it was, saying nothing leaves the stock font on screen and no reason for
+    // it -- and the setting sits in a file edited by hand, so a typo in the
+    // path is the likeliest cause and the least guessable.
+    //
+    // It waits for a key. That is an interruption at startup, which is the
+    // point: it is a mistake in a settings file, and it will happen every time
+    // until it is fixed.
+    if (font_asked && !font_loaded) {
+        static char msg[CFG_FONT_MAX + 24];
+        snprintf(msg, sizeof(msg), "font not loaded: %s", cfg.font);
+        ui_message(&ed->ui_, &ed->scr_, msg);
+        scr_clear(&ed->scr_);
+    }
+
+    ed->banner_ = false;
     if (tb_used(&ed->buf_) > 0) {
         cmd_show(ed);
     } else {
+        // Nothing to show, so say what this is and where the commands are.
+        // Only when no file was named: opening an empty file is a different
+        // thing from starting with nothing, and someone who named a file has
+        // already said what they came to do.
+        if (fname == NULL) {
+            ui_banner(&ed->ui_, &ed->scr_);
+            ed->banner_ = true;
+        }
         scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->buf_));
     }
 
@@ -292,6 +321,8 @@ void ed_run(editor* ed) {
         }
         key_command kc = read_input();
 
+        ed_clear_banner(ed);
+
         const sel_action act = ed_selection_for(ed, kc);
 
         // Where the view was, so the repaint afterwards can tell a cursor that
@@ -330,6 +361,21 @@ void ed_run(editor* ed) {
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
+}
+
+// The banner goes on the first key, whatever it was.
+//
+// The whole text area is cleared rather than painted over: a keystroke repaints
+// the row it is on and nothing else, so the rest of the banner would sit behind
+// the document until something else happened to cover it. Does nothing when no
+// banner is up, which is every pass of the loop but the first.
+void ed_clear_banner(editor* ed) {
+    if (!ed->banner_) {
+        return;
+    }
+    ed->banner_ = false;
+    scr_clear_textarea(&ed->scr_, ed->scr_.topY_, (char) (ed->scr_.bottomY_ - 1));
+    scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->buf_));
 }
 
 key_command ctrlCmds(key_command kc, char mods) {
@@ -371,6 +417,10 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_G:
         case VK_g:
             kc.cmd = cmd_goto;
+            break;
+        case VK_H:
+        case VK_h:
+            kc.cmd = cmd_help;
             break;
         case VK_O:
         case VK_o:

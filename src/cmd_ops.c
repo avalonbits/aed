@@ -940,6 +940,22 @@ void cmd_color_picker(editor* ed) {
     }
 }
 
+void cmd_help(editor* ed) {
+    SCR(ed);
+    UI(ed);
+    TB(ed);
+
+    ui_help(ui, scr);
+
+    // The help wrote over the document, and the view cannot put it back on its
+    // own -- it has no access to the buffer. Same three lines as the colour
+    // picker, for the same reason.
+    const char ch = tb_peek(tb);
+    scr_clear(scr);
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, ch);
+}
+
 void cmd_putc(editor* ed, key k) {
     TB(ed);
     SCR(ed);
