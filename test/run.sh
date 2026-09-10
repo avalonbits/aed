@@ -36,6 +36,10 @@ status=0
 # Skipped when the AgonDev toolchain is not on PATH.
 ./test/build_deps.sh || status=$?
 
+# The shipped fonts: AED reads their height from the file size, so a mangled
+# binary asset is a font of the wrong height and nothing else here would notice.
+./test/fonts.sh || status=$?
+
 for t in test/test_*.c; do
     name=$(basename "$t" .c)
     echo "=== $name ==="
