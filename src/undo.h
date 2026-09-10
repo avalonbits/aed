@@ -49,6 +49,14 @@
 
 #define UNDO_INSERT 0
 #define UNDO_DELETE 1
+// A backspace run grows leftward, so its bytes arrive in reverse document order
+// and are stored that way. Replay puts each one back at the same position, which
+// rebuilds the forward order: 'c', then 'b' before it, then 'a' before that.
+#define UNDO_DELETE_BACK 2
+
+// How much one record will absorb before a new one starts. Without a cap a long
+// typing run would undo in a single step and take a paragraph with it.
+#define UNDO_RUN_MAX 128
 
 typedef struct _undo_rec {
     // Where the affected bytes start, as the document stood with this edit in
@@ -80,6 +88,9 @@ typedef struct _undo {
     int cur_;
 
     bool off_;
+    // Set by undo_break: the next edit starts a record rather than joining the
+    // last one, however adjacent it looks.
+    bool broken_;
 } undo;
 
 // text_bytes is the room for deleted text, max_recs the number of edits
@@ -92,6 +103,18 @@ void undo_destroy(undo* u);
 // pointer an off switch rather than something every caller has to check.
 void undo_insert(undo* u, tb_pos at, const char* text, int len);
 void undo_delete(undo* u, tb_pos at, const char* text, int len);
+// As undo_delete, for a backspace: the run grows leftward, so the bytes of a
+// coalesced one are held in reverse document order.
+void undo_delete_back(undo* u, tb_pos at, const char* text, int len);
+
+// Ends the current run, so the next edit starts a new record. Adjacency already
+// breaks a run when the cursor moves away, so this is for the cases position
+// cannot see -- a save, for one.
+void undo_break(undo* u);
+
+// Redoes the most recently undone record. False when there is nothing to redo.
+// Any new edit discards the redo tail, so this only ever follows undo.
+bool redo_apply(undo* u, text_buffer* tb);
 
 // Suspends recording and reports whether it was on, for a caller that needs a
 // group of primitive edits to land as one record. A line break is the reason
@@ -119,6 +142,10 @@ bool undo_recording(undo* u);
 void undo_clear(undo* u);
 
 // --- for tests ---
+
+// Whether there is anything to undo, or to redo.
+bool undo_can_undo(undo* u);
+bool undo_can_redo(undo* u);
 
 // Records held, oldest first.
 int undo_count(undo* u);

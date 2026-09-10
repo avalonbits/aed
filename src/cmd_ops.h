@@ -41,6 +41,10 @@ bool cmd_quit(editor* ed);
 // Undoes the most recent edit and rebuilds the view. Does nothing, visibly or
 // otherwise, when there is nothing left to undo.
 void cmd_undo(editor* ed);
+
+// Redoes the most recently undone edit. Any new edit discards what could be
+// redone, so this only ever follows an undo.
+void cmd_redo(editor* ed);
 bool cmd_save(editor* ed);
 void cmd_save_as(editor* ed);
 void cmd_open(editor* ed);
