@@ -280,6 +280,10 @@ static bool isstop(char ch) {
     return false;
 }
 
+bool tb_is_word_stop(char ch) {
+    return isstop(ch);
+}
+
 #define KEEP_SKIPPING(from_stopch, ch) \
     (!IS_EOL(ch) && ( \
         (from_stopch && isstop(ch)) || \

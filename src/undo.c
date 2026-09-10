@@ -67,6 +67,8 @@ void undo_clear(undo* u) {
     u->cur_ = 0;
     u->broken_ = false;
     u->saved_ = 0;
+    u->last_ch_ = 0;
+    u->grouping_ = false;
 }
 
 void undo_mark_saved(undo* u) {
@@ -167,12 +169,27 @@ void undo_break(undo* u) {
     }
 }
 
+void undo_group_begin(undo* u) {
+    if (u != NULL) {
+        u->broken_ = true;
+        u->grouping_ = true;
+    }
+}
+
+void undo_group_end(undo* u) {
+    if (u != NULL) {
+        u->grouping_ = false;
+        u->broken_ = true;
+    }
+}
+
 // Whether this edit continues the last record rather than starting one.
 //
 // Position does most of the work: an edit that is not adjacent to the last one
 // cannot be a continuation of it, which means moving the cursor breaks a run
 // without anything having to notice that the cursor moved.
-static bool joins_last(undo* u, uint8_t op, tb_pos at, int len) {
+static bool joins_last(undo* u, uint8_t op, tb_pos at, const char* text,
+                       int len) {
     if (u->broken_ || u->top_ == 0) {
         return false;
     }
@@ -180,7 +197,20 @@ static bool joins_last(undo* u, uint8_t op, tb_pos at, int len) {
     if (last->op != op || last->line != at.line) {
         return false;
     }
+    if (u->grouping_) {
+        // One command, one record. Only the line has to match, because a
+        // command's edits are contiguous by construction.
+        return true;
+    }
     if (last->len + len > UNDO_RUN_MAX) {
+        return false;
+    }
+    // A run holds a word and the stops after it: the boundary falls where a
+    // stop is followed by something that is not one, in the order the edit
+    // travelled. Typing "hello world" is "hello " then "world"; backspacing
+    // through it is " world" then "hello". The rule is the same either way
+    // because the bytes are considered in the order they were recorded.
+    if (tb_is_word_stop(u->last_ch_) && !tb_is_word_stop(text[0])) {
         return false;
     }
     switch (op) {
@@ -219,7 +249,7 @@ static void record(undo* u, uint8_t op, tb_pos at, const char* text, int len) {
     }
     discard_redo(u);
 
-    if (joins_last(u, op, at, len)) {
+    if (joins_last(u, op, at, text, len)) {
         // Extending, so only the text has to fit; there is no new record.
         if (u->text_size_ - u->text_used_ >= len) {
             undo_rec* last = rec_at(u, u->top_ - 1);
@@ -229,6 +259,7 @@ static void record(undo* u, uint8_t op, tb_pos at, const char* text, int len) {
                 // The run now starts where this byte was.
                 last->x = at.x;
             }
+            u->last_ch_ = text[len - 1];
 
             return;
         }
@@ -246,6 +277,7 @@ static void record(undo* u, uint8_t op, tb_pos at, const char* text, int len) {
     append_text(u, text, len);
     push(u, op, at, len, at_off);
     u->broken_ = false;
+    u->last_ch_ = text[len - 1];
 }
 
 void undo_insert(undo* u, tb_pos at, const char* text, int len) {
