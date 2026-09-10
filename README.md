@@ -107,10 +107,21 @@ Take any 8x8 font, add a blank ninth row to every glyph, and the text lines
 separate without a single column being given up: 80 columns still, 53 rows
 instead of 60. A 16-row font works the same way and gives 30 rows.
 
+Three fonts come with AED, in `fonts/`. Copy one to the card and name it:
+
 ```ini
 [editor]
-font = /config/aed/unscii8x9.bin
+font = /config/aed/unscii8x10.bin
 ```
+
+| file | cell | screen | |
+|---|---|---|---|
+| `unscii8.bin` | 8x8 | 80x60 | unscii as published: better letterforms than the stock font, but the lines still touch |
+| `unscii8x10.bin` | 8x10 | 80x48 | the same with two blank rows added, so the lines do not touch |
+| `unscii16.bin` | 8x16 | 80x30 | unscii-16, drawn at sixteen rows, with the gap already in it |
+
+unscii is by Viznut and is public domain. See `fonts/README.md` for how the
+padded one is produced and why it exists.
 
 The file is a raw bitmap and has no header: 256 glyphs, 8 pixels wide, one byte
 per row, lowest character first. **The height is the file size divided by 256**,
