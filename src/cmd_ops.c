@@ -956,6 +956,58 @@ void cmd_help(editor* ed) {
     scr_show_cursor_ch(scr, ch);
 }
 
+void cmd_settings(editor* ed) {
+    SCR(ed);
+    UI(ed);
+    TB(ed);
+
+    // Comes in holding what the settings file says, so the font row can show
+    // the one in use, and goes out holding only what was changed.
+    config cfg;
+    cfg_defaults(&cfg);
+    cfg_load(&cfg, CFG_PATH);
+
+    const RESPONSE ret = ui_settings(ui, scr, &cfg);
+
+    // A font changes the cell size, and with it the number of rows and where
+    // the footer sits. Everything below is laid out from those, so the font
+    // goes in first and the screen is rebuilt from what it leaves behind.
+    if (ret == YES_OPT && (cfg.font[0] != 0 || cfg.font_none)) {
+        if (cfg.font[0] != 0) {
+            scr_load_font(scr, cfg.font);
+        } else {
+            scr_system_font(scr);
+        }
+
+        // The prompt row moved with the geometry; ui_ places everything it
+        // draws from it, so a prompt left on the old bottom row would land in
+        // the middle of the document.
+        ui_resize(ui, scr->bottomY_, scr->cols_);
+
+        // Fewer rows than before can leave the cursor past the bottom. Pulling
+        // it back to the last text row keeps it somewhere the screen has, and
+        // refresh_screen re-anchors the view from wherever it ends up.
+        if (scr->currY_ >= scr->bottomY_) {
+            scr->currY_ = (char) (scr->bottomY_ - 1);
+        }
+        if (scr->currY_ < scr->topY_) {
+            scr->currY_ = scr->topY_;
+        }
+    }
+
+    const char ch = tb_peek(tb);
+    scr_clear(scr);
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, ch);
+
+    if (ret == YES_OPT) {
+        // Only the changed settings are set, and cfg_update copies every other
+        // line through as it found it -- comments, spacing, and anything a
+        // later version understands and this one does not.
+        cfg_update(&cfg, CFG_PATH);
+    }
+}
+
 void cmd_putc(editor* ed, key k) {
     TB(ed);
     SCR(ed);

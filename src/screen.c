@@ -436,6 +436,21 @@ static char font_upload(char fh, int size, int height) {
     return (char) (ascent > 0 ? ascent : height - 1);
 }
 
+// Back to the font the machine started in, and the geometry that goes with it.
+// Sending this to a VDP that never took a font is harmless -- font 65535 is the
+// system font and selecting it is what it is already using -- but it is only
+// worth the round trip when AED changed something, so the caller decides.
+void scr_system_font(screen* scr) {
+    volatile uint8_t* sysvar = mos_sysvars();
+    sysvar[sysvar_vdp_pflags] = 0;
+    font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
+    wait_mode_packet(FONT_MODE_FRAMES);
+
+    derive_geometry(scr);
+    scr->fontLoaded_ = false;
+    scr_clear(scr);
+}
+
 bool scr_load_font(screen* scr, const char* path) {
     if (path == NULL || path[0] == 0) {
         return false;
@@ -543,10 +558,7 @@ bool scr_load_font(screen* scr, const char* path) {
     // font did not take or MOS did not hear about it; either way the safe state
     // is the font the machine started with.
     if (scr->charH_ != (char) height) {
-        font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
-        wait_mode_packet(FONT_MODE_FRAMES);
-        derive_geometry(scr);
-        scr_clear(scr);
+        scr_system_font(scr);
 
         return false;
     }

@@ -422,6 +422,10 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_h:
             kc.cmd = cmd_help;
             break;
+        case VK_E:
+        case VK_e:
+            kc.cmd = cmd_settings;
+            break;
         case VK_O:
         case VK_o:
             kc.cmd = cmd_open;

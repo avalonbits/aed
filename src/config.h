@@ -65,6 +65,12 @@ typedef struct _config {
     // font API (Console8 2.8.0). MOS cannot report the VDP version, so there is
     // nothing else to gate on -- the same shape ctrl_pause_frames took.
     char font[CFG_FONT_MAX];
+
+    // Asking for no font at all, which is not the same as saying nothing about
+    // it. An empty `font` means "this version has nothing to say, leave the
+    // line as it is"; this means "write the line out empty", which is how the
+    // file says no font -- cfg_parse ignores a setting with no value.
+    bool font_none;
 } config;
 
 // Every field cleared to "not set".

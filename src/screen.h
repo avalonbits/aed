@@ -143,6 +143,10 @@ void scr_set_ctrl_pause_frames(screen* scr, int frames);
 // bitmap is read as commands, which is a good deal worse than a screen clear.
 bool scr_load_font(screen* scr, const char* path);
 
+// Puts the machine's own font back and re-derives the geometry, for a font
+// changed while running. scr_destroy does this too, on the way out.
+void scr_system_font(screen* scr);
+
 void scr_set_tab_size(screen* scr, char tab_size);
 char scr_tab_size(screen* scr);
 

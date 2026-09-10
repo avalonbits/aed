@@ -86,6 +86,21 @@ static char* cfg_text(config* cfg, int i) {
 // Deliberately -1 for every string setting, which is what keeps them out of the
 // writers: both flush_section and merge treat a negative value as "this
 // version has nothing to say about that line", and copy it through untouched.
+// What a string setting should be written as, or NULL for "say nothing and
+// leave the line alone". An empty string is a real answer -- it is how the file
+// asks for no font -- so it is not the same as NULL.
+static const char* cfg_str(const config* cfg, int i) {
+    switch (i) {
+        case 4:
+            if (cfg->font[0] != 0) {
+                return cfg->font;
+            }
+
+            return cfg->font_none ? "" : NULL;
+        default: return NULL;
+    }
+}
+
 static int cfg_value(const config* cfg, int i) {
     switch (i) {
         case 0:  return cfg->tab_size;
@@ -102,6 +117,7 @@ void cfg_defaults(config* cfg) {
     cfg->bg = -1;
     cfg->ctrl_pause = -1;
     cfg->font[0] = 0;
+    cfg->font_none = false;
 }
 
 static bool is_space(char c) {
@@ -362,6 +378,18 @@ static int put_number(char* out, int at, int max, int value) {
 
 // "name = value\r\n". CRLF because that is what the editor writes into text
 // files, and this one is meant to be opened in it.
+// The same, for a setting whose value is text. An empty value is written out
+// as such -- `font =` with nothing after it -- which is how the file says "no
+// font", since cfg_parse ignores a setting with no value.
+static int put_str_setting(char* out, int at, int max, const char* name,
+                           const char* value) {
+    at = put_text(out, at, max, name);
+    at = put_text(out, at, max, " = ");
+    at = put_text(out, at, max, value);
+
+    return put_text(out, at, max, "\r\n");
+}
+
 static int put_setting(char* out, int at, int max, const char* name, int value) {
     at = put_text(out, at, max, name);
     at = put_text(out, at, max, " = ");
@@ -408,10 +436,17 @@ int cfg_render(const config* cfg, char* buf, int max) {
 static int flush_section(const config* cfg, const char* section, int seclen,
                          const bool* done, char* out, int at, int max) {
     for (int k = 0; k < N_SETTINGS; k++) {
-        if (SETTINGS[k].kind != CFG_INT || done[k] || cfg_value(cfg, k) < 0) {
+        if (done[k] || !name_is(section, seclen, SETTINGS[k].section)) {
             continue;
         }
-        if (!name_is(section, seclen, SETTINGS[k].section)) {
+        if (SETTINGS[k].kind == CFG_STR) {
+            const char* text = cfg_str(cfg, k);
+            if (text != NULL) {
+                at = put_str_setting(out, at, max, SETTINGS[k].name, text);
+            }
+            continue;
+        }
+        if (cfg_value(cfg, k) < 0) {
             continue;
         }
         at = put_setting(out, at, max, SETTINGS[k].name, cfg_value(cfg, k));
@@ -468,6 +503,38 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
         if (ln.kind == LINE_SETTING) {
             idx = setting_index(section, seclen, ln.name, ln.namelen);
         }
+
+        // A string setting already in the file: replace what follows the '=',
+        // keeping the name as written and any comment after it, exactly as the
+        // numeric path does.
+        if (idx >= 0 && SETTINGS[idx].kind == CFG_STR) {
+            const char* text = cfg_str(cfg, idx);
+            done[idx] = true;
+            if (text != NULL) {
+                int tail = lend;
+                if (tail > lstart && in[tail - 1] == '\r') {
+                    tail--;
+                }
+                at = put_raw(out, at, max, in + lstart, (ln.eq + 1) - lstart);
+                at = put_text(out, at, max, " ");
+                at = put_text(out, at, max, text);
+                if (ln.cut < lend) {
+                    at = put_text(out, at, max, "  ");
+                    at = put_raw(out, at, max, in + ln.cut, tail - ln.cut);
+                }
+                at = put_raw(out, at, max, in + tail, rawend - tail);
+                if (at < 0) {
+                    return -1;
+                }
+                continue;
+            }
+            at = put_raw(out, at, max, in + lstart, rawend - lstart);
+            if (at < 0) {
+                return -1;
+            }
+            continue;
+        }
+
         int newval = idx >= 0 ? cfg_value(cfg, idx) : -1;
 
         // A value already equal to what we would write leaves the line alone,
@@ -530,7 +597,10 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
         }
     }
     for (int k = 0; k < N_SETTINGS; k++) {
-        if (SETTINGS[k].kind != CFG_INT || done[k] || cfg_value(cfg, k) < 0) {
+        const bool has = SETTINGS[k].kind == CFG_STR
+                         ? cfg_str(cfg, k) != NULL
+                         : cfg_value(cfg, k) >= 0;
+        if (done[k] || !has) {
             continue;
         }
         at = put_text(out, at, max, "\r\n[");

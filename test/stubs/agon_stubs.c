@@ -313,6 +313,10 @@ static int         stub_content_len;
 
 void stub_file_reset(void) {
     stub_len = 0;
+    /* Terminated as well as emptied: stub_file_bytes hands back the buffer and
+     * every caller reads it as a string, so bytes left from an earlier write
+     * would be found by a strstr looking for something this one never wrote. */
+    stub_buf[0] = 0;
     stub_opens = 0;
     stub_closes = 0;
     stub_fail_open = 0;
@@ -388,6 +392,60 @@ uint8_t mos_mkdir(const char* path) {
     return 0;
 }
 
+/* --- MOS: directory walking --- */
+
+static const char* const* stub_dir_names;
+static const unsigned*    stub_dir_sizes;
+static int                stub_dir_n;
+static int                stub_dir_at;
+
+void stub_set_dir(const char* const* names, const unsigned* sizes, int n) {
+    stub_dir_names = names;
+    stub_dir_sizes = sizes;
+    stub_dir_n = n;
+    stub_dir_at = 0;
+}
+
+uint8_t ffs_dopen(DIR* dir, const char* path) {
+    (void) dir;
+    (void) path;
+    stub_dir_at = 0;
+
+    return stub_dir_names == NULL ? 5 : 0;   /* 5 is FR_NO_PATH */
+}
+
+/* An empty name is how FatFS says the directory has ended. */
+uint8_t ffs_dread(DIR* dir, FILINFO* info) {
+    (void) dir;
+    if (info == NULL) {
+        return 9;
+    }
+    if (stub_dir_names == NULL || stub_dir_at >= stub_dir_n) {
+        info->fname[0] = 0;
+        info->fsize = 0;
+
+        return 0;
+    }
+    const char* name = stub_dir_names[stub_dir_at];
+    size_t n = strlen(name);
+    if (n >= sizeof(info->fname)) {
+        n = sizeof(info->fname) - 1;
+    }
+    memcpy(info->fname, name, n);
+    info->fname[n] = 0;
+    info->fsize = stub_dir_sizes[stub_dir_at];
+    info->fattrib = 0;
+    stub_dir_at++;
+
+    return 0;
+}
+
+uint8_t ffs_dclose(DIR* dir) {
+    (void) dir;
+
+    return 0;
+}
+
 uint8_t mos_fopen(const char* filename, uint8_t mode) {
     (void)filename;
     stub_opens++;
@@ -449,6 +507,9 @@ unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
     }
     memcpy(stub_buf + stub_len, buffer, numbytes);
     stub_len += numbytes;
+    if (stub_len < STUB_FILE_CAP) {
+        stub_buf[stub_len] = 0;     /* see stub_file_reset */
+    }
 
     return numbytes;
 }

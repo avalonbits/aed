@@ -91,6 +91,10 @@ bg = 0
 |---|---|---|
 | `[editor]` | `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
 | `[editor]` | `font` | path to a font to load at startup. Commented out by default -- see below. |
+
+The settings can also be edited from inside AED with **CTRL+E**, which writes
+them back to the file. It changes only what you change: every other line is
+copied through as it was, comments and all.
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
 | `[vdp]` | `ctrl_pause_frames` | how long the VDP pauses when a line wraps while CTRL is held, in frames. Not written by default -- see below. |

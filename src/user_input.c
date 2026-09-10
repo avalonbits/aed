@@ -36,6 +36,11 @@ user_input* ui_init(user_input* ui, int size, char ypos, int cols) {
     return ui;
 }
 
+void ui_resize(user_input* ui, char ypos, int cols) {
+    ui->ypos_ = ypos;
+    ui->cols_ = cols;
+}
+
 void ui_destroy(user_input* ui) {
     cb_destroy(&ui->cb_);
 }
@@ -153,6 +158,7 @@ static const help_line HELP[] = {
     { "CTRL+P",           "find the previous one" },
 
     { NULL,               "SETTINGS" },
+    { "CTRL+E",           "settings" },
     { "CTRL+ALT+C",       "pick the colours" },
     { "CTRL+H",           "this list" },
 };
@@ -375,6 +381,181 @@ void ui_banner(user_input* ui, screen* scr) {
 }
 
 
+// ---- settings ----------------------------------------------------------
+
+// Fonts live beside the settings file, in a directory of their own.
+#define FONT_DIR   CFG_DIR "/aed"
+#define FONT_MAX   16
+#define GLYPHS     256
+
+typedef struct _font_entry {
+    char name[24];
+    int  rows;                  // rows per glyph, from the file size
+} font_entry;
+
+// Lists the fonts on the card. A font has no header -- its height is the file
+// size divided by 256 -- so the geometry shown here is worked out rather than
+// declared, and cannot disagree with what AED will make of the file.
+//
+// Anything whose size is not a whole number of 256-byte rows is not a font and
+// is left out, which is the same rule scr_load_font applies.
+static int font_list(font_entry* out, int max) {
+    DIR dir;
+    FILINFO info;
+    int n = 0;
+
+    if (ffs_dopen(&dir, FONT_DIR) != 0) {
+        return 0;
+    }
+    while (n < max) {
+        if (ffs_dread(&dir, &info) != 0 || info.fname[0] == 0) {
+            break;
+        }
+        if ((info.fattrib & AM_DIR) != 0) {
+            continue;
+        }
+        if (info.fsize == 0 || (info.fsize % GLYPHS) != 0) {
+            continue;
+        }
+        const int rows = (int)(info.fsize / GLYPHS);
+        if (rows < 4 || rows > 255) {
+            continue;
+        }
+        int len = (int) strlen(info.fname);
+        if (len >= (int) sizeof(out[n].name)) {
+            continue;               // no room to show it, so no room to pick it
+        }
+        memcpy(out[n].name, info.fname, (size_t) len);
+        out[n].name[len] = 0;
+        out[n].rows = rows;
+        n++;
+    }
+    ffs_dclose(&dir);
+
+    return n;
+}
+
+// Writes `s` into `out` at `at`, stopping at `width`. Returns the new position.
+static int put_at(char* out, int at, int width, const char* s) {
+    for (const char* p = s; *p != 0 && at < width; p++) {
+        out[at++] = *p;
+    }
+
+    return at;
+}
+
+static int pad_to(char* out, int at, int width, int col) {
+    while (at < col && at < width) {
+        out[at++] = ' ';
+    }
+
+    return at;
+}
+
+static int put_num(char* out, int at, int width, int v) {
+    char digits[8];
+    int d = 0;
+    if (v == 0) {
+        digits[d++] = '0';
+    }
+    for (int x = v; x > 0; x /= 10) {
+        digits[d++] = (char)('0' + (x % 10));
+    }
+    while (d > 0 && at < width) {
+        out[at++] = digits[--d];
+    }
+
+    return at;
+}
+
+// Picks a font, or none. Returns YES_OPT with `out` holding a path, or holding
+// an empty string for "the machine's own font".
+static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) {
+    (void) ui;
+
+    static font_entry fonts[FONT_MAX];
+    const int n = font_list(fonts, FONT_MAX);
+
+    const char top = scr->topY_;
+    const char bottom = (char) (scr->bottomY_ - 1);
+    const int width = scr->cols_ < 255 ? scr->cols_ : 255;
+    const int px = getsysvar_scrheight();
+    const int cols = getsysvar_scrCols();
+
+    static char line[256];
+    int at = 0;                     // 0 is "none", 1..n are the fonts
+
+    for (;;) {
+        char y = top;
+        int k = put_at(line, 0, width, "  FONTS");
+        scr_write_line(scr, y++, line, k);
+        scr_write_line(scr, y++, NULL, 0);
+
+        for (int i = 0; i <= n && y < bottom; i++) {
+            k = put_at(line, 0, width, i == at ? "  > " : "    ");
+            if (i == 0) {
+                k = put_at(line, k, width, "(none -- the font the machine starts in)");
+            } else {
+                const font_entry* f = &fonts[i - 1];
+                k = put_at(line, k, width, f->name);
+                k = pad_to(line, k, width, 28);
+                k = put_num(line, k, width, 8);
+                k = put_at(line, k, width, "x");
+                k = put_num(line, k, width, f->rows);
+                k = pad_to(line, k, width, 38);
+                k = put_num(line, k, width, cols);
+                k = put_at(line, k, width, "x");
+                k = put_num(line, k, width, f->rows > 0 ? px / f->rows : 0);
+            }
+            scr_write_line(scr, y++, line, k);
+        }
+        while (y < bottom) {
+            scr_write_line(scr, y++, NULL, 0);
+        }
+        scr_bar_line(scr, bottom,
+                     "  UP/DOWN to choose, RETURN to take it, ESC to leave it alone", 60);
+
+        const key_press kp = keys_wait();
+        switch (kp.vkey) {
+            case VK_ESCAPE:
+                return CANCEL_OPT;
+            case VK_UP:
+            case VK_KP_UP:
+                if (at > 0) {
+                    at--;
+                }
+                break;
+            case VK_DOWN:
+            case VK_KP_DOWN:
+                if (at < n) {
+                    at++;
+                }
+                break;
+            case VK_RETURN:
+            case VK_KP_ENTER: {
+                if (at == 0) {
+                    out[0] = 0;
+
+                    return NO_OPT;      // chosen, and the choice is "none"
+                }
+                const int dlen = (int) strlen(FONT_DIR);
+                const int flen = (int) strlen(fonts[at - 1].name);
+                if (dlen + 1 + flen >= max) {
+                    return CANCEL_OPT;
+                }
+                memcpy(out, FONT_DIR, (size_t) dlen);
+                out[dlen] = '/';
+                memcpy(out + dlen + 1, fonts[at - 1].name, (size_t) flen);
+                out[dlen + 1 + flen] = 0;
+
+                return YES_OPT;
+            }
+            default:
+                break;
+        }
+    }
+}
+
 RESPONSE ui_color_picker(user_input* ui, screen* scr) {
     scr_footer_invalidate(scr);
     char fg = scr->fg_;
@@ -443,6 +624,198 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
 static const char options[13] = " [Y/N/ESC]: ";
 
 static const char dismiss[17] = " (press any key)";
+
+// The settings, in the order they are shown. Each is edited in the way that
+// suits it: a number is typed, the colours go to the picker that already
+// exists, and a font is chosen from what is on the card.
+typedef enum _setting_row {
+    ROW_TAB = 0,
+    ROW_COLOURS,
+    ROW_FONT,
+    ROW_PAUSE,
+    ROW_COUNT,
+} setting_row;
+
+// Reads a number from the reader, between lo and hi. Returns false when they
+// gave up or typed something that is not one, in which case nothing changes --
+// a bad answer must not silently become zero.
+static bool ask_number(user_input* ui, screen* scr, char* title, int cur,
+                       int lo, int hi, int* out) {
+    char prefill[8];
+    int p = put_num(prefill, 0, (int) sizeof(prefill) - 1, cur < 0 ? 0 : cur);
+    prefill[p] = 0;
+
+    char* buf = NULL;
+    int sz = 0;
+    if (ui_text(ui, scr, title, prefill, &buf, &sz) != YES_OPT || sz <= 0) {
+        return false;
+    }
+
+    int v = 0;
+    for (int i = 0; i < sz; i++) {
+        if (buf[i] < '0' || buf[i] > '9') {
+            return false;
+        }
+        v = v * 10 + (buf[i] - '0');
+        if (v > hi) {
+            return false;
+        }
+    }
+    if (v < lo) {
+        return false;
+    }
+    *out = v;
+
+    return true;
+}
+
+RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
+    // What AED is using now, which is what the rows show until something is
+    // changed. `cfg` itself is left holding only the changes: it is written
+    // back with cfg_update, which copies through every setting it is not told
+    // about, and telling it about one the reader never touched would rewrite a
+    // line they had left alone.
+    const int tab_now = scr_tab_size(scr);
+    const int fg_now = scr_fg(scr);
+    const int bg_now = scr_bg(scr);
+
+    char font_now[CFG_FONT_MAX];
+    const int fl = (int) strlen(cfg->font);
+    memcpy(font_now, cfg->font, (size_t)(fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1));
+    font_now[fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1] = 0;
+    cfg_defaults(cfg);
+
+    const char top = scr->topY_;
+    const char bottom = (char) (scr->bottomY_ - 1);
+    const int width = scr->cols_ < 255 ? scr->cols_ : 255;
+    static char line[256];
+    int at = 0;
+    bool changed = false;
+
+    for (;;) {
+        int tab = cfg->tab_size >= 0 ? cfg->tab_size : tab_now;
+        int fg = cfg->fg >= 0 ? cfg->fg : fg_now;
+        int bg = cfg->bg >= 0 ? cfg->bg : bg_now;
+        int pause = cfg->ctrl_pause;
+        const char* font = cfg->font[0] != 0 ? cfg->font : font_now;
+
+        char y = top;
+        int k = put_at(line, 0, width, "  SETTINGS");
+        scr_write_line(scr, y++, line, k);
+        scr_write_line(scr, y++, NULL, 0);
+
+        for (int i = 0; i < ROW_COUNT && y < bottom; i++) {
+            k = put_at(line, 0, width, i == at ? "  > " : "    ");
+            switch (i) {
+                case ROW_TAB:
+                    k = put_at(line, k, width, "tab width");
+                    k = pad_to(line, k, width, 24);
+                    k = put_num(line, k, width, tab);
+                    break;
+                case ROW_COLOURS:
+                    k = put_at(line, k, width, "colours");
+                    k = pad_to(line, k, width, 24);
+                    k = put_at(line, k, width, "text ");
+                    k = put_num(line, k, width, fg);
+                    k = put_at(line, k, width, " on ");
+                    k = put_num(line, k, width, bg);
+                    break;
+                case ROW_FONT:
+                    k = put_at(line, k, width, "font");
+                    k = pad_to(line, k, width, 24);
+                    k = put_at(line, k, width,
+                               font[0] != 0 ? font : "(the machine's own)");
+                    break;
+                case ROW_PAUSE:
+                    k = put_at(line, k, width, "ctrl_pause_frames");
+                    k = pad_to(line, k, width, 24);
+                    if (pause >= 0) {
+                        k = put_num(line, k, width, pause);
+                    } else {
+                        k = put_at(line, k, width, "(not set)");
+                    }
+                    break;
+                default:
+                    break;
+            }
+            scr_write_line(scr, y++, line, k);
+        }
+        while (y < bottom) {
+            scr_write_line(scr, y++, NULL, 0);
+        }
+        scr_bar_line(scr, bottom,
+                     "  UP/DOWN to choose, RETURN to change, ESC to close", 51);
+
+        const key_press kp = keys_wait();
+        if (kp.vkey == VK_ESCAPE) {
+            return changed ? YES_OPT : CANCEL_OPT;
+        }
+        if (kp.vkey == VK_UP || kp.vkey == VK_KP_UP) {
+            if (at > 0) {
+                at--;
+            }
+            continue;
+        }
+        if (kp.vkey == VK_DOWN || kp.vkey == VK_KP_DOWN) {
+            if (at < ROW_COUNT - 1) {
+                at++;
+            }
+            continue;
+        }
+        if (kp.vkey != VK_RETURN && kp.vkey != VK_KP_ENTER) {
+            continue;
+        }
+
+        switch (at) {
+            case ROW_TAB: {
+                int v = 0;
+                if (ask_number(ui, scr, "Tab width, 1 to 16:", tab, 1,
+                               SCR_MAX_TAB_SIZE, &v)) {
+                    cfg->tab_size = v;
+                    scr_set_tab_size(scr, (char) v);
+                    changed = true;
+                }
+            } break;
+            case ROW_COLOURS:
+                // The picker sets the screen's colours as it goes, so what it
+                // leaves behind is the answer.
+                if (ui_color_picker(ui, scr) == YES_OPT) {
+                    cfg->fg = scr_fg(scr);
+                    cfg->bg = scr_bg(scr);
+                    changed = true;
+                }
+                break;
+            case ROW_FONT: {
+                char picked[CFG_FONT_MAX];
+                const RESPONSE got = ui_font_picker(ui, scr, picked, CFG_FONT_MAX);
+                if (got == YES_OPT) {
+                    const int n = (int) strlen(picked);
+                    memcpy(cfg->font, picked, (size_t) n);
+                    cfg->font[n] = 0;
+                    cfg->font_none = false;
+                    changed = true;
+                } else if (got == NO_OPT) {
+                    // Asked for no font at all, which is a different answer
+                    // from saying nothing about it: the line is written out
+                    // empty rather than left alone.
+                    cfg->font[0] = 0;
+                    cfg->font_none = true;
+                    changed = true;
+                }
+            } break;
+            case ROW_PAUSE: {
+                int v = 0;
+                if (ask_number(ui, scr, "CTRL pause frames, 0 to 255:",
+                               pause, 0, 255, &v)) {
+                    cfg->ctrl_pause = v;
+                    changed = true;
+                }
+            } break;
+            default:
+                break;
+        }
+    }
+}
 
 void ui_message(user_input* ui, screen* scr, char* msg) {
     scr_footer_invalidate(scr);
