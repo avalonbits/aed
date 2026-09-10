@@ -21,6 +21,19 @@
  * the thing an 8x8 font cannot do anything about: with a 9-row font there is a
  * blank row between the two, and with an 8-row font there is not.
  *
+ * WHAT THE READ-BACK CANNOT TELL YOU. VDU 23,0,&83 asks the VDP to match what
+ * is on screen against the font it is currently holding. A font uploaded at the
+ * wrong offset therefore agrees with itself perfectly and reads back correct:
+ * every character comes back as the one that was written, while the screen
+ * shows something else entirely. So "renders" means the glyphs are reaching the
+ * screen, not that they are the right glyphs -- for that, look at the sample.
+ *
+ * This was written to find a blank text area in the editor and reported
+ * everything healthy, over and over, while the editor was unusable. It was
+ * right: the fault was a stale object file and nothing to do with fonts (#109).
+ * A tool that says the font path is fine is worth having for exactly that
+ * reason, but do not read more into a pass than it claims.
+ *
  * A key press between each stage, so there is time to look. The system font
  * goes back on the way out. */
 #define BUF_ID       0x0AED
