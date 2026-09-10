@@ -4,6 +4,12 @@ AED is a text editor for the Agon platform (Agon light, Agon light2, Agon Origin
 It's screen navigation was inspired by various text editors I have used (notepad / nano / kate / vim) and
 that inspiration drove the design and choices of navigation keys.
 
+It selects with `SHIFT` and the movement keys, copies, cuts and pastes with
+`CTRL+C`, `CTRL+X` and `CTRL+V` -- between files, not just within one -- and
+undoes with `CTRL+Z` and redoes with `CTRL+Y`. It opens another file without
+leaving the editor, keeps real tab characters, and remembers your colours and
+tab width in a settings file.
+
 Currently it is limited to reading and writing files up to 248KB long with up to 8k lines.
 
 The editor can work in any Agon supported resolution and will use whatever color scheme you've configured
