@@ -37,3 +37,22 @@ See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
 - `kbev.c` — prints every `agon/keyboard.h` event (ascii, kmod, vkey, up/down)
   as it arrives. This is the input path AED should use; the other two probes
   are from the superseded keyboard-map investigation.
+- `font9.c` — uploads a font of a chosen height and reports the screen geometry
+  before and after. Written to answer whether the VDP accepts a cell height that
+  is not a multiple of 8, which decides whether a blank separator row between
+  text lines can be had without redrawing a font.
+
+  It can. Measured on VDP 2.16.0 / MOS 3.0.2 with an 8x9 build of the stock
+  font: 80x60 before, 80x53 after, and the VDP logs `Created text cursor bitmap
+  8x9`. Declaring the wrong height for the same buffer is rejected with
+  `createFontFromBuffer: buffer 100 is not the correct size`, so the height is
+  genuinely honoured rather than stored and ignored.
+
+  **A font change raises `vdp_pflag_mode` (0x10) even when it failed**, because
+  `FONT_SELECT` calls `sendModeInformation()` before knowing the outcome. Waiting
+  on the flag says the VDP replied, not that the font took; check the row count.
+
+  Runs without a display: the emulator has no headless flag and Xvfb is not
+  installed here, but `SDL_VIDEODRIVER=dummy` works, and `log_word` smuggles
+  numbers to the host through the VDP's debug log, which `--verbose` surfaces.
+  See `.internal/docs/FONTS.md`.
