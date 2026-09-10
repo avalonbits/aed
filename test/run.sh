@@ -30,6 +30,12 @@ SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
       src/keys.c src/undo.c test/stubs/agon_stubs.c)
 
 status=0
+
+# The build itself, which nothing below can check: these tests compile every
+# source together on every run, so a stale object file is invisible to them.
+# Skipped when the AgonDev toolchain is not on PATH.
+./test/build_deps.sh || status=$?
+
 for t in test/test_*.c; do
     name=$(basename "$t" .c)
     echo "=== $name ==="
