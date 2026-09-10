@@ -92,8 +92,15 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         return NULL;
     }
 
+    // The document is only drawn when there is something in it -- painting a
+    // screenful of spaces over an already-cleared screen is 1800 bytes down the
+    // VDP link for nothing. The cursor is drawn either way, which it was not:
+    // starting AED with no file left no cursor on screen at all until the first
+    // keystroke happened to repaint the row it was on.
     if (tb_used(&ed->buf_) > 0) {
         cmd_show(ed);
+    } else {
+        scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->buf_));
     }
 
     // Last, so that no failure above has to take it back down again.

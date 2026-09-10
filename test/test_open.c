@@ -33,6 +33,15 @@ static void cap_start(void) {
     mark = ftell(stdout);
 }
 
+/* How many bytes cap_read would return. The stream is not text -- a colour of
+ * zero puts a NUL in the middle of it -- so anything scanning for a control
+ * byte needs the length rather than a terminator. */
+static int cap_len(void) {
+    fflush(stdout);
+
+    return (int) (ftell(stdout) - mark);
+}
+
 static const char* cap_read(void) {
     fflush(stdout);
     const long end = ftell(stdout);
@@ -537,6 +546,54 @@ int main(void) {
     check("CTRL+Q still quits", ctrlCmds(kc, 0).cmd == CMD_QUIT, 1);
     kc.k.vkey = VK_g;
     check("CTRL+G still goes to a line", ctrlCmds(kc, 0).cmd == cmd_goto, 1);
+
+    /* Starting with nothing to show must still show the cursor.
+     *
+     * The document is only painted when there is something in it, and drawing
+     * the cursor used to be part of that -- so an editor started with no file
+     * had no cursor on screen until the first keystroke happened to repaint the
+     * row. scr_show_cursor_ch is the only thing at startup that emits VDU 8,
+     * which it uses to step back over the cell it just drew. */
+    {
+        /* With a settings file that names colours -- which AED writes itself on
+         * first run, so nearly every real start has one. Applying them calls
+         * scr_clear, which wipes the cursor cell scr_init had drawn, and for an
+         * empty document nothing drew it again. Without a config file the bug
+         * does not appear at all. */
+        static const char CFG[] = "[colours]\r\nfg = 15\r\nbg = 0\r\n";
+        stub_file_reset();
+        stub_file_set_content(CFG, (int) sizeof(CFG) - 1);
+        cap_start();
+        editor empty;
+        check("an editor with an empty document", ed_init(&empty, 8, NULL) != NULL, 1);
+        const int n = cap_len();
+        const char* raw = cap_read();
+
+        /* A drawn character followed by VDU 8 -- scr_show_cursor_ch prints the
+         * cell then steps back over it, and nothing else at startup does that.
+         * A lone 8 is not enough to look for: other startup traffic contains
+         * that byte, and the colour bytes around the cell do not survive the
+         * stub. */
+        /* After the last clear, not anywhere in the stream. scr_init draws a
+         * cursor of its own, so its bytes are in the capture whether or not
+         * they survived -- and the whole bug is that applying the colours
+         * clears the screen afterwards and nothing draws it again. Only a cell
+         * emitted after the final VDU 12 is still on screen. */
+        int last_clear = -1;
+        for (int i = 0; i < n; i++) {
+            if (raw[i] == 12) {
+                last_clear = i;
+            }
+        }
+        int cells = 0;
+        for (int i = last_clear + 1; i + 1 < n; i++) {
+            if ((unsigned char) raw[i] >= 32 && raw[i + 1] == 8) {
+                cells++;
+            }
+        }
+        check("  draws a cursor anyway", cells > 0, 1);
+        ed_destroy(&empty);
+    }
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
