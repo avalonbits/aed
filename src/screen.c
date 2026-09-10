@@ -312,8 +312,56 @@ screen *scr_init(screen* scr, char cursor) {
 // carries on with the geometry it already had. About a second at 60 Hz.
 #define FONT_MODE_FRAMES 60
 
+// Waiting for the VDP to answer the probe below. Measured: a VDP that has the
+// font API replies within one frame, so this is generous already, and every
+// frame of it is a frame added to startup on a VDP that has not.
+#define FONT_PROBE_FRAMES 20
+
 static void font_put(const char* vdu, int n) {
     mos_puts((char*) vdu, (unsigned) n, 0);
+}
+
+// Waits for the VDP to say the mode is settled, and returns whether it did.
+// Bounded: a VDP with no font API never answers.
+static bool wait_mode_packet(int frames) {
+    volatile uint8_t* sysvar = mos_sysvars();
+
+    for (int i = 0; i < frames; i++) {
+        waitvblank();
+        sysvar = mos_sysvars();
+        if ((sysvar[sysvar_vdp_pflags] & vdp_pflag_mode) != 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Does this VDP have the font API at all?
+//
+// It was taken as read that this could not be asked: MOS cannot report the VDP
+// version, so the settings file was the declaration and getting it wrong meant
+// kilobytes of glyph data read as commands. That reasoning was about a general
+// version query. Asking about *one feature* is a different question and it does
+// have an answer.
+//
+// Selecting font 65535 is the system font, which is already selected at
+// startup, so on a VDP that understands it this changes nothing -- and it
+// answers with mode information, which raises vdp_pflag_mode. On a VDP that
+// does not, seven bytes are read as something else and no mode packet comes.
+//
+// Seven bytes is a far smaller thing to get wrong than a 2304-byte upload.
+// Measured on MOS 3.0.2 with VDP 1.04: no flag, and the VDP still reports
+// 80x60 and 640x480 afterwards -- the probe leaves it healthy. On VDP 2.16.0
+// and Console8 the flag arrives within a frame.
+static bool font_api_present(void) {
+    static char probe[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
+
+    volatile uint8_t* sysvar = mos_sysvars();
+    sysvar[sysvar_vdp_pflags] = 0;
+    font_put(probe, sizeof(probe));
+
+    return wait_mode_packet(FONT_PROBE_FRAMES);
 }
 
 // Streams `size` bytes of the open file straight into a VDP buffer, and returns
@@ -428,6 +476,16 @@ bool scr_load_font(screen* scr, const char* path) {
         return false;
     }
 
+    // Last of the checks and the only one that costs anything on the wire, so
+    // it goes after the ones that do not. This is the whole difference between
+    // a setting that is safe to try and one that ruins the screen when the VDP
+    // turns out to be older than the user thought.
+    if (!font_api_present()) {
+        mos_fclose(fh);
+
+        return false;
+    }
+
     static char clear[6] = {23, 0, (char) 0xA0,
                             (char) (FONT_BUFFER & 0xFF), (char) (FONT_BUFFER >> 8),
                             2};              // BUFFERED_CLEAR
@@ -461,16 +519,10 @@ bool scr_load_font(screen* scr, const char* path) {
     // off the bottom of the screen.
     //
     // The flag says the VDP replied, not that the font took: FONT_SELECT sends
-    // mode information before it knows whether the font exists, so a rejected
-    // font raises it just the same. What follows treats it only as "the numbers
-    // are now current", which is true either way.
-    for (int i = 0; i < FONT_MODE_FRAMES; i++) {
-        waitvblank();
-        sysvar = mos_sysvars();
-        if ((sysvar[sysvar_vdp_pflags] & vdp_pflag_mode) != 0) {
-            break;
-        }
-    }
+    // mode information before it knows whether the font exists, so a font
+    // rejected for its size raises it just the same. What follows treats it
+    // only as "the numbers are now current", which is true either way.
+    wait_mode_packet(FONT_MODE_FRAMES);
 
     derive_geometry(scr);
 
