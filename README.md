@@ -194,6 +194,23 @@ saved. The tab width is 4 columns by default and can be changed in the settings 
 since it is a single character, and the cursor sits at the column where the tab
 begins.
 
+# Undo and redo
+`CTRL+Z` undoes the last edit and `CTRL+Y` puts it back.
+
+Edits run together, so a burst of typing undoes as one step rather than a letter
+at a time. A run ends when you move the cursor, when you switch between typing,
+`DELETE` and `BACKSPACE`, or after 128 characters -- so no single `CTRL+Z` takes
+back more than a couple of lines' worth.
+
+Undoing back to the state the file was last saved in clears the `*` in the
+footer: the marker means "this differs from the file", not "something happened".
+
+The history is a fixed 16KiB, which is thousands of edits in practice. When it
+fills, the oldest are forgotten. A single edit larger than that -- selecting a
+whole large document and deleting it, say -- cannot be undone at all, and clears
+the history rather than leaving a gap in the middle of it. Opening another file
+clears it too.
+
 `CTRL+Q` will save the buffer to the specified file on startup (or `/aed.txt` of none was specified) and exit the editor.
 If no file was specified on startup, it will prompt for a file name to save the text buffer.
 
@@ -207,13 +224,13 @@ The following features will be implemented before releasing v1.0 of the editor:
 - [x] ~~Shortcut to change foreground and background colors.~~
 - [x] ~~`PAGE-UP` and `PAGE-DOWN` support.~~
 - [x] ~~Shortcut for saving the current buffer without quiting.~~
-- [ ] File selection while in the editor.
-- [ ] Copy-cut-paste.
+- [x] ~~File selection while in the editor.~~
+- [x] ~~Copy-cut-paste.~~
 - [ ] Find.
 
 ## Roadmap after v1.0
 
-- [ ] Undo / Redo.
+- [x] ~~Undo / Redo.~~
 - [x] ~~Native tabs.~~
 - [x] ~~Configurable tab size.~~
 - [ ] Change settings from inside the editor.
