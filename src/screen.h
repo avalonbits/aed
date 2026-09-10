@@ -82,6 +82,11 @@ typedef struct _screen {
     int lastPosW_;
     bool footerDrawn_;
 
+    // Whether AED has selected a font of its own. The system font has to be put
+    // back on exit if so, and the sequence that does it means nothing to a VDP
+    // without the font API -- so it is sent only when AED sent the font.
+    bool fontLoaded_;
+
     char tab_size_;
     // Document column shown at screen column 0. The view scrolls horizontally
     // by moving this rather than by slicing lines at a byte offset, which is
@@ -122,6 +127,21 @@ screen* scr_init(screen* scr, char cursor);
 // addition, and a VDP that does not know it reads the four bytes that follow
 // as commands -- among them VDU 16, which clears the screen.
 void scr_set_ctrl_pause_frames(screen* scr, int frames);
+
+// Loads a font from `path` and selects it, then re-derives everything the
+// layout takes from the cell size. The file is a raw bitmap: 256 glyphs, 8
+// pixels wide, one byte per row, with the height being the file size divided by
+// 256. There is no header, which is what lets a font of any height be dropped
+// in -- including one padded with a blank row to separate the text lines.
+//
+// Returns false and changes nothing if the file is missing, is not a whole
+// number of 256-byte rows, or is tall enough to leave too few rows to edit in.
+//
+// Like scr_set_ctrl_pause_frames, only call this when the user has asked for
+// it. The font API arrived in Console8 VDP 2.8.0 and MOS cannot report the VDP
+// version, so the setting is the declaration. On an older VDP the uploaded
+// bitmap is read as commands, which is a good deal worse than a screen clear.
+bool scr_load_font(screen* scr, const char* path);
 
 void scr_set_tab_size(screen* scr, char tab_size);
 char scr_tab_size(screen* scr);

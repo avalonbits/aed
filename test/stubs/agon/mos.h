@@ -9,6 +9,11 @@
 #include <stdint.h>
 
 #define sysvar_vdp_pflags    0x04
+
+/* Which VDP reply has landed. Named as agon/mos.h names them; only the two the
+ * editor waits on are here. */
+#define vdp_pflag_point      0x04
+#define vdp_pflag_mode       0x10
 #define sysvar_scrpixelIndex 0x16
 
 #define FA_READ           0x01
@@ -26,6 +31,11 @@ uint8_t* mos_sysvars(void);
  * real mode is 128 columns, which does not fit in a signed char. */
 void     stub_set_screen(int cols, int rows);
 void     stub_set_cell(int w, int h);
+
+/* Whether the stubbed VDP answers a font change with mode information. Off is
+ * a VDP with no font API, which never answers -- the case the editor must not
+ * wait on forever. */
+void     stub_vdp_mode_reply(int on);
 
 uint8_t  getsysvar_keymods(void);
 uint16_t getsysvar_scrwidth(void);

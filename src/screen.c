@@ -162,6 +162,32 @@ static void get_active_colours(screen* scr) {
     set_colours(scr->fg_, scr->bg_);
 }
 
+// Everything the screen layout takes from the current font and mode, in one
+// place so that a font change re-runs it rather than patching the fields it
+// moved. They are not independent: the row count, the bottom row and the cell
+// height all shift together when the font height does, and a set of them that
+// half agrees is worse than either state.
+static void derive_geometry(screen* scr) {
+    const int cols = getsysvar_scrCols();
+    const int rows = getsysvar_scrRows();
+
+    scr->rows_ = rows;
+    scr->barW_ = cols - 1;
+    scr->textX_ = 1;
+    scr->cols_ = scr->barW_ - 1;
+    scr->bottomY_ = rows - 1;
+
+    // Cell size for the VDU 23,7 movement byte, derived rather than assumed.
+    // Every stock Agon mode uses the 8x8 system font, so this is 8 until a font
+    // is loaded, and a scroll of the wrong distance tears the text area.
+    // Guarded because emitting 0 here would mean "no movement" on an old VDP --
+    // the one value that must never reach the wire.
+    const int w = cols > 0 ? getsysvar_scrwidth() / cols : 0;
+    const int h = rows > 0 ? getsysvar_scrheight() / rows : 0;
+    scr->charW_ = (char) (w > 0 && w < 256 ? w : 8);
+    scr->charH_ = (char) (h > 0 && h < 256 ? h : 8);
+}
+
 screen *scr_init(screen* scr, char cursor) {
     // VDU 23,16,setting,mask -- new = (current AND mask) EOR setting. With
     // mask 0 this sets the whole byte to 1: bit 0, scroll protection. It has
@@ -170,7 +196,6 @@ screen *scr_init(screen* scr, char cursor) {
     VDP_PUTS(enable_scroll_protect);
 
     vdp_cursor_enable(false);
-    scr->rows_ = getsysvar_scrRows();
 
     // The screen is laid out as two full-width bars with an inset text area
     // between them. The header and footer span barW_ columns from column 0; the
@@ -243,28 +268,9 @@ screen *scr_init(screen* scr, char cursor) {
     // stops one short of barW_ and starts one column in, so the blank column on
     // the right is matched by one on the left and the text sits centred between
     // them rather than pushed against one edge.
-    {
-        const int w = getsysvar_scrCols();
-        scr->barW_ = w - 1;
-        scr->textX_ = 1;
-        scr->cols_ = scr->barW_ - 1;
-    }
+    derive_geometry(scr);
     scr->colors_ = getsysvar_scrColours();
-
-    // Cell size for the VDU 23,7 movement byte, derived rather than assumed.
-    // Every stock Agon mode uses the 8x8 system font, so this is 8 today; a
-    // font loaded through the VDP's font API before AED starts would not be,
-    // and a scroll of the wrong distance tears the text area. Guarded because
-    // emitting 0 here would mean "no movement" on an old VDP -- the one value
-    // that must never reach the wire.
-    {
-        const int cols = getsysvar_scrCols();
-        const int rows = getsysvar_scrRows();
-        const int w = cols > 0 ? getsysvar_scrwidth() / cols : 0;
-        const int h = rows > 0 ? getsysvar_scrheight() / rows : 0;
-        scr->charW_ = (char) (w > 0 && w < 256 ? w : 8);
-        scr->charH_ = (char) (h > 0 && h < 256 ? h : 8);
-    }
+    scr->fontLoaded_ = false;
     scr->cursor_ = cursor;
     scr->lastFname_[0] = 0;
     scr->lastPosW_ = 0;
@@ -274,7 +280,6 @@ screen *scr_init(screen* scr, char cursor) {
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
     scr->selOn_ = 0;
-    scr->bottomY_ = scr->rows_-1;
     get_active_colours(scr);
     scr_clear(scr);
     scr_show_cursor(scr);
@@ -282,6 +287,206 @@ screen *scr_init(screen* scr, char cursor) {
     scr->tab_size_ = SCR_DEFAULT_TAB_SIZE;
 
     return scr;
+}
+
+// The buffer the font is uploaded into. Any 16-bit id would do; this one is
+// unlikely to collide with whatever else the machine has put in a buffer.
+#define FONT_BUFFER 0x0AED
+
+// Glyphs in a font file. Fixed by the VDP, not by us.
+#define FONT_GLYPHS 256
+
+// How much of the file is held at a time. The VDP's buffer write reads a byte
+// count off the stream and does not care how the eZ80 divides it up, so the
+// font never has to be in memory whole -- which is what keeps a 16-row font
+// from costing 4 KiB of the little RAM there is.
+#define FONT_CHUNK 256
+
+// The fewest text rows worth starting with: a header, a footer, and something
+// between them. A font tall enough to leave less than this would leave the
+// editor with no document on screen at all.
+#define FONT_MIN_ROWS 4
+
+// Waiting for the VDP to report the new mode. Bounded on purpose: a VDP with no
+// font API never answers, and a startup that hangs is worse than one that
+// carries on with the geometry it already had. About a second at 60 Hz.
+#define FONT_MODE_FRAMES 60
+
+static void font_put(const char* vdu, int n) {
+    mos_puts((char*) vdu, (unsigned) n, 0);
+}
+
+// Streams `size` bytes of the open file straight into a VDP buffer, and returns
+// the font's ascent -- the baseline, taken as one past the lowest row any
+// capital puts ink on.
+//
+// The ascent is measured rather than assumed because it cannot be derived from
+// the height: a 9-row font made by padding an 8-row one has its baseline at 7,
+// exactly where the unpadded font had it, while a font genuinely drawn at 9
+// rows does not. It is inert as long as fonts are selected with flags 0 -- the
+// VDP only consults it for FONT_SELECTFLAG_ADJUSTBASE -- but a wrong value
+// stored is a wrong value waiting.
+static char font_upload(char fh, int size, int height) {
+    char hdr[8];
+    hdr[0] = 23;
+    hdr[1] = 0;
+    hdr[2] = (char) 0xA0;
+    hdr[3] = (char) (FONT_BUFFER & 0xFF);
+    hdr[4] = (char) (FONT_BUFFER >> 8);
+    hdr[5] = 0;                              // BUFFERED_WRITE
+    hdr[6] = (char) (size & 0xFF);
+    hdr[7] = (char) ((size >> 8) & 0xFF);
+    font_put(hdr, sizeof(hdr));
+
+    static char chunk[FONT_CHUNK];
+    int ascent = 0;
+    int at = 0;
+
+    while (at < size) {
+        int want = size - at;
+        if (want > FONT_CHUNK) {
+            want = FONT_CHUNK;
+        }
+        const int got = (int) mos_fread(fh, chunk, (unsigned) want);
+        if (got <= 0) {
+            // The stream is already promised `size` bytes and the VDP is
+            // counting them. Stopping short would leave it reading whatever
+            // AED sends next as font data -- the editor's first screenful --
+            // so make the difference up with blanks.
+            memset(chunk, 0, sizeof(chunk));
+            for (int left = size - at; left > 0; ) {
+                const int n = left > FONT_CHUNK ? FONT_CHUNK : left;
+                font_put(chunk, n);
+                left -= n;
+            }
+
+            return (char) (ascent > 0 ? ascent : height - 1);
+        }
+        font_put(chunk, got);
+
+        // 'A' to 'Z' sit on the baseline, so the lowest row they reach is it.
+        for (int i = 0; i < got; i++) {
+            if (chunk[i] == 0) {
+                continue;
+            }
+            const int glyph = (at + i) / height;
+            if (glyph < 'A' || glyph > 'Z') {
+                continue;
+            }
+            const int row = ((at + i) % height) + 1;
+            if (row > ascent) {
+                ascent = row;
+            }
+        }
+        at += got;
+    }
+
+    return (char) (ascent > 0 ? ascent : height - 1);
+}
+
+bool scr_load_font(screen* scr, const char* path) {
+    if (path == NULL || path[0] == 0) {
+        return false;
+    }
+
+    char fh = mos_fopen(path, FA_READ);
+    if (fh == 0) {
+        return false;
+    }
+    FIL* fil = mos_getfil(fh);
+    if (fil == NULL) {
+        mos_fclose(fh);
+
+        return false;
+    }
+
+    // Compared before narrowing, as tb_load does: objsize is 32 bits and the
+    // eZ80's int is 24, so a large file would arrive here as a small number.
+    // A font is 256 glyphs of `height` bytes and nothing else, so the height is
+    // the size divided by 256 -- there is no header to read it from, and a size
+    // that is not a multiple of 256 is not a font.
+    if (fil->obj.objsize > (uint32_t) (FONT_GLYPHS * 255)) {
+        mos_fclose(fh);
+
+        return false;
+    }
+    const int size = (int) fil->obj.objsize;
+    if (size <= 0 || (size % FONT_GLYPHS) != 0) {
+        mos_fclose(fh);
+
+        return false;
+    }
+    const int height = size / FONT_GLYPHS;
+
+    // Checked before anything is sent, because there is no way back: the mode
+    // packet arrives whether or not the font took, so a font that leaves no
+    // room to edit in cannot be detected afterwards and undone.
+    const int px = getsysvar_scrheight();
+    if (height < 1 || height > 255 || px / height < FONT_MIN_ROWS) {
+        mos_fclose(fh);
+
+        return false;
+    }
+
+    static char clear[6] = {23, 0, (char) 0xA0,
+                            (char) (FONT_BUFFER & 0xFF), (char) (FONT_BUFFER >> 8),
+                            2};              // BUFFERED_CLEAR
+    font_put(clear, sizeof(clear));
+
+    const char ascent = font_upload(fh, size, height);
+    mos_fclose(fh);
+
+    char create[10];
+    create[0] = 23;
+    create[1] = 0;
+    create[2] = (char) 0x95;
+    create[3] = 1;                           // create font from buffer
+    create[4] = (char) (FONT_BUFFER & 0xFF);
+    create[5] = (char) (FONT_BUFFER >> 8);
+    create[6] = 8;                           // width; the VDP has no variable-width fonts
+    create[7] = (char) height;
+    create[8] = ascent;
+    create[9] = 0;                           // flags
+    font_put(create, sizeof(create));
+
+    static char select[7] = {23, 0, (char) 0x95, 0,
+                             (char) (FONT_BUFFER & 0xFF), (char) (FONT_BUFFER >> 8),
+                             0};
+    volatile uint8_t* sysvar = mos_sysvars();
+    sysvar[sysvar_vdp_pflags] = 0;
+    font_put(select, sizeof(select));
+
+    // The VDP answers a font change with mode information, and the sysvars hold
+    // the old row count until it lands. Reading them early paints the editor
+    // off the bottom of the screen.
+    //
+    // The flag says the VDP replied, not that the font took: FONT_SELECT sends
+    // mode information before it knows whether the font exists, so a rejected
+    // font raises it just the same. What follows treats it only as "the numbers
+    // are now current", which is true either way.
+    for (int i = 0; i < FONT_MODE_FRAMES; i++) {
+        waitvblank();
+        sysvar = mos_sysvars();
+        if ((sysvar[sysvar_vdp_pflags] & vdp_pflag_mode) != 0) {
+            break;
+        }
+    }
+
+    derive_geometry(scr);
+
+    // Sent, so it has to be put back on the way out whatever the VDP made of
+    // it. Not conditional on the geometry having changed: a font the same
+    // height as the system one changes no number here and is still a different
+    // font on the screen.
+    scr->fontLoaded_ = true;
+
+    // Everything on screen was drawn at the old cell size, and the footer's row
+    // has just moved. scr_clear repaints and drops the footer's cache with it,
+    // which is what stops the next scr_footer deciding nothing has changed and
+    // leaving the old row where it is.
+    scr_clear(scr);
+
+    return true;
 }
 
 void scr_set_ctrl_pause_frames(screen* scr, int frames) {
@@ -412,8 +617,18 @@ void scr_destroy(screen* scr) {
     VDP_PUTS(disable_scroll_protect);
     vdp_cursor_enable(true);
 
-    // Hand the machine back as it was found: restore the colours first, then
-    // clear, so the cleared screen is in the user's background and not AED's.
+    // Hand the machine back as it was found. Font 65535 is the system font;
+    // selecting it is the whole of the undo, which is why the font API was
+    // taken over reprogramming the system font with VDU 23,n -- that has no
+    // way back at all.
+    if (scr->fontLoaded_) {
+        static char sysfont[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
+        VDP_PUTS(sysfont);
+        scr->fontLoaded_ = false;
+    }
+
+    // Colours first, then clear, so the cleared screen is in the user's
+    // background and not AED's.
     set_colours(scr->entryFg_, scr->entryBg_);
     vdp_clear_screen();
 

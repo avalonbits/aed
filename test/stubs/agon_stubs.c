@@ -115,9 +115,20 @@ void mos_puts(const char* b, unsigned size, char d) {
     }
 }
 
+/* Which replies the stubbed VDP gives. Both are set by default -- every test
+ * that is not about the waiting itself wants the wait to be over -- and the
+ * mode one can be withheld, because a VDP with no font API never sends it and
+ * the editor must not hang waiting. */
+static int stub_mode_reply = 1;
+
+void stub_vdp_mode_reply(int on) { stub_mode_reply = on; }
+
 uint8_t* mos_sysvars(void) {
     static uint8_t sysvars[64];
-    sysvars[sysvar_vdp_pflags] = 0x04;  /* pretend the VDP already replied */
+    sysvars[sysvar_vdp_pflags] = vdp_pflag_point;  /* pretend the VDP replied */
+    if (stub_mode_reply) {
+        sysvars[sysvar_vdp_pflags] |= vdp_pflag_mode;
+    }
 
     return sysvars;
 }

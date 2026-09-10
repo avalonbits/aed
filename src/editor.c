@@ -50,6 +50,14 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         if (cfg.ctrl_pause >= 0) {
             scr_set_ctrl_pause_frames(scr, cfg.ctrl_pause);
         }
+        // Before the colours and before anything is drawn: a font changes how
+        // many rows there are, and everything below is sized in rows. Only when
+        // the file asks for it, for the same reason as the line above -- see
+        // scr_load_font. A font that will not load is not worth stopping for;
+        // the editor runs in whatever font the machine already had.
+        if (cfg.font[0] != 0) {
+            scr_load_font(scr, cfg.font);
+        }
         // Each colour applies on its own: a file that sets only fg keeps the
         // measured bg, the same way an unset tab keeps the default.
         if (cfg.fg >= 0 || cfg.bg >= 0) {
