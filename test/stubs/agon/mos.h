@@ -37,6 +37,11 @@ void     stub_set_cell(int w, int h);
  * wait on forever. */
 void     stub_vdp_mode_reply(int on);
 
+/* Whether a font selection actually moves the stubbed geometry. Off models a
+ * VDP that took the font but whose mode packet never reached MOS, so the
+ * sysvars still describe the font before it. */
+void     stub_vdp_font_applies(int on);
+
 uint8_t  getsysvar_keymods(void);
 uint16_t getsysvar_scrwidth(void);
 uint16_t getsysvar_scrheight(void);

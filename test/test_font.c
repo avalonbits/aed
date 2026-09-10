@@ -212,10 +212,9 @@ int main(void) {
         check("before: cell height", scr.charH_, 8);
 
         install_font(9, 6);
-        /* What the VDP reports once the mode packet lands: 480 pixels of
-         * height over 9-row cells is 53 rows. */
-        stub_set_screen(80, 53);
-        stub_set_cell(8, 9);
+        /* No faking the result: the stub applies the font itself, the way the
+         * VDP does, so 480 pixels of height over 9-row cells becomes 53 rows
+         * without this test saying so. */
         scr_load_font(&scr, "/f.bin");
 
         check("after: rows", scr.rows_, 53);
@@ -234,8 +233,6 @@ int main(void) {
         check("the footer was drawn", scr.footerDrawn_, 1);
 
         install_font(9, 6);
-        stub_set_screen(80, 53);
-        stub_set_cell(8, 9);
         scr_load_font(&scr, "/f.bin");
         check("and is forgotten, its row having moved", scr.footerDrawn_, 0);
     }
@@ -392,6 +389,42 @@ int main(void) {
         n = cap_read(got, sizeof(got));
         stub_vdp_mode_reply(1);
         check("a bad file is rejected without probing", n, 0);
+    }
+
+    /* --- geometry that does not match the font is not trusted --- */
+    {
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        scr_init(&scr, 32);
+        install_font(9, 6);
+
+        /* The VDP has the font API and answers the probe, and takes the font.
+         * What does not happen is MOS learning the new mode, so the sysvars go
+         * on describing 60 rows of 8-pixel cells.
+         *
+         * Trusting them lays 60 rows out on a screen that now has 53: the
+         * editor paints off the bottom, scrolls away what it just drew, and
+         * leaves the cursor where the screen no longer reaches. A blank screen
+         * and rubbish on every keypress, from numbers that looked fine. */
+        stub_vdp_font_applies(0);
+        cap_start();
+        const bool loaded = scr_load_font(&scr, "/f.bin");
+        n = cap_read(got, sizeof(got));
+        stub_vdp_font_applies(1);
+
+        check("a font whose geometry never arrives is refused", loaded, 0);
+        check("  and no font to put back", scr.fontLoaded_, 0);
+        check("  and the layout is left on the old font", scr.charH_, 8);
+        check("  with the rows to match", scr.rows_, 60);
+
+        const unsigned char sysfont[] = {23, 0, 0x95, 0, 0xFF, 0xFF, 0};
+        /* The font was selected before this was known, so it has to be given
+         * back -- otherwise the screen is in a font the editor is not laying
+         * out for, which is the very thing being avoided. */
+        const unsigned char create9[] = {23, 0, 0x95, 1, 0xED, 0x0A, 8, 9, 7, 0};
+        const int cat = find_seq(got, n, create9, sizeof(create9));
+        const int last = cat >= 0 ? find_seq(got + cat, n - cat, sysfont, sizeof(sysfont)) : -1;
+        check("  and the system font is put back afterwards", last >= 0, 1);
     }
 
     /* --- the settings file carries the path --- */

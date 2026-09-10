@@ -317,6 +317,12 @@ screen *scr_init(screen* scr, char cursor) {
 // frame of it is a frame added to startup on a VDP that has not.
 #define FONT_PROBE_FRAMES 20
 
+// VDU 23, 0, &95, 0, 65535; 0 -- select font 65535, the system font. It is the
+// whole of the undo for a font change, which is why the font API was taken over
+// reprogramming the system font with VDU 23,n: that has no way back at all.
+static const char SYSTEM_FONT[7] = {23, 0, (char) 0x95, 0,
+                                    (char) 0xFF, (char) 0xFF, 0};
+
 static void font_put(const char* vdu, int n) {
     mos_puts((char*) vdu, (unsigned) n, 0);
 }
@@ -359,7 +365,7 @@ static bool font_api_present(void) {
 
     volatile uint8_t* sysvar = mos_sysvars();
     sysvar[sysvar_vdp_pflags] = 0;
-    font_put(probe, sizeof(probe));
+    font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
 
     return wait_mode_packet(FONT_PROBE_FRAMES);
 }
@@ -526,6 +532,27 @@ bool scr_load_font(screen* scr, const char* path) {
 
     derive_geometry(scr);
 
+    // Everything below this is laid out from what MOS reports, and MOS only
+    // learns the new mode when the VDP's packet reaches it. If that never
+    // happens the sysvars still describe the old font, and the editor would lay
+    // out sixty rows on a screen that now has forty-eight -- painting straight
+    // off the bottom, scrolling what it just drew away, and leaving the cursor
+    // somewhere the screen no longer has. A blank screen and rubbish on every
+    // keypress, from numbers that looked perfectly reasonable.
+    //
+    // The font's own height is the one number that cannot be stale, so it is
+    // what the reported geometry gets checked against. A mismatch means the
+    // font did not take or MOS did not hear about it; either way the safe state
+    // is the font the machine started with.
+    if (scr->charH_ != (char) height) {
+        font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
+        wait_mode_packet(FONT_MODE_FRAMES);
+        derive_geometry(scr);
+        scr_clear(scr);
+
+        return false;
+    }
+
     // Sent, so it has to be put back on the way out whatever the VDP made of
     // it. Not conditional on the geometry having changed: a font the same
     // height as the system one changes no number here and is still a different
@@ -674,8 +701,7 @@ void scr_destroy(screen* scr) {
     // taken over reprogramming the system font with VDU 23,n -- that has no
     // way back at all.
     if (scr->fontLoaded_) {
-        static char sysfont[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
-        VDP_PUTS(sysfont);
+        mos_puts((char*) SYSTEM_FONT, sizeof(SYSTEM_FONT), 0);
         scr->fontLoaded_ = false;
     }
 
