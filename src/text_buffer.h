@@ -36,6 +36,10 @@ typedef enum _tb_eol_style {
 struct _undo;
 typedef struct _undo undo;
 
+// The longest document name, including the terminator. clipboard.c sizes its
+// scratch path against this.
+#define TB_FNAME_MAX 256
+
 typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
@@ -50,7 +54,11 @@ typedef struct _text_buffer {
     // the undo log, so undoing everything cannot make it go away.
     bool load_dirty_;
 
-    char fname_[256];
+    // Allocated, not inlined. A text_buffer is put on the stack every time the
+    // view walks the document -- refresh_screen and cmd_repaint_rows both do it
+    // per repaint -- and 256 bytes of name rode along on each of those for
+    // nothing, since a walker never has a file. Copies get NULL.
+    char* fname_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
