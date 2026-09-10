@@ -22,6 +22,8 @@
 
 #include "config.h"
 #include "editor.h"
+#include <string.h>
+
 #include "text_buffer.h"
 #include "screen.h"
 #include "user_input.h"
@@ -536,6 +538,85 @@ void cmd_undo(editor* ed) {
         return;
     }
     reshow_edit(ed, lines_before, top_before);
+}
+
+// Moves the cursor to `at` and brings the view with it, keeping the view put
+// when the target is already on screen.
+static void jump_to(editor* ed, tb_pos at) {
+    SCR(ed);
+    TB(ed);
+
+    const int top_before = top_line(scr, tb);
+    scr_hide_cursor_ch(scr, tb_peek(tb));
+    tb_seek(tb, at);
+    show_line_at(ed, at.line, top_before);
+
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
+// Searches from just past the cursor, so repeating moves on rather than finding
+// the same match again.
+static void find_from_cursor(editor* ed, bool forward) {
+    TB(ed);
+    UI(ed);
+    SCR(ed);
+
+    if (ed->findsz_ <= 0) {
+        return;
+    }
+
+    tb_pos from = tb_tell(tb);
+    from.x += forward ? 1 : -1;
+
+    tb_pos at;
+    if (!tb_find(tb, ed->find_, ed->findsz_, from, forward, &at)) {
+        // Left exactly where it was. Someone who cannot find what they wanted
+        // has no use for a view that has moved somewhere else in the trying.
+        ui_message(ui, scr, "Not found");
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        scr_show_cursor_ch(scr, tb_peek(tb));
+
+        return;
+    }
+    jump_to(ed, at);
+}
+
+void cmd_find(editor* ed) {
+    UI(ed);
+    SCR(ed);
+
+    char* text = NULL;
+    int sz = 0;
+    const RESPONSE res = ui_text(ui, scr, "Find: ", ed->find_, &text, &sz);
+    if (res != YES_OPT || text == NULL || sz <= 0) {
+        // Cancelled, or nothing typed. The document has not moved -- a modal
+        // search only jumps once there is something to jump to.
+        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        scr_show_cursor_ch(scr, tb_peek(&ed->buf_));
+
+        return;
+    }
+    if (sz > (int) sizeof(ed->find_) - 1) {
+        sz = (int) sizeof(ed->find_) - 1;
+    }
+    memcpy(ed->find_, text, (size_t) sz);
+    ed->find_[sz] = 0;
+    ed->findsz_ = sz;
+
+    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    find_from_cursor(ed, true);
+}
+
+void cmd_find_next(editor* ed) {
+    find_from_cursor(ed, true);
+}
+
+void cmd_find_prev(editor* ed) {
+    find_from_cursor(ed, false);
 }
 
 void cmd_redo(editor* ed) {

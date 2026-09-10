@@ -144,6 +144,7 @@ void tb_set_undo(text_buffer* tb, undo* u);
 // either.
 bool tb_is_word_stop(char ch);
 
+
 // --- positions and ranges ---
 //
 // A position in the document is the pair (line, byte within that line). There
@@ -170,6 +171,21 @@ void tb_seek(text_buffer* tb, tb_pos p);
 // Negative, zero or positive as `a` is before, at, or after `b`. Lets a caller
 // hand ranges over in either order without sorting them first.
 int tb_cmp(tb_pos a, tb_pos b);
+
+// Finds `needle` from `from`, forwards or backwards, wrapping once around the
+// document. Case-insensitive, ASCII. A match never spans a line break.
+//
+// `from.x` is where the scan starts on the first line: searching forward from a
+// match wants from.x + 1, or the same match is found again.
+//
+// The document is walked a line at a time on a copy rather than scanned as
+// memory. char_buffer is a gap buffer, so the text is in two pieces split at
+// wherever the cursor happens to be -- scanning it raw reads the gap's stale
+// bytes, and scanning the halves separately misses any match crossing the
+// split, which would make a search fail only when the cursor sat inside the
+// word it was looking for.
+bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
+             bool forward, tb_pos* at);
 
 // Bytes between the two positions, counting the CRLF of each line break
 // crossed. Order does not matter.
