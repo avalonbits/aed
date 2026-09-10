@@ -74,6 +74,16 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     if (!tb_init(&ed->buf_, mem_kb, fname)) {
        return NULL;
     }
+
+    // Attached after the load, on purpose. tb_load normalises the file's line
+    // endings, and those writes go through the same primitives an edit does --
+    // with a log already in place the first undo would unpick the file's own
+    // CRLFs.
+    if (undo_init(&ed->undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS) == NULL) {
+        tb_destroy(&ed->buf_);
+        return NULL;
+    }
+    tb_set_undo(&ed->buf_, &ed->undo_);
     if (!ui_init(&ed->ui_, 256, ed->scr_.bottomY_, ed->scr_.cols_)) {
         tb_destroy(&ed->buf_);
         return NULL;
@@ -91,6 +101,8 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
 
 void ed_destroy(editor* ed) {
     keys_close();
+    tb_set_undo(&ed->buf_, NULL);
+    undo_destroy(&ed->undo_);
     clip_destroy(&ed->clip_);
     ui_destroy(&ed->ui_);
     scr_destroy(&ed->scr_);

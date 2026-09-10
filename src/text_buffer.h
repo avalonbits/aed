@@ -30,12 +30,21 @@ typedef enum _tb_eol_style {
     TB_EOL_LF,
 } tb_eol_style;
 
+// The undo log, if one is attached. Defined in undo.h, which includes this
+// header for tb_pos -- so the pointer is opaque here and the dependency only
+// runs one way.
+struct _undo;
+typedef struct _undo undo;
+
 typedef struct _text_buffer {
     char_buffer cb_;
     line_buffer lb_;
     int x_;
     bool dirty_;
     tb_eol_style eol_;
+    // Where edits are recorded, or NULL to record nothing. NULL during tb_load,
+    // which is what keeps the file's own CRLF normalisation out of the history.
+    undo* undo_;
 
     char fname_[256];
 } text_buffer;
@@ -120,6 +129,10 @@ void tb_clear(text_buffer* tb);
 bool tb_save(text_buffer* tb);
 bool tb_valid_file(text_buffer* tb);
 void tb_copy(text_buffer* dst, text_buffer* src);
+
+// Attaches a log. Everything before this point is invisible to undo, which is
+// how loading a file avoids becoming the first thing you can undo.
+void tb_set_undo(text_buffer* tb, undo* u);
 
 // --- positions and ranges ---
 //

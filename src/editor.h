@@ -26,6 +26,7 @@
 #include "vkey.h"
 #include "screen.h"
 #include "text_buffer.h"
+#include "undo.h"
 #include "user_input.h"
 
 typedef struct _editor {
@@ -40,6 +41,9 @@ typedef struct _editor {
     bool selecting_;
 
     clipboard clip_;
+    // Session state, like the clipboard: it does not outlive the editor and
+    // opening another file clears it.
+    undo undo_;
 } editor;
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
