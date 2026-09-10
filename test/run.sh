@@ -27,7 +27,7 @@ CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
 # can still be lost -- keys.c is linked for it, over a stubbed event queue.
 SRCS=(src/char_buffer.c src/line_buffer.c src/text_buffer.c src/screen.c
       src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/clipboard.c src/editor.c
-      src/keys.c test/stubs/agon_stubs.c)
+      src/keys.c src/undo.c test/stubs/agon_stubs.c)
 
 status=0
 for t in test/test_*.c; do

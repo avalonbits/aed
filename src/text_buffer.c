@@ -18,6 +18,8 @@
 
 #include "text_buffer.h"
 
+#include "undo.h"
+
 #include <agon/vdp.h>
 #include <agon/mos.h>
 #include <stdint.h>
@@ -39,6 +41,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->fname_[0] = 0;
     tb->dirty_ = false;
     tb->eol_ = TB_EOL_CRLF;
+    tb->undo_ = NULL;
 
     if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
@@ -99,31 +102,44 @@ void tb_set_fname(text_buffer* tb, const char* fname, int sz) {
 
 // Character ops.
 bool tb_put(text_buffer* tb, char ch) {
+    // Read before the write: the record says where the byte landed, and after
+    // the put the cursor has already moved past it.
+    const tb_pos at = tb_tell(tb);
     if (!cb_put(&tb->cb_, ch)) {
         return false;
     }
     tb->x_++;
     lb_cinc(&tb->lb_);
     tb->dirty_ = true;
+    undo_insert(tb->undo_, at, 1);
 
     return true;
 }
 
 bool tb_del(text_buffer* tb) {
+    // Peeked before the delete: cb_del does not hand back what it removed, and
+    // undoing a delete means putting the byte back.
+    const char gone = cb_peek(&tb->cb_);
+    const tb_pos at = tb_tell(tb);
     if (cb_del(&tb->cb_)) {
         lb_cdec(&tb->lb_);
         tb->dirty_ = true;
+        undo_delete(tb->undo_, at, &gone, 1);
         return true;
     }
     return false;
 }
 
 bool tb_bksp(text_buffer* tb) {
+    const char gone = cb_prev(&tb->cb_, 1);
+    cb_next(&tb->cb_, 1);
     const bool ok = cb_bksp(&tb->cb_);
     if (ok) {
         tb->x_--;
         lb_cdec(&tb->lb_);
         tb->dirty_ = true;
+        // Recorded at where the cursor ended up, which is where the byte was.
+        undo_delete(tb->undo_, tb_tell(tb), &gone, 1);
     }
     return ok;
 }
@@ -189,11 +205,15 @@ bool tb_bksp_merge(text_buffer* tb) {
     if (!tb_bol(tb) || tb_ypos(tb) == 1) {
         return false;
     }
+    // Straight to cb_bksp rather than tb_bksp, because the line bookkeeping
+    // below is not what tb_bksp does -- so this is the one mutation that has to
+    // record for itself. The two bytes are the CRLF ending the previous line.
     cb_bksp(&tb->cb_);
     cb_bksp(&tb->cb_);
 
     tb->x_ = lb_merge_prev(&tb->lb_);
     tb->dirty_ = true;
+    undo_delete(tb->undo_, tb_tell(tb), "\r\n", 2);
     return true;
 }
 
@@ -637,6 +657,14 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->fname_[0] = 0;
     dst->dirty_ = false;
     dst->eol_ = src->eol_;
+    // Copies are walked, never written to -- refresh_screen and
+    // cmd_repaint_rows only move and read. Carrying the log would mean a paint
+    // could record an edit.
+    dst->undo_ = NULL;
+}
+
+void tb_set_undo(text_buffer* tb, undo* u) {
+    tb->undo_ = u;
 }
 
 // Char read.
