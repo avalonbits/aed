@@ -42,6 +42,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->dirty_ = false;
     tb->eol_ = TB_EOL_CRLF;
     tb->undo_ = NULL;
+    tb->load_dirty_ = false;
 
     if (fname != NULL && !tb_load(tb, fname)) {
         lb_destroy(&tb->lb_);
@@ -85,11 +86,21 @@ char* tb_fname(text_buffer* tb) {
 }
 
 bool tb_changed(text_buffer* tb) {
-   return tb->dirty_;
+    // With a log attached the question is not "has anything happened" but "is
+    // the document what the file holds" -- so undoing back to the last save
+    // clears the marker, and redoing forward again brings it back.
+    if (tb->undo_ != NULL) {
+        return tb->load_dirty_ || !undo_at_save_point(tb->undo_);
+    }
+
+    return tb->dirty_;
 }
 
 static void tb_saved(text_buffer* tb) {
     tb->dirty_ = false;
+    // Whatever the load changed is now on disk too.
+    tb->load_dirty_ = false;
+    undo_mark_saved(tb->undo_);
 }
 
 void tb_set_fname(text_buffer* tb, const char* fname, int sz) {
@@ -675,6 +686,7 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->x_ = src->x_;
     dst->fname_[0] = 0;
     dst->dirty_ = false;
+    dst->load_dirty_ = false;
     dst->eol_ = src->eol_;
     // Copies are walked, never written to -- refresh_screen and
     // cmd_repaint_rows only move and read. Carrying the log would mean a paint
@@ -811,6 +823,9 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
         tb->eol_ = TB_EOL_CRLF;
         tb->dirty_ = added != 0;
     }
+    // Remembered separately from dirty_: this one cannot be undone away, since
+    // the rewrite happened before there was a log to record it.
+    tb->load_dirty_ = tb->dirty_;
 
     // Now move the line buffer back to the first line.
     while (lb_up(&tb->lb_)) ;
@@ -871,6 +886,10 @@ void tb_clear(text_buffer* tb) {
     lb_clear(&tb->lb_);
     tb->x_ = 0;
     tb->dirty_ = false;
+    tb->load_dirty_ = false;
+    // A different document, or none. The records describe text that is no
+    // longer there and their positions point into it.
+    undo_clear(tb->undo_);
     // An emptied document has no endings to preserve, so it takes the platform
     // default rather than keeping the last file's.
     tb->eol_ = TB_EOL_CRLF;
@@ -920,10 +939,16 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     tb_clear(tb);
     memcpy(tb->fname_, name, (size_t) sz + 1);
 
+    // tb_read normalises line endings through the same primitives an edit uses.
+    // tb_load gets away with not caring because it runs before the editor
+    // attaches a log; this does not, and without the hold the first undo would
+    // unpick the file's own CRLFs.
+    const bool was = undo_hold(tb->undo_);
     bool ok = true;
     if (fsz > 0) {
         ok = tb_read(fh, tb, fsz);
     }
+    undo_release(tb->undo_, was);
     mos_fclose(fh);
 
     return ok ? TB_OK : TB_NO_FILE;

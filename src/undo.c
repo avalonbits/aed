@@ -66,6 +66,21 @@ void undo_clear(undo* u) {
     u->top_ = 0;
     u->cur_ = 0;
     u->broken_ = false;
+    u->saved_ = 0;
+}
+
+void undo_mark_saved(undo* u) {
+    if (u != NULL) {
+        u->saved_ = u->cur_;
+        // A save ends the run. Otherwise the next keystroke joins the record
+        // that was current when the file was written, and undoing back to the
+        // save point would take part of the saved text with it.
+        u->broken_ = true;
+    }
+}
+
+bool undo_at_save_point(undo* u) {
+    return u != NULL && u->cur_ == u->saved_;
 }
 
 void undo_suspend(undo* u) { if (u != NULL) u->off_ = true; }
@@ -90,6 +105,15 @@ static void drop_oldest(undo* u) {
     u->top_--;
     if (u->cur_ > u->top_) {
         u->cur_ = u->top_;
+    }
+    // Indices shift down with the records. Dropping the record the save point
+    // sits behind means the log can no longer reach the state on disk, so the
+    // point is lost rather than merely moved -- and -1 says so, because 0 is a
+    // real position meaning "before everything held".
+    if (u->saved_ > 0) {
+        u->saved_--;
+    } else if (u->saved_ == 0) {
+        u->saved_ = -1;
     }
 }
 

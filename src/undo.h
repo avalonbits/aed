@@ -91,6 +91,14 @@ typedef struct _undo {
     // Set by undo_break: the next edit starts a record rather than joining the
     // last one, however adjacent it looks.
     bool broken_;
+    // Which record was current when the file was last written. Undoing back to
+    // it means the document matches the file again.
+    //
+    // Dropping the oldest record shifts every index down by one, so this moves
+    // with them -- and if the save point itself is dropped, the log no longer
+    // reaches back to what is on disk and it is set to -1, meaning "never
+    // again, until the next save".
+    int saved_;
 } undo;
 
 // text_bytes is the room for deleted text, max_recs the number of edits
@@ -137,6 +145,11 @@ bool undo_apply(undo* u, text_buffer* tb);
 void undo_suspend(undo* u);
 void undo_resume(undo* u);
 bool undo_recording(undo* u);
+
+// Marks the current point as what is on disk. Undoing back to it means the
+// document matches the file again, however many edits were made in between.
+void undo_mark_saved(undo* u);
+bool undo_at_save_point(undo* u);
 
 // A different document; the positions mean nothing against it.
 void undo_clear(undo* u);
