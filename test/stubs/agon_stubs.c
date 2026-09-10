@@ -81,9 +81,61 @@ void waitvblank(void) {}
 
 // Writes to stdout so that VDU bytes sent via mos_puts and via putchar land in
 // one ordered stream, which is what the scroll tests read back.
+/* The stubbed VDP's font handling. A font change moves the cell size, and the
+ * row count with it, and the editor lays the whole screen out from those
+ * numbers -- so a stub that leaves the geometry alone is not modelling the
+ * thing under test. Watching the two sequences here is what makes a host test
+ * of the font path mean anything.
+ *
+ * stub_vdp_font_applies(0) is a VDP that takes the font but whose mode packet
+ * never reaches MOS, leaving the sysvars describing the old font. */
+static uint8_t stub_rows = 25;
+static uint16_t stub_cellh = 8;
+
+static int stub_font_h = 0;
+static int stub_font_applies = 1;
+
+void stub_vdp_font_applies(int on) { stub_font_applies = on; }
+
+/* The panel is a fixed number of pixels tall; a font change divides it up
+ * differently. Re-deriving it from cellh * rows instead would lose the
+ * remainder every time, so 480 becomes 477 becomes 472 over three font
+ * changes -- which is a bug in the stub, not something a real VDP does. */
+static int stub_screen_px = 200;
+
+static void stub_apply_cell(int h) {
+    if (h <= 0) {
+        return;
+    }
+    stub_cellh = (uint16_t) h;
+    stub_rows = (uint8_t) (stub_screen_px / h);
+}
+
+static void stub_font_vdu(const char* b, unsigned size) {
+    if (size < 7 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x95) {
+        return;
+    }
+    if (b[3] == 1 && size >= 10) {          /* create from buffer */
+        stub_font_h = (unsigned char) b[7];
+
+        return;
+    }
+    if (b[3] != 0) {
+        return;
+    }
+    const int id = (unsigned char) b[4] | ((unsigned char) b[5] << 8);
+    if (!stub_font_applies) {
+        return;
+    }
+    stub_apply_cell(id == 0xFFFF ? 8 : stub_font_h);
+}
+
 void mos_puts(const char* b, unsigned size, char d) {
     (void)d;
     stub_write_n++;
+    if (b != NULL) {
+        stub_font_vdu(b, size);
+    }
     if ((int) size > stub_write_max) {
         stub_write_max = (int) size;
     }
@@ -194,11 +246,12 @@ bool kbuf_poll_event(struct keyboard_event_t* e) {
 int stub_keys_read(void) { return stub_key_at; }
 
 static uint8_t stub_cols = 80;
-static uint8_t stub_rows = 25;
+
 
 void stub_set_screen(int cols, int rows) {
     stub_cols = (uint8_t) cols;
     stub_rows = (uint8_t) rows;
+    stub_screen_px = stub_cellh * rows;
 }
 
 /* Modifiers held right now, as MOS reports them -- which is not the same as
@@ -211,11 +264,12 @@ uint8_t getsysvar_keymods(void)    { return stub_mods_now; }
 /* Pixel dimensions consistent with the 8x8 system font, so charW_/charH_ come
  * out at 8 unless a test deliberately sets a different cell size. */
 static uint16_t stub_cellw = 8;
-static uint16_t stub_cellh = 8;
+
 
 void stub_set_cell(int w, int h) {
     stub_cellw = (uint16_t) w;
     stub_cellh = (uint16_t) h;
+    stub_screen_px = h * stub_rows;
 }
 
 uint16_t getsysvar_scrwidth(void)  { return (uint16_t)(stub_cellw * stub_cols); }
