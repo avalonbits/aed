@@ -138,6 +138,12 @@ void tb_copy(text_buffer* dst, text_buffer* src);
 // how loading a file avoids becoming the first thing you can undo.
 void tb_set_undo(text_buffer* tb, undo* u);
 
+// Whether `ch` ends a word, by the same rule CTRL+LEFT and CTRL+RIGHT use to
+// decide where to stop. Exposed so undo can group edits into the same units the
+// cursor moves in -- two notions of "word" in one editor would be worse than
+// either.
+bool tb_is_word_stop(char ch);
+
 // --- positions and ranges ---
 //
 // A position in the document is the pair (line, byte within that line). There

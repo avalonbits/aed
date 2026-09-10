@@ -564,7 +564,14 @@ bool cmd_delete_selection(editor* ed) {
     // Read before the delete: afterwards the cursor is at `a` and this is gone.
     const int cursor_line = tb_ypos(tb);
 
-    if (!tb_range_del(tb, a, b)) {
+    // One command, one thing to take back. Without this the range's characters
+    // are grouped as keystrokes would be -- split at word boundaries, and worse,
+    // joined to whatever was deleted just before, so deleting two selections
+    // over the same span took a single undo to reverse both.
+    undo_group_begin(&ed->undo_);
+    const bool did = tb_range_del(tb, a, b);
+    undo_group_end(&ed->undo_);
+    if (!did) {
         return false;
     }
 
@@ -703,7 +710,14 @@ void cmd_paste(editor* ed) {
         cmd_delete_selection(ed);
     }
 
-    if (!clip_paste(&ed->clip_, tb)) {
+    // The pasted text is one thing the user did, however many lines it is.
+    // Note this is a second group: replacing a selection deletes it in its own
+    // group first, so an undo takes the paste back and another restores what it
+    // replaced -- two steps for two things, which is what happened.
+    undo_group_begin(&ed->undo_);
+    const bool pasted = clip_paste(&ed->clip_, tb);
+    undo_group_end(&ed->undo_);
+    if (!pasted) {
         ui_message(ui, scr, "Not enough room to paste");
         cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
@@ -962,7 +976,10 @@ void cmd_del_line(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    if (!tb_del_line(tb)) {
+    undo_group_begin(&ed->undo_);
+    const bool did = tb_del_line(tb);
+    undo_group_end(&ed->undo_);
+    if (!did) {
         return;
     }
     scr_place_cursor(scr, NULL, 0);

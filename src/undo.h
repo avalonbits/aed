@@ -54,8 +54,8 @@
 // rebuilds the forward order: 'c', then 'b' before it, then 'a' before that.
 #define UNDO_DELETE_BACK 2
 
-// How much one record will absorb before a new one starts. Without a cap a long
-// typing run would undo in a single step and take a paragraph with it.
+// A backstop, not the main rule. Runs normally end at a word boundary; this is
+// for a "word" that turns out to be a five-hundred-character path.
 #define UNDO_RUN_MAX 128
 
 typedef struct _undo_rec {
@@ -91,6 +91,12 @@ typedef struct _undo {
     // Set by undo_break: the next edit starts a record rather than joining the
     // last one, however adjacent it looks.
     bool broken_;
+    // The last byte recorded, for deciding where a word ends. Runs are grouped
+    // as a word plus the stops after it, in the direction the edit travelled.
+    char last_ch_;
+    // Inside a command's group: records join regardless of word boundaries or
+    // the run cap.
+    bool grouping_;
     // Which record was current when the file was last written. Undoing back to
     // it means the document matches the file again.
     //
@@ -114,6 +120,18 @@ void undo_delete(undo* u, tb_pos at, const char* text, int len);
 // As undo_delete, for a backspace: the run grows leftward, so the bytes of a
 // coalesced one are held in reverse document order.
 void undo_delete_back(undo* u, tb_pos at, const char* text, int len);
+
+// Brackets one command's edits so they land as a single record, whatever they
+// are made of. A selection delete is one thing the user did, so it is one thing
+// to take back -- word boundaries and the run cap are what group *keystrokes*,
+// and neither should cut a command in half.
+//
+// Both ends break the run, so a command never joins what came before it or what
+// comes after. Two selection deletes over the same span are two steps even
+// though the bytes are adjacent, which is what a person expects and what byte
+// adjacency alone gets wrong.
+void undo_group_begin(undo* u);
+void undo_group_end(undo* u);
 
 // Ends the current run, so the next edit starts a new record. Adjacency already
 // breaks a run when the cursor moves away, so this is for the cases position

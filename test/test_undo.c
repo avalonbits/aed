@@ -554,6 +554,84 @@ int main(void) {
         undo_destroy(&lost);
     }
 
+    /* --- how edits are grouped --- */
+    {
+        stub_file_reset();
+        static const char D8[] = "the quick brown fox jumps\r\n";
+        stub_file_set_content(D8, (int) sizeof(D8) - 1);
+        editor e;
+        check("an editor for grouping", ed_init(&e, 8, "g.txt") != NULL, 1);
+
+        /* Typing groups by word, using the same rule CTRL+LEFT and CTRL+RIGHT
+         * stop on. A run is a word and the stops after it, so "hello " is one
+         * step and "world" the next. */
+        tb_seek(&e.buf_, (tb_pos){1, 0});
+        put_str(&e.buf_, "hello world");
+        check("typing two words is two steps", undo_count(&e.undo_), 2);
+        undo_apply(&e.undo_, &e.buf_);
+        check_txt("  and one step takes back the second",
+                  line_text(&e.buf_, 1), "hello the quick brown fox jumps");
+
+        /* Backspacing groups the same way, because the bytes are considered in
+         * the order the edit travelled rather than in document order.
+         *
+         * Erasing exactly "hello world" -- eleven characters from column 11 of
+         * a line that starts with them. Over a partial word plus two whole ones
+         * it would be three steps, which is right and would say less. */
+        undo_clear(&e.undo_);
+        e.anchor_ = (tb_pos){1, 0};
+        tb_seek(&e.buf_, (tb_pos){1, 11});
+        e.selecting_ = true;
+        cmd_delete_selection(&e);
+        undo_clear(&e.undo_);
+        tb_seek(&e.buf_, (tb_pos){1, 0});
+        put_str(&e.buf_, "hello world");
+        undo_clear(&e.undo_);
+        tb_seek(&e.buf_, (tb_pos){1, 11});
+        for (int i = 0; i < 11; i++) {
+            tb_bksp(&e.buf_);
+        }
+        check("backspacing through two words is two steps",
+              undo_count(&e.undo_), 2);
+
+        /* A command is one step whatever it is made of. Two selection deletes
+         * over the same span are two steps even though the bytes are adjacent
+         * -- which byte adjacency alone got wrong, merging them into one. */
+        undo_clear(&e.undo_);
+        e.anchor_ = (tb_pos){1, 4};
+        tb_seek(&e.buf_, (tb_pos){1, 10});
+        e.selecting_ = true;
+        cmd_delete_selection(&e);
+        check("a selection delete is one step", undo_count(&e.undo_), 1);
+        e.anchor_ = (tb_pos){1, 4};
+        tb_seek(&e.buf_, (tb_pos){1, 10});
+        e.selecting_ = true;
+        cmd_delete_selection(&e);
+        check("  and a second is a second step", undo_count(&e.undo_), 2);
+        check("  not joined to the first even though it is adjacent",
+              rec_len(&e.undo_, 0) > 0 && rec_len(&e.undo_, 1) > 0, 1);
+
+        /* And the group has to be closed, not just opened. A plain DELETE after
+         * a selection delete is the same kind of edit at the same place, so
+         * with the group left open it joins -- and one undo takes back both the
+         * selection and the keystroke after it. */
+        undo_clear(&e.undo_);
+        e.anchor_ = (tb_pos){1, 0};
+        tb_seek(&e.buf_, (tb_pos){1, 3});
+        e.selecting_ = true;
+        cmd_delete_selection(&e);
+        check("the selection is one step", undo_count(&e.undo_), 1);
+        tb_del(&e.buf_);
+        check("  and a keystroke after it is another", undo_count(&e.undo_), 2);
+
+        /* Deleting a line is one command, so one step, however many words. */
+        undo_clear(&e.undo_);
+        cmd_del_line(&e);
+        check("deleting a line is one step", undo_count(&e.undo_), 1);
+
+        ed_destroy(&e);
+    }
+
     /* --- what an undo costs to draw --- */
     {
         static char many[8192];
@@ -607,10 +685,21 @@ int main(void) {
             check("  scrolling up, once per line taken back", found, 1);
         }
 
-        /* Lines restored: the rows below scroll down, the mirror case. */
+        /* Lines restored: the rows below scroll down, the mirror case.
+         *
+         * Through the command rather than tb_range_del directly, because the
+         * command is what groups the range into one record -- called raw it is
+         * grouped as keystrokes are, and one undo brings back a word. */
         undo_clear(&e.undo_);
-        tb_seek(&e.buf_, (tb_pos){50, 0});
-        tb_range_del(&e.buf_, (tb_pos){50, 0}, (tb_pos){52, 0});
+        e.anchor_ = (tb_pos){50, 0};
+        tb_seek(&e.buf_, (tb_pos){52, 0});
+        e.selecting_ = true;
+        cmd_delete_selection(&e);
+        undo_clear(&e.undo_);
+        e.anchor_ = (tb_pos){50, 0};
+        tb_seek(&e.buf_, (tb_pos){52, 0});
+        e.selecting_ = true;
+        cmd_delete_selection(&e);
         cap_start();
         cmd_undo(&e);
         n = cap_read(raw, (int) sizeof(raw));
