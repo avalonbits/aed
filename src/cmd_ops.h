@@ -45,6 +45,16 @@ void cmd_undo(editor* ed);
 // Redoes the most recently undone edit. Any new edit discards what could be
 // redone, so this only ever follows an undo.
 void cmd_redo(editor* ed);
+
+// Asks for something to look for and jumps to the first match after the cursor,
+// wrapping. cmd_find_next and cmd_find_prev repeat it without asking again.
+// Case-insensitive, and a match never spans a line break.
+//
+// Nothing moves when there is no match: the point of giving up on a search is
+// to be left where you were.
+void cmd_find(editor* ed);
+void cmd_find_next(editor* ed);
+void cmd_find_prev(editor* ed);
 bool cmd_save(editor* ed);
 void cmd_save_as(editor* ed);
 void cmd_open(editor* ed);

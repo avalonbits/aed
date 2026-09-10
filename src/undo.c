@@ -292,16 +292,6 @@ void undo_delete_back(undo* u, tb_pos at, const char* text, int len) {
     record(u, UNDO_DELETE_BACK, at, text, len);
 }
 
-// The saved bytes, as up to two runs -- the ring may have wrapped in the middle
-// of a record.
-static int text_runs(undo* u, const undo_rec* r, const char** a, const char** b) {
-    const int first = u->text_size_ - r->at < r->len ? u->text_size_ - r->at : r->len;
-    *a = u->text_ + r->at;
-    *b = u->text_;
-
-    return first;
-}
-
 static char byte_at(undo* u, const undo_rec* r, int i) {
     return u->text_[(r->at + i) % u->text_size_];
 }

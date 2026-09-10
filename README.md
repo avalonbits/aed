@@ -6,8 +6,8 @@ that inspiration drove the design and choices of navigation keys.
 
 It selects with `SHIFT` and the movement keys, copies, cuts and pastes with
 `CTRL+C`, `CTRL+X` and `CTRL+V` -- between files, not just within one -- and
-undoes with `CTRL+Z` and redoes with `CTRL+Y`. It opens another file without
-leaving the editor, keeps real tab characters, and remembers your colours and
+undoes with `CTRL+Z` and redoes with `CTRL+Y`. It finds text with `CTRL+F`, opens
+another file without leaving the editor, keeps real tab characters, and remembers your colours and
 tab width in a settings file.
 
 Currently it is limited to reading and writing files up to 248KB long with up to 8k lines.
@@ -200,6 +200,16 @@ saved. The tab width is 4 columns by default and can be changed in the settings 
 since it is a single character, and the cursor sits at the column where the tab
 begins.
 
+# Find
+`CTRL+F` asks what to look for and jumps to the first match after the cursor,
+wrapping round the end of the file. `CTRL+N` finds the next one and `CTRL+P` the
+previous, without asking again.
+
+Matching ignores case, and a match never spans a line break.
+
+If there is no match the editor says so and stays exactly where it was -- giving up
+on a search leaves you where you started, not somewhere else.
+
 # Undo and redo
 `CTRL+Z` undoes the last edit and `CTRL+Y` puts it back.
 
@@ -232,7 +242,7 @@ The following features will be implemented before releasing v1.0 of the editor:
 - [x] ~~Shortcut for saving the current buffer without quiting.~~
 - [x] ~~File selection while in the editor.~~
 - [x] ~~Copy-cut-paste.~~
-- [ ] Find.
+- [x] ~~Find.~~
 
 ## Roadmap after v1.0
 

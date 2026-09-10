@@ -280,6 +280,106 @@ static bool isstop(char ch) {
     return false;
 }
 
+// ASCII case folding. The Agon's character set beyond 127 is not a case-mapped
+// alphabet, so anything else is left alone rather than guessed at.
+static char fold(char ch) {
+    return (ch >= 'A' && ch <= 'Z') ? (char) (ch + ('a' - 'A')) : ch;
+}
+
+static bool match_at(const char* hay, const char* needle, int nsz) {
+    for (int i = 0; i < nsz; i++) {
+        if (fold(hay[i]) != fold(needle[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Where `needle` sits in one line, or -1. `from` is the first index tried going
+// forward, or the last one going backward; negative means the whole line.
+static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
+                     int from, bool forward) {
+    if (hay == NULL || nsz > hsz) {
+        return -1;
+    }
+    const int last = hsz - nsz;
+    if (forward) {
+        for (int i = from < 0 ? 0 : from; i <= last; i++) {
+            if (match_at(hay + i, needle, nsz)) {
+                return i;
+            }
+        }
+    } else {
+        for (int i = (from < 0 || from > last) ? last : from; i >= 0; i--) {
+            if (match_at(hay + i, needle, nsz)) {
+                return i;
+            }
+        }
+    }
+
+    return -1;
+}
+
+bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
+             bool forward, tb_pos* at) {
+    if (needle == NULL || nsz <= 0 || at == NULL) {
+        return false;
+    }
+
+    // On a copy, which is safe because moving a gap duplicates rather than
+    // destroys: going forward copies high bytes down, going back copies low
+    // bytes up, and in both cases the bytes outside the moved region keep their
+    // values. The real cursor reads the same before and after.
+    text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_seek(&cp, (tb_pos){from.line, 0});
+
+    const int total = tb_ymax(tb);
+    int line = from.line;
+    int start = from.x;
+    bool first = true;
+
+    // One pass per line, plus one more for the part of the starting line the
+    // first pass skipped over.
+    for (int n = 0; n <= total; n++) {
+        int sz = 0;
+        const char* text = tb_suffix(&cp, &sz);
+        // A caller searching backwards hands us x - 1, which is negative when
+        // the cursor sits in column 0 -- and that means nothing on this line is
+        // behind it, not that the whole line is fair game.
+        const int hit = (first && !forward && start < 0)
+            ? -1
+            : scan_line(text, sz, needle, nsz, first ? start : -1, forward);
+        first = false;
+        if (hit >= 0) {
+            at->line = line;
+            at->x = hit;
+
+            return true;
+        }
+
+        int next = forward ? line + 1 : line - 1;
+        const bool wrapped = next > total || next < 1;
+        if (wrapped) {
+            next = forward ? 1 : total;
+            // Only the wrap seeks. Stepping a line at a time keeps the whole
+            // sweep linear; a seek per line would move the gap from wherever it
+            // is on every one of them.
+            tb_seek(&cp, (tb_pos){next, 0});
+        } else if (forward) {
+            tb_down(&cp);
+            tb_home(&cp);
+        } else {
+            tb_up(&cp);
+            tb_home(&cp);
+        }
+        line = next;
+    }
+
+    return false;
+}
+
 bool tb_is_word_stop(char ch) {
     return isstop(ch);
 }

@@ -79,6 +79,9 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     // endings, and those writes go through the same primitives an edit does --
     // with a log already in place the first undo would unpick the file's own
     // CRLFs.
+    ed->find_[0] = 0;
+    ed->findsz_ = 0;
+
     if (undo_init(&ed->undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS) == NULL) {
         tb_destroy(&ed->buf_);
         return NULL;
@@ -365,6 +368,18 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_X:
         case VK_x:
             kc.cmd = cmd_cut;
+            break;
+        case VK_F:
+        case VK_f:
+            kc.cmd = cmd_find;
+            break;
+        case VK_N:
+        case VK_n:
+            kc.cmd = cmd_find_next;
+            break;
+        case VK_P:
+        case VK_p:
+            kc.cmd = cmd_find_prev;
             break;
         case VK_Z:
         case VK_z:

@@ -44,6 +44,10 @@ typedef struct _editor {
     // Session state, like the clipboard: it does not outlive the editor and
     // opening another file clears it.
     undo undo_;
+    // What was last searched for, so CTRL+N and CTRL+P have something to
+    // repeat. Session state, like the clipboard.
+    char find_[64];
+    int findsz_;
 } editor;
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
