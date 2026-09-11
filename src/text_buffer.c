@@ -900,19 +900,45 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
     // `added` counts the CRs put in front of a bare LF, `crlf` the breaks that
     // already had one. Together they say what the file's endings were, which is
     // what decides how it goes back out.
+    //
+    // The walk is written out here rather than made of calls to cb_peek,
+    // cb_next and lb_cinc. Those are three external calls for every byte of the
+    // file -- a call, a frame and a return each, none of which the compiler can
+    // inline across translation units -- and on a 64 KB document that was the
+    // whole of a three-second load. The steps are the same ones those functions
+    // take; only the call is gone.
+    //
+    // The cursor is put back into the buffer around ensure_newline, which works
+    // on the structure and is reached once a line rather than once a byte.
     int added = 0;
     int crlf = 0;
-    for (int i = 0; i < sz; i++) {
-        lb_cinc(&tb->lb_);
-        if (cb_peek(cb) == '\n') {
+    char* curr = cb->curr_;
+    char* cend = cb->cend_;
+    int* lcur = tb->lb_.curr_;
+    int llen = *lcur;
+
+    for (int i = sz; i != 0; i--) {
+        const char ch = *cend;
+        llen++;
+        if (ch == '\n') {
+            cb->curr_ = curr;
+            cb->cend_ = cend;
+            *lcur = llen;
             const int n = ensure_newline(&tb->cb_, &tb->lb_);
             if (n == 0) {
                 crlf++;
             }
             added += n;
+            curr = cb->curr_;
+            cend = cb->cend_;
+            lcur = tb->lb_.curr_;
+            llen = *lcur;
         }
-        cb_next(cb, 1);
+        *curr++ = *cend++;
     }
+    cb->curr_ = curr;
+    cb->cend_ = cend;
+    *lcur = llen;
 
     if (cb_peek(cb) == '\n') {
         const int n = ensure_newline(&tb->cb_, &tb->lb_);

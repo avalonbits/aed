@@ -44,13 +44,19 @@ bad measure of what a user waits for.
 ## Baseline
 
 VDP 2.16.0 / MOS 3.0.2 under fab-agon-emulator 1.2.4, 64,562 bytes over 2,001
-lines, at commit `9f53dc9`:
+lines:
 
-| case | total cs | reps | per rep |
-|---|---:|---:|---:|
-| load | 2298 | 8 | 287 |
-| find-miss | 932 | 4 | 233 |
-| seek-lines | 238 | 4 | 59.5 |
-| range-copy | 4 | 4 | 1 |
-| type | 60 | 2000 | 0.03 |
-| undo | 26 | 2000 | 0.013 |
+| case | per rep, `9f53dc9` | per rep, now |
+|---|---:|---:|
+| load | 287 cs | 118 cs |
+| find-miss | 233 cs | 233 cs |
+| seek-lines | -- | 241 cs |
+| range-copy | -- | 101 cs |
+| type | 0.030 cs | 0.029 cs |
+| undo | 0.013 cs | 0.014 cs |
+
+The first two readings of seek-lines and range-copy are missing because those
+cases were measuring nothing: `tb_pos` is `{line, x}` and they were built
+`{x, line}`, so every seek asked for line 0 and the range was empty. Worth
+knowing as a warning about benchmarks generally -- both cases ran, both
+reported a number, and the number was of no work being done.

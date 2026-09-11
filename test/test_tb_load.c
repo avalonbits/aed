@@ -62,6 +62,27 @@ int main(void) {
      * endings still open dirty, asserted below, because those really are
      * rewritten by a save. */
     check("an LF-only file opens clean", tb_changed(&tb) ? 1 : 0, 0);
+
+    /* The line index itself, line by line. Everything above reads the *number*
+     * of lines or saves the document back, and both survive an index in which
+     * one line's length has been added to the next -- the text is intact and
+     * only navigation is wrong. The load walk builds these lengths, so they are
+     * what a test of it has to look at. */
+    {
+        static const char* want[] = { "one", "two", "three" };
+        for (int i = 0; i < 3; i++) {
+            tb_pos p = { i + 1, 0 };
+            tb_seek(&tb, p);
+            const split_line ln = tb_curr_line(&tb);
+            const int n = ln.psz_ + ln.ssz_;
+            const int w = (int) strlen(want[i]);
+            char label[32];
+            label[0] = ' '; label[1] = ' ';
+            memcpy(label + 2, want[i], (size_t) w);
+            memcpy(label + 2 + w, " is that long", 14);
+            check(label, n, w);
+        }
+    }
     tb_destroy(&tb);
 
     /* A file larger than the buffer must be refused, not read past the end of

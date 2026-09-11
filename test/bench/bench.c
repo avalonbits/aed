@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
     int find_reps = reps > 0 ? reps : 4;
     t0 = clock();
     for (int i = 0; i < find_reps; i++) {
-        tb_pos from = { 0, 1 };
+        tb_pos from = { 1, 0 };
         tb_pos at;
         tb_find(&tb, miss, (int) sizeof(miss) - 1, from, true, &at);
     }
@@ -143,11 +143,11 @@ int main(int argc, char** argv) {
     t0 = clock();
     for (int i = 0; i < seek_reps; i++) {
         for (int y = 1; y <= lines; y++) {
-            tb_pos p = { 0, y };
+            tb_pos p = { y, 0 };
             tb_seek(&tb, p);
         }
         for (int y = lines; y >= 1; y--) {
-            tb_pos p = { 0, y };
+            tb_pos p = { y, 0 };
             tb_seek(&tb, p);
         }
     }
@@ -158,8 +158,8 @@ int main(int argc, char** argv) {
     if (cb_init(&cb, MEM_KB) != NULL) {
         t0 = clock();
         for (int i = 0; i < copy_reps; i++) {
-            tb_pos a = { 0, 1 };
-            tb_pos b = { 0, lines };
+            tb_pos a = { 1, 0 };
+            tb_pos b = { lines, 0 };
             cb_clear(&cb);
             tb_range_copy(&tb, a, b, &cb);
         }
@@ -171,7 +171,7 @@ int main(int argc, char** argv) {
     int type_reps = reps > 0 ? reps * 200 : 2000;
     if (undo_init(&u, UNDO_TEXT_BYTES, UNDO_MAX_RECS) != NULL) {
         tb_set_undo(&tb, &u);
-        tb_pos mid = { 0, lines / 2 };
+        tb_pos mid = { lines / 2, 0 };
         tb_seek(&tb, mid);
         t0 = clock();
         for (int i = 0; i < type_reps; i++) {
