@@ -205,6 +205,68 @@ static int help_render(const help_line* h, char* out, int width) {
     return n;
 }
 
+// Defined below with the rest of the line formatting; modal_title needs it and
+// the modals that use both come after it.
+static int put_at(char* out, int at, int width, const char* s);
+
+// The bottom of every modal: blank rows down to the prompt row, then the prompt.
+// Three modals drew this, each with its own copy of the loop.
+static void modal_fill(screen* scr, char y, char bottom,
+                       const char* prompt, int psz) {
+    while (y < bottom) {
+        scr_write_line(scr, y++, NULL, 0);
+    }
+    scr_bar_line(scr, bottom, prompt, psz);
+}
+
+// The top: a title, then a blank row. Returns the row the caller's own content
+// starts on.
+static char modal_title(screen* scr, char top, int width, const char* title) {
+    static char line[256];
+
+    char y = top;
+    const int k = put_at(line, 0, width, title);
+    scr_write_line(scr, y++, line, k);
+    scr_write_line(scr, y++, NULL, 0);
+
+    return y;
+}
+
+// What a key means to a list the reader is moving through, with the motion
+// already applied to `at`. Both pickers had their own copy of this, one written
+// as a chain of ifs and one as a switch, agreeing on every key.
+typedef enum _pick_key {
+    PICK_IDLE,          // nothing to do; redraw and wait again
+    PICK_TAKE,          // RETURN: act on the row `at` names
+    PICK_LEAVE          // ESC
+} pick_key;
+
+static pick_key modal_move(VKey vkey, int* at, int max) {
+    switch (vkey) {
+        case VK_ESCAPE:
+            return PICK_LEAVE;
+        case VK_UP:
+        case VK_KP_UP:
+            if (*at > 0) {
+                (*at)--;
+            }
+            break;
+        case VK_DOWN:
+        case VK_KP_DOWN:
+            if (*at < max) {
+                (*at)++;
+            }
+            break;
+        case VK_RETURN:
+        case VK_KP_ENTER:
+            return PICK_TAKE;
+        default:
+            break;
+    }
+
+    return PICK_IDLE;
+}
+
 void ui_help(user_input* ui, screen* scr) {
     scr_footer_invalidate(scr);
 
@@ -255,10 +317,6 @@ void ui_help(user_input* ui, screen* scr) {
             n = help_render(&HELP[i], line, width);
             scr_write_line(scr, y++, line, n);
         }
-        while (y < bottom) {
-            scr_write_line(scr, y++, NULL, 0);
-        }
-
         const bool more = i < HELP_LINES;
         const bool back = depth > 0;
         char* prompt = "  any key to close";
@@ -273,7 +331,7 @@ void ui_help(user_input* ui, screen* scr) {
             prompt = "  UP for the previous page, any other key to close";
             psz = 49;
         }
-        scr_bar_line(scr, bottom, prompt, psz);
+        modal_fill(scr, y, bottom, prompt, psz);
 
         const key_press kp = keys_wait();
         const bool fwd = kp.vkey == VK_SPACE || kp.vkey == VK_PAGEDOWN
@@ -491,10 +549,8 @@ static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) 
     int at = 0;                     // 0 is "none", 1..n are the fonts
 
     for (;;) {
-        char y = top;
-        int k = put_at(line, 0, width, "  FONTS");
-        scr_write_line(scr, y++, line, k);
-        scr_write_line(scr, y++, NULL, 0);
+        char y = modal_title(scr, top, width, "  FONTS");
+        int k = 0;
 
         for (int i = 0; i <= n && y < bottom; i++) {
             k = put_at(line, 0, width, i == at ? "  > " : "    ");
@@ -514,49 +570,31 @@ static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) 
             }
             scr_write_line(scr, y++, line, k);
         }
-        while (y < bottom) {
-            scr_write_line(scr, y++, NULL, 0);
-        }
-        scr_bar_line(scr, bottom,
-                     "  UP/DOWN to choose, RETURN to take it, ESC to leave it alone", 60);
+        modal_fill(scr, y, bottom,
+                   "  UP/DOWN to choose, RETURN to take it, ESC to leave it alone", 60);
 
         const key_press kp = keys_wait();
-        switch (kp.vkey) {
-            case VK_ESCAPE:
-                return CANCEL_OPT;
-            case VK_UP:
-            case VK_KP_UP:
-                if (at > 0) {
-                    at--;
-                }
-                break;
-            case VK_DOWN:
-            case VK_KP_DOWN:
-                if (at < n) {
-                    at++;
-                }
-                break;
-            case VK_RETURN:
-            case VK_KP_ENTER: {
-                if (at == 0) {
-                    out[0] = 0;
+        const pick_key act = modal_move(kp.vkey, &at, n);
+        if (act == PICK_LEAVE) {
+            return CANCEL_OPT;
+        }
+        if (act == PICK_TAKE) {
+            if (at == 0) {
+                out[0] = 0;
 
-                    return NO_OPT;      // chosen, and the choice is "none"
-                }
-                const int dlen = (int) strlen(FONT_DIR);
-                const int flen = (int) strlen(fonts[at - 1].name);
-                if (dlen + 1 + flen >= max) {
-                    return CANCEL_OPT;
-                }
-                memcpy(out, FONT_DIR, (size_t) dlen);
-                out[dlen] = '/';
-                memcpy(out + dlen + 1, fonts[at - 1].name, (size_t) flen);
-                out[dlen + 1 + flen] = 0;
-
-                return YES_OPT;
+                return NO_OPT;          // chosen, and the choice is "none"
             }
-            default:
-                break;
+            const int dlen = (int) strlen(FONT_DIR);
+            const int flen = (int) strlen(fonts[at - 1].name);
+            if (dlen + 1 + flen >= max) {
+                return CANCEL_OPT;
+            }
+            memcpy(out, FONT_DIR, (size_t) dlen);
+            out[dlen] = '/';
+            memcpy(out + dlen + 1, fonts[at - 1].name, (size_t) flen);
+            out[dlen + 1 + flen] = 0;
+
+            return YES_OPT;
         }
     }
 }
@@ -719,10 +757,8 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                            ? ""
                            : (cfg->font[0] != 0 ? cfg->font : font_now);
 
-        char y = top;
-        int k = put_at(line, 0, width, "  SETTINGS");
-        scr_write_line(scr, y++, line, k);
-        scr_write_line(scr, y++, NULL, 0);
+        char y = modal_title(scr, top, width, "  SETTINGS");
+        int k = 0;
 
         for (int i = 0; i < ROW_COUNT && y < bottom; i++) {
             k = put_at(line, 0, width, i == at ? "  > " : "    ");
@@ -751,29 +787,15 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
             }
             scr_write_line(scr, y++, line, k);
         }
-        while (y < bottom) {
-            scr_write_line(scr, y++, NULL, 0);
-        }
-        scr_bar_line(scr, bottom,
-                     "  UP/DOWN to choose, RETURN to change, ESC to close", 51);
+        modal_fill(scr, y, bottom,
+                   "  UP/DOWN to choose, RETURN to change, ESC to close", 51);
 
         const key_press kp = keys_wait();
-        if (kp.vkey == VK_ESCAPE) {
+        const pick_key act = modal_move(kp.vkey, &at, ROW_COUNT - 1);
+        if (act == PICK_LEAVE) {
             return changed ? YES_OPT : CANCEL_OPT;
         }
-        if (kp.vkey == VK_UP || kp.vkey == VK_KP_UP) {
-            if (at > 0) {
-                at--;
-            }
-            continue;
-        }
-        if (kp.vkey == VK_DOWN || kp.vkey == VK_KP_DOWN) {
-            if (at < ROW_COUNT - 1) {
-                at++;
-            }
-            continue;
-        }
-        if (kp.vkey != VK_RETURN && kp.vkey != VK_KP_ENTER) {
+        if (act != PICK_TAKE) {
             continue;
         }
 

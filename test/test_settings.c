@@ -26,6 +26,25 @@
 static int failures = 0;
 static long mark;
 
+/* How many distinct rows a frame painted, read off the VDU 31,x,y that each
+ * paint begins with -- distinct, because a row is tabbed to more than once.
+ * stub_emit_tabs has to be on for these to reach the stream. */
+static int count_rows(const char* frame, int len) {
+    char seen[256];
+    memset(seen, 0, sizeof(seen));
+    for (int i = 0; i + 2 < len; i++) {
+        if (frame[i] == 31) {
+            seen[(unsigned char) frame[i + 2]] = 1;
+        }
+    }
+    int n = 0;
+    for (int i = 0; i < 256; i++) {
+        n += seen[i];
+    }
+
+    return n;
+}
+
 static void check(const char* name, int got, int want) {
     if (got == want) {
         fprintf(stderr, "PASS  %-54s got %d\n", name, got);
@@ -111,6 +130,7 @@ int main(void) {
         scr_init(&scr, 32);
         ui_init(&ui, 256, scr.bottomY_, scr.cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
+        stub_emit_tabs(1);
 
         const stub_key esc[] = { { .ch = 27, .vk = VK_ESCAPE } };
         stub_set_keys(esc, 1);
@@ -119,7 +139,15 @@ int main(void) {
         cfg_defaults(&cfg);
         cap_start();
         ui_settings(&ui, &scr, &cfg);   /* draws the settings, not the picker */
-        cap_read(got, sizeof(got) - 1);
+        const int n = cap_read(got, sizeof(got) - 1);
+        /* Every row from the title down to the prompt, not just the rows with
+         * something on them. The blanking is what covers whatever the document
+         * had on those rows; skipping it leaves the modal floating over the
+         * text it was opened from. Counted by tab, which is one per row
+         * painted. */
+        check("  and paints every row down to the prompt",
+              count_rows(got, n), ui.ypos_ - scr.topY_ + 1);
+        stub_emit_tabs(0);
         check("the settings list every setting", strstr(got, "tab width") != NULL, 1);
         check("  including the font", strstr(got, "font") != NULL, 1);
         /* ctrl_pause_frames is not offered. It is the one setting that can do
@@ -191,6 +219,72 @@ int main(void) {
          * a line the reader had left alone. */
         check("  and no setting is left set", cfg.tab_size, -1);
         check("  nor the colours", cfg.fg, -1);
+        ui_destroy(&ui);
+    }
+
+    /* --- moving through the list --- */
+    {
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        scr_init(&scr, 32);
+        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
+
+        /* Down to the font row, back up one, then open what is there. The row
+         * above the font is the colours, so what opens says where the cursor
+         * actually was -- and the two pickers are told apart by what they
+         * draw. Without the UP the font picker opens instead. */
+        const stub_key down_up[] = {
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_UP },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(down_up, 6);
+
+        config cfg;
+        cfg_defaults(&cfg);
+        cap_start();
+        ui_settings(&ui, &scr, &cfg);
+        cap_read(got, sizeof(got) - 1);
+        check("UP moves back a row, so the colours open",
+              strstr(got, "select FG/BG") != NULL, 1);
+        check("  and not the font picker below them",
+              strstr(got, "FONTS") == NULL, 1);
+        ui_destroy(&ui);
+    }
+
+    {
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        scr_init(&scr, 32);
+        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
+
+        /* DOWN past the end stops on the last row rather than running off it.
+         * Unclamped, the cursor names a row that does not exist and RETURN
+         * opens nothing at all. */
+        const stub_key far_down[] = {
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(far_down, 8);
+
+        config cfg;
+        cfg_defaults(&cfg);
+        cap_start();
+        ui_settings(&ui, &scr, &cfg);
+        cap_read(got, sizeof(got) - 1);
+        check("DOWN stops on the last row, which opens the fonts",
+              strstr(got, "FONTS") != NULL, 1);
         ui_destroy(&ui);
     }
 

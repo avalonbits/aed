@@ -214,6 +214,18 @@ static int top_line(screen* scr, text_buffer* tb) {
     return tb_ypos(tb) - (scr->currY_ - scr->topY_);
 }
 
+void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
+    tb_pos a = ed->anchor_;
+    tb_pos b = tb_tell(&ed->buf_);
+    if (tb_cmp(a, b) > 0) {
+        const tb_pos t = a;
+        a = b;
+        b = t;
+    }
+    *from = a;
+    *to = b;
+}
+
 // The columns of `line` that the selection covers, as [from, to). Empty when
 // none of it does.
 static void row_selection(editor* ed, int line, const char* text, int len,
@@ -225,13 +237,9 @@ static void row_selection(editor* ed, int line, const char* text, int len,
     }
 
     SCR(ed);
-    tb_pos a = ed->anchor_;
-    tb_pos b = tb_tell(&ed->buf_);
-    if (tb_cmp(a, b) > 0) {
-        const tb_pos t = a;
-        a = b;
-        b = t;
-    }
+    tb_pos a;
+    tb_pos b;
+    cmd_selection_range(ed, &a, &b);
     if (line < a.line || line > b.line) {
         return;
     }
@@ -327,18 +335,6 @@ void cmd_repaint_span(editor* ed, char y, int from_col, int to_col) {
     row_selection(ed, tb_ypos(&cp), text, sz, &from, &to);
     scr_write_line_span(scr, y, text, sz, from, to, from_col, to_col);
     scr_sync_cursor(scr);
-}
-
-void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
-    tb_pos a = ed->anchor_;
-    tb_pos b = tb_tell(&ed->buf_);
-    if (tb_cmp(a, b) > 0) {
-        const tb_pos t = a;
-        a = b;
-        b = t;
-    }
-    *from = a;
-    *to = b;
 }
 
 // Which screen row the cursor belongs on, after the document has changed by
