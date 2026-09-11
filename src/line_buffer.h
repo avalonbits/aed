@@ -37,20 +37,63 @@ void lb_destroy(line_buffer* lb);
 // counterpart of cb_clear, and what lets a document be replaced in place.
 void lb_clear(line_buffer* lb);
 
-// Info ops
-int lb_curr(line_buffer* lb);
-int lb_avai(line_buffer* lb);
-int lb_max(line_buffer* lb);
-bool lb_last(line_buffer* lb);
+// Info ops, and the line and cursor ops that are a few instructions each.
+//
+// These are here rather than in the .c because every traversal in the editor --
+// a seek, a search, a range walk, a page down -- calls several of them for each
+// line it passes, and a call across a translation unit is a call the compiler
+// cannot take away however small the body is. There is no link-time
+// optimisation on this toolchain, so the header is where "small enough to
+// inline" has to be said.
+static inline int lb_curr(line_buffer* lb) {
+    return (int) (lb->curr_ - lb->buf_);
+}
 
-// Line ops.
-bool lb_cinc(line_buffer* lb);
+static inline int lb_avai(line_buffer* lb) {
+    return (int) (lb->cend_ - lb->curr_);
+}
+
+static inline int lb_max(line_buffer* lb) {
+    return lb->size_;
+}
+
+static inline bool lb_last(line_buffer* lb) {
+    return lb->cend_ == (lb->buf_ + lb->size_);
+}
+
+static inline bool lb_cinc(line_buffer* lb) {
+    (*lb->curr_) += 1;
+
+    return true;
+}
+
+static inline int lb_csize(line_buffer* lb) {
+    return *lb->curr_;
+}
+
+static inline bool lb_up(line_buffer* lb) {
+    const bool ok = lb->curr_ > lb->buf_;
+    if (ok) {
+        lb->cend_--;
+        *lb->cend_ = *lb->curr_;
+        lb->curr_--;
+    }
+
+    return ok;
+}
+
+static inline bool lb_down(line_buffer* lb) {
+    const bool ok = lb->cend_ < (lb->buf_ + lb->size_);
+    if (ok) {
+        lb->curr_++;
+        *lb->curr_ = *lb->cend_;
+        lb->cend_++;
+    }
+
+    return ok;
+}
+
 bool lb_cdec(line_buffer* lb);
-int lb_csize(line_buffer* lb);
-
-// Cursor ops.
-bool lb_up(line_buffer* lb);
-bool lb_down(line_buffer* lb);
 // True when lb_new has somewhere to put a new line. It needs two slots, not
 // one -- see lb_new -- so asking it directly is the only way a caller can know
 // whether a split will go through without duplicating that arithmetic.

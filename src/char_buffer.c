@@ -70,6 +70,25 @@ bool cb_put(char_buffer* cb, char ch) {
     return true;
 }
 
+// The same as cb_put in a loop, in one block move. A copy or a paste hands over
+// whole spans, and asking for them a byte at a time is a call, a bounds check
+// and a return for each one -- which is what a range copy used to be.
+//
+// All or nothing: a partial write would leave the caller having to work out how
+// much landed, and every caller here treats a short write as a failure anyway.
+bool cb_write(char_buffer* cb, const char* buf, int sz) {
+    if (sz <= 0) {
+        return true;
+    }
+    if (sz > (int) (cb->cend_ - cb->curr_)) {
+        return false;
+    }
+    memmove(cb->curr_, buf, (size_t) sz);
+    cb->curr_ += sz;
+
+    return true;
+}
+
 bool cb_del(char_buffer* cb) {
     const char* end = cb->buf_+cb->size_;
     const bool ok = cb->cend_ < end;

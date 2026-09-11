@@ -673,14 +673,7 @@ bool tb_range_walk(text_buffer* tb, tb_pos a, tb_pos b, tb_sink sink, void* ctx)
 // and the caller empties the buffer rather than leaving a truncated copy: one
 // that went on to cut the range would otherwise delete text it could not keep.
 static bool cb_sink(void* ctx, const char* buf, int sz) {
-    char_buffer* out = (char_buffer*) ctx;
-    for (int i = 0; i < sz; i++) {
-        if (!cb_put(out, buf[i])) {
-            return false;
-        }
-    }
-
-    return true;
+    return cb_write((char_buffer*) ctx, buf, sz);
 }
 
 int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {

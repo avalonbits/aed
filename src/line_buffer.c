@@ -50,24 +50,8 @@ void lb_destroy(line_buffer* lb) {
 }
 
 // Info ops
-int lb_curr(line_buffer* lb) {
-    return lb->curr_ - lb->buf_;
-}
-int lb_avai(line_buffer* lb) {
-    return lb->cend_ - lb->curr_;
-}
-int lb_max(line_buffer* lb) {
-    return lb->size_;
-}
-bool lb_last(line_buffer* lb) {
-    return lb->cend_ == (lb->buf_ + lb->size_);
-}
 
 // Line ops.
-bool lb_cinc(line_buffer* lb) {
-    (*lb->curr_) += 1;
-    return true;
-}
 bool lb_cdec(line_buffer* lb) {
     int cur = *lb->curr_;
     if (cur > 0) {
@@ -76,29 +60,8 @@ bool lb_cdec(line_buffer* lb) {
     }
     return false;
 }
-int lb_csize(line_buffer* lb) {
-    return *lb->curr_;
-}
 
 // Cursor ops.
-bool lb_up(line_buffer* lb) {
-    bool ok = lb->curr_ > lb->buf_;
-    if (ok) {
-        lb->cend_--;
-        *lb->cend_ = *lb->curr_;
-        lb->curr_--;
-    }
-    return ok;
-}
-bool lb_down(line_buffer* lb) {
-    bool ok = lb->cend_ < (lb->buf_+lb->size_);
-    if (ok) {
-        lb->curr_++;
-        *lb->curr_ = *lb->cend_;
-        lb->cend_++;
-    }
-    return ok;
-}
 bool lb_can_new(line_buffer* lb) {
     // Two slots: the line being split keeps `size` in the slot it already has,
     // and the remainder is written to the next one. A guard of curr_ < cend_
