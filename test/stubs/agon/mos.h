@@ -139,6 +139,11 @@ void        stub_emit_tabs(int on);
  * ffs_dread hands them back one at a time and then reports the end. */
 void        stub_set_dir(const char* const* names, const unsigned* sizes, int n);
 
+/* Files served by name, so one test can have a settings file, a font and a
+ * document at once. Names not registered fall back to stub_file_set_content. */
+void        stub_file_add(const char* name, const char* data, int len);
+void        stub_file_clear_named(void);
+
 /* Makes mos_fread return fewer bytes than asked for, so the read path can be
  * checked against a card that stops part way. */
 void        stub_file_short_read(int n);

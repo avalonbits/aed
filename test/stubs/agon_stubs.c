@@ -311,6 +311,30 @@ static char        stub_mkdir_path[256];
 static const char* stub_content;
 static int         stub_content_len;
 
+/* Files served by name. Without this every open returns the same bytes, so a
+ * test cannot have a settings file, a font and a document at once -- and a test
+ * of changing the font while an editor is open needs all three. Names not in
+ * the table fall back to stub_content, so existing tests are unaffected. */
+#define STUB_NAMED 8
+
+static struct {
+    const char* name;
+    const char* data;
+    int len;
+} stub_named[STUB_NAMED];
+static int stub_named_n;
+
+void stub_file_add(const char* name, const char* data, int len) {
+    if (stub_named_n < STUB_NAMED) {
+        stub_named[stub_named_n].name = name;
+        stub_named[stub_named_n].data = data;
+        stub_named[stub_named_n].len = len;
+        stub_named_n++;
+    }
+}
+
+void stub_file_clear_named(void) { stub_named_n = 0; }
+
 void stub_file_reset(void) {
     stub_len = 0;
     /* Terminated as well as emptied: stub_file_bytes hands back the buffer and
@@ -331,6 +355,7 @@ void stub_file_reset(void) {
     stub_mkdir_path[0] = 0;
     stub_delete_count = 0;
     stub_short = -1;
+    stub_named_n = 0;
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
@@ -447,8 +472,21 @@ uint8_t ffs_dclose(DIR* dir) {
 }
 
 uint8_t mos_fopen(const char* filename, uint8_t mode) {
-    (void)filename;
     stub_opens++;
+
+    /* A named file, if this is one: it becomes what this handle serves, and
+     * the size mos_getfil reports. */
+    if (filename != NULL) {
+        for (int i = 0; i < stub_named_n; i++) {
+            if (strcmp(filename, stub_named[i].name) == 0) {
+                stub_content = stub_named[i].data;
+                stub_content_len = stub_named[i].len;
+                stub_objsize = (uint32_t) stub_named[i].len;
+                stub_objsize_set = 1;
+                break;
+            }
+        }
+    }
     stub_read_pos = 0;      /* reads start at the beginning of the file */
     if ((mode & FA_WRITE) != 0) {
         stub_write_opens++;

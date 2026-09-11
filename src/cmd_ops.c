@@ -915,17 +915,45 @@ void cmd_open(editor* ed) {
     cmd_show(ed);
 }
 
+// Puts the document back after a modal has drawn over it.
+//
+// scr_clear resets the cursor's row to the top of the text area, and
+// refresh_screen reads that row as "how many lines above the cursor are on
+// screen" -- so clearing and refreshing without putting it back first paints
+// the cursor's line at the top, and the view has apparently scrolled. With the
+// cursor on the last line of a file that is exactly what it looked like:
+// everything above it gone, and one press of UP bringing it all back.
+//
+// `moved` says the geometry changed under it, which a font does. The old row is
+// meaningless then -- there may not be that many rows any more -- so the
+// cursor's line is centred instead, or put as far down as the document allows
+// when there is not enough above it to centre against.
+static void restore_after_modal(editor* ed, bool moved) {
+    SCR(ed);
+    TB(ed);
+
+    const char currX = scr->currX_;
+    const char currY = scr->currY_;
+    const char ch = tb_peek(tb);
+
+    scr_clear(scr);
+    scr->currX_ = currX;
+    if (moved) {
+        centre_line(ed, tb_ypos(tb));
+    } else {
+        scr->currY_ = currY;
+    }
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, ch);
+}
+
 void cmd_color_picker(editor* ed) {
     SCR(ed);
     UI(ed);
 
     RESPONSE ret = ui_color_picker(ui, scr);
     if (ret == YES_OPT) {
-        TB(ed);
-        char ch = tb_peek(tb);
-        scr_clear(scr);
-        refresh_screen(scr, tb);
-        scr_show_cursor_ch(scr, ch);
+        restore_after_modal(ed, false);
 
         // Write the choice down. Settings live in the file now, and a scheme
         // that vanished on exit was the wart this was meant to fix. Only the
@@ -948,12 +976,8 @@ void cmd_help(editor* ed) {
     ui_help(ui, scr);
 
     // The help wrote over the document, and the view cannot put it back on its
-    // own -- it has no access to the buffer. Same three lines as the colour
-    // picker, for the same reason.
-    const char ch = tb_peek(tb);
-    scr_clear(scr);
-    refresh_screen(scr, tb);
-    scr_show_cursor_ch(scr, ch);
+    // own -- it has no access to the buffer.
+    restore_after_modal(ed, false);
 }
 
 void cmd_settings(editor* ed) {
@@ -972,6 +996,7 @@ void cmd_settings(editor* ed) {
     // A font changes the cell size, and with it the number of rows and where
     // the footer sits. Everything below is laid out from those, so the font
     // goes in first and the screen is rebuilt from what it leaves behind.
+    bool moved = false;
     if (ret == YES_OPT && (cfg.font[0] != 0 || cfg.font_none)) {
         if (cfg.font[0] != 0) {
             scr_load_font(scr, cfg.font);
@@ -987,18 +1012,10 @@ void cmd_settings(editor* ed) {
         // Fewer rows than before can leave the cursor past the bottom. Pulling
         // it back to the last text row keeps it somewhere the screen has, and
         // refresh_screen re-anchors the view from wherever it ends up.
-        if (scr->currY_ >= scr->bottomY_) {
-            scr->currY_ = (char) (scr->bottomY_ - 1);
-        }
-        if (scr->currY_ < scr->topY_) {
-            scr->currY_ = scr->topY_;
-        }
+        moved = true;
     }
 
-    const char ch = tb_peek(tb);
-    scr_clear(scr);
-    refresh_screen(scr, tb);
-    scr_show_cursor_ch(scr, ch);
+    restore_after_modal(ed, moved);
 
     if (ret == YES_OPT) {
         // Only the changed settings are set, and cfg_update copies every other

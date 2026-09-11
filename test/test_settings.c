@@ -326,6 +326,77 @@ int main(void) {
         check("  which reads back as no font", back.font[0], 0);
     }
 
+    /* --- the view is where it was when a modal closes --- */
+    {
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+
+        /* Enough lines to fill the screen and then some, so there is a view to
+         * lose in the first place. */
+        static char doc[4000];
+        int n = 0;
+        for (int i = 0; i < 120; i++) {
+            n += sprintf(doc + n, "line %d\n", i + 1);
+        }
+        /* A real 16-row font, so picking it actually changes the geometry.
+         * Served by name: the document, the settings and the font are three
+         * different files and the font is refused on its size if it is handed
+         * the document's bytes. */
+        static char font16[256 * 16];
+        memset(font16, 0, sizeof(font16));
+
+        stub_file_reset();
+        stub_file_add("doc.txt", doc, n);
+        stub_file_add("/config/aed/unscii16.bin", font16, (int) sizeof(font16));
+        stub_file_set_content(doc, n);
+        stub_file_set_objsize((uint32_t) n);
+
+        editor ed;
+        check("editor starts", ed_init(&ed, 64, "doc.txt") != NULL, 1);
+        stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
+
+        /* Put the cursor a long way down, which is where the view is lost:
+         * scr_clear resets the row to the top, and refresh_screen reads that
+         * row as how much is on screen above the cursor. */
+        for (int i = 0; i < 80; i++) {
+            cmd_down(&ed);
+        }
+        const char row_before = ed.scr_.currY_;
+        const int line_before = tb_ypos(&ed.buf_);
+        check("the cursor is well down the screen", row_before > 10, 1);
+
+        /* Open the settings and close them again, changing nothing. */
+        const stub_key esc[] = { { .ch = 27, .vk = VK_ESCAPE } };
+        stub_set_keys(esc, 1);
+        cmd_settings(&ed);
+
+        check("  and is still on the same row afterwards",
+              ed.scr_.currY_, row_before);
+        check("  still on the same line", tb_ypos(&ed.buf_), line_before);
+
+        /* A font change is different: the row count moves, so the old row may
+         * not exist any more. The cursor's line is centred instead. */
+        const stub_key pickfont[] = {
+            { .ch = 0,  .vk = VK_DOWN },      /* colours */
+            { .ch = 0,  .vk = VK_DOWN },      /* font */
+            { .ch = 13, .vk = VK_RETURN },    /* into the picker */
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 0,  .vk = VK_DOWN },      /* unscii16.bin, 16 rows */
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(pickfont, 8);
+        cmd_settings(&ed);
+
+        check("a font change leaves 30 rows", ed.scr_.rows_, 30);
+        check("  and centres the cursor's line",
+              ed.scr_.currY_,
+              (char)(ed.scr_.topY_ + (ed.scr_.bottomY_ - ed.scr_.topY_) / 2));
+        check("  which is still the same line", tb_ypos(&ed.buf_), line_before);
+        ed_destroy(&ed);
+    }
+
     fflush(stdout);
 
     return failures == 0 ? 0 : 1;
