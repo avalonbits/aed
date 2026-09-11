@@ -145,6 +145,48 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- a walker cannot write --- */
+    {
+        check("a document to guard", load_five(&tb), 1);
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        const int lines_before = tb_ymax(&tb);
+        const int used_before = tb_used(&tb);
+
+        text_buffer cp;
+        tb_copy(&cp, &tb);
+
+        /* A copy shares the original's buffers rather than owning any of its
+         * own, so a write through one is not a private change -- it is a change
+         * to the document the cursor is still pointing into, made behind its
+         * back. Every mutator refuses, the way running out of room does. */
+        check("a walker will not take a character", tb_put(&cp, 'x') ? 1 : 0, 0);
+        check("  nor a line break", tb_newline(&cp) ? 1 : 0, 0);
+        check("  nor delete forwards", tb_del(&cp) ? 1 : 0, 0);
+        check("  nor backwards", tb_bksp(&cp) ? 1 : 0, 0);
+        check("  nor take a whole line out", tb_del_line(&cp) ? 1 : 0, 0);
+        check("  nor insert a span", tb_insert(&cp, "hello", 5) ? 1 : 0, 0);
+        tb_pos a = { 1, 0 };
+        tb_pos b = { 3, 0 };
+        check("  nor delete a range", tb_range_del(&cp, a, b) ? 1 : 0, 0);
+        check("  nor save", tb_save(&cp) ? 1 : 0, 0);
+
+        check("and the document is untouched", tb_used(&tb), used_before);
+        check("  every line of it", tb_ymax(&tb), lines_before);
+
+        /* Reading and moving is what it is for, and still works. */
+        tb_down(&cp);
+        check("a walker still moves", tb_ypos(&cp), 2);
+        const split_line ln = tb_curr_line(&cp);
+        check("  and still reads", ln.psz_ + ln.ssz_, (int) strlen("two"));
+        check("  without taking the cursor with it", tb_ypos(&tb), 1);
+
+        /* The original is not a walker and is unaffected by any of this. */
+        check("the document itself still takes a character",
+              tb_put(&tb, 'x') ? 1 : 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- emptying the document empties both ends --- */
     {
         check("a document to clear", load_five(&tb), 1);

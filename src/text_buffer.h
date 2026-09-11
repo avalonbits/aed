@@ -79,6 +79,21 @@ typedef struct _text_buffer {
     // entirely in memory can still prove it.
     int head_lines_;    // complete lines before the character buffer
     int tail_lines_;    // complete lines after it
+
+    // A walker: a copy made by tb_copy, for reading the document without
+    // disturbing the cursor that owns it.
+    //
+    // A copy shares the original's buffers -- that is the point of it, and why
+    // it is cheap -- so a write through one does not make a private change, it
+    // corrupts the document the original is still pointing into. Nothing does
+    // that today, by discipline rather than by anything stopping it.
+    //
+    // It is here now because the discipline is about to matter more than it
+    // does: once the document can be partly on disk, moving a walker far enough
+    // would slide the window out from under the cursor that owns it. Refusing
+    // the writes is the half of that which can be enforced while everything is
+    // still in memory. See .internal/docs/PAGING.md, pitfalls 1 and 2.
+    bool walker_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
@@ -95,6 +110,8 @@ bool tb_changed(text_buffer* tb);
 void tb_set_fname(text_buffer* tb, const char* fname, int sz);
 
 // Character ops.
+// Every one of these refuses on a walker, changing nothing and reporting
+// failure, the same as running out of room does.
 bool tb_put(text_buffer* tb, char ch);
 bool tb_del(text_buffer* tb);
 bool tb_bksp(text_buffer* tb);
