@@ -129,20 +129,20 @@ static void vdp_puts(char* str, char sz) {
     }
 }
 
-static char getColorForCh(char ch) {
-    static char getcol[7] = {23, 0, 0x84, 4, 0, 4, 0};
+// The column of the probe cell that is looked at. Four is the middle of an
+// eight pixel wide glyph, and every font the VDP can hold is eight wide.
+#define PROBE_X 4
 
-    vdp_cursor_tab(0,0);
-    putchar(ch);
+// One pixel of the cell in the top left corner, as a colour index: VDU 23,0,&84
+// asks and the VDP puts the answer in a sysvar.
+static char pixel_colour(int x, int y) {
+    char ask[7] = {23, 0, (char) 0x84,
+                   (char) (x & 0xFF), (char) ((x >> 8) & 0xFF),
+                   (char) (y & 0xFF), (char) ((y >> 8) & 0xFF)};
+
+    vdp_puts(ask, sizeof(ask));
 
     volatile char idx = 0;
-    for (int i = 0; i < 1; i++) {
-        waitvblank();
-        volatile char* sysvar = (volatile char*) mos_sysvars();
-        idx = sysvar[sysvar_scrpixelIndex];
-    }
-
-    vdp_puts(getcol, sizeof(getcol));
     for (int i = 0; i < 1; i++) {
         waitvblank();
         volatile char* sysvar = (volatile char*) mos_sysvars();
@@ -152,14 +152,55 @@ static char getColorForCh(char ch) {
     return idx;
 }
 
+// Puts one character in that cell, and waits for it to be on the screen before
+// anything reads the pixels back.
+static void put_probe_ch(char ch) {
+    vdp_cursor_tab(0, 0);
+    mos_puts(&ch, 1, 0);
+    waitvblank();
+}
+
+// The colours the machine was using, read back off its own screen so that AED
+// can put them back on the way out. A space paints the whole cell in the
+// background; a character with ink in it shows the foreground somewhere.
+//
+// Where that ink is depends on the font, which is why this searches the cell
+// rather than sampling the middle of it. The middle of an 8x8 cell is inside
+// almost every glyph, but row 4 of a sixteen-row font is above most of them:
+// unscii-16 draws '*' from row 4 with nothing in the middle column, so the one
+// read this used to do -- '*' at (4,4) -- came back blank, and the background
+// was recorded as the foreground.
+//
+// Restoring fg == bg is worse than it sounds. The screen is handed back drawn
+// in its own background colour, and the VDP builds the text cursor by XOR-ing
+// the two colours together, so an equal pair leaves a cursor with no colour in
+// it at all: a blank screen with no cursor on it, which is what a machine
+// booted into a sixteen-row font got back when AED exited.
 static void get_active_colours(screen* scr) {
     static char logic[4] = {23, 0, 0xC0, 0};
     VDP_PUTS(logic);
 
-    scr->fg_ = getColorForCh('*');
-    scr->bg_ = getColorForCh(' ');
-    scr->entryFg_ = scr->fg_;
-    scr->entryBg_ = scr->bg_;
+    put_probe_ch(' ');
+    const char bg = pixel_colour(PROBE_X, 0);
+
+    // '#' rather than '*': its bars run the full width of the cell, so a column
+    // down the middle meets one wherever in the cell the font draws them.
+    put_probe_ch('#');
+    char fg = bg;
+    const int h = scr->charH_ > 0 ? scr->charH_ : 8;
+    for (int y = 0; y < h && fg == bg; y++) {
+        fg = pixel_colour(PROBE_X, y);
+    }
+    if (fg == bg) {
+        // Nothing in the cell differed from the blank one. Rather than hand the
+        // screen back drawn in a single colour, assume what the Agon boots into.
+        fg = (bg == 15) ? 0 : 15;
+    }
+
+    scr->fg_ = fg;
+    scr->bg_ = bg;
+    scr->entryFg_ = fg;
+    scr->entryBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
 }
 

@@ -135,6 +135,13 @@ int         stub_last_tab_y(void);
  * test can see which row something was painted on. */
 void        stub_emit_tabs(int on);
 
+/* What the screen was in before AED ran -- the colours its startup probe is
+ * trying to read back off it -- and where in the cell the font puts ink, as the
+ * first glyph row that has any. A sixteen-row font draws low in its cell, and
+ * that is what made the probe read the background as the foreground. */
+void        stub_set_screen_colours(int fg, int bg);
+void        stub_set_glyph_ink(int first_row);
+
 /* A directory for ffs_dopen/ffs_dread to walk. Names and sizes, in order;
  * ffs_dread hands them back one at a time and then reports the end. */
 void        stub_set_dir(const char* const* names, const unsigned* sizes, int n);

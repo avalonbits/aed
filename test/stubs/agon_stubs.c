@@ -124,6 +124,38 @@ static void stub_apply_cell(int h) {
     stub_rows = (uint8_t) (stub_screen_px / h);
 }
 
+/* The stubbed VDP's pixel read, which is how AED finds the colours the machine
+ * was using before it started. AED writes a character in the top left cell and
+ * asks for the colour of a pixel of it with VDU 23,0,&84; whether that pixel is
+ * ink depends on where in the cell the font draws the glyph, and getting that
+ * wrong is what left a machine booted into a sixteen-row font with a blank
+ * screen and no cursor. So the glyph is modelled: rows below stub_ink_from are
+ * blank, the rest are ink.
+ *
+ * stub_set_screen_colours says what the screen was in before AED ran, which is
+ * the thing the probe is trying to recover. */
+static int stub_scr_fg = 15;
+static int stub_scr_bg = 0;
+static int stub_ink_from = 0;
+static char stub_cell_ch = ' ';
+static uint8_t stub_pixel;
+
+void stub_set_screen_colours(int fg, int bg) {
+    stub_scr_fg = fg;
+    stub_scr_bg = bg;
+}
+
+void stub_set_glyph_ink(int first_row) { stub_ink_from = first_row; }
+
+static void stub_pixel_vdu(const char* b, unsigned size) {
+    if (size < 7 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x84) {
+        return;
+    }
+    const int y = (unsigned char) b[5] | ((unsigned char) b[6] << 8);
+    const int ink = stub_cell_ch != ' ' && y >= stub_ink_from;
+    stub_pixel = (uint8_t) (ink ? stub_scr_fg : stub_scr_bg);
+}
+
 static void stub_font_vdu(const char* b, unsigned size) {
     if (size < 7 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x95) {
         return;
@@ -148,6 +180,10 @@ void mos_puts(const char* b, unsigned size, char d) {
     stub_write_n++;
     if (b != NULL) {
         stub_font_vdu(b, size);
+        stub_pixel_vdu(b, size);
+        if (size == 1 && (unsigned char) b[0] >= 32) {
+            stub_cell_ch = b[0];    /* one character on its own: the probe */
+        }
     }
     if ((int) size > stub_write_max) {
         stub_write_max = (int) size;
@@ -191,6 +227,7 @@ void stub_vdp_mode_reply(int on) { stub_mode_reply = on; }
 uint8_t* mos_sysvars(void) {
     static uint8_t sysvars[64];
     sysvars[sysvar_vdp_pflags] = vdp_pflag_point;  /* pretend the VDP replied */
+    sysvars[sysvar_scrpixelIndex] = stub_pixel;
     if (stub_mode_reply) {
         sysvars[sysvar_vdp_pflags] |= vdp_pflag_mode;
     }
