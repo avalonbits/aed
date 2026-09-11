@@ -7,6 +7,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <agon/keyboard.h>
@@ -328,49 +329,172 @@ uint8_t getsysvar_scrCols(void)    { return stub_cols; }
 uint8_t getsysvar_scrRows(void)    { return stub_rows; }
 uint8_t getsysvar_scrColours(void) { return 16; }
 
-/* --- MOS: file I/O, recorded in memory --- */
+/* --- MOS: a small filesystem, in memory ---
+ *
+ * It used to be one buffer for whatever was being written and one pointer to
+ * whatever was being read, which was enough for an editor that opens a file,
+ * reads it whole, and writes it back. Paging is not that: it keeps two scratch
+ * files open beside the document, reads and writes at offsets in both, and the
+ * whole design turns on text being pushed and popped at their ends. None of
+ * that can be exercised against a stub that cannot tell one file from another.
+ *
+ * So: named files with contents, handles with positions, and seeks. The old
+ * helpers are all still here, on top of it -- stub_file_bytes in particular is
+ * still the log of everything handed to mos_fwrite, because twenty test files
+ * read what was saved that way and none of them care which file it went to.
+ */
 #define STUB_FILE_CAP (512 * 1024)
+#define STUB_FILES     8
+#define STUB_HANDLES   8
+#define STUB_NAME_MAX  80
 
+typedef struct {
+    char  name[STUB_NAME_MAX];
+    char* data;
+    int   len;
+    int   cap;
+    int   live;
+    int   registered;   /* put there by stub_file_add, not written by the code */
+} stub_file;
+
+typedef struct {
+    int file;           /* index into stub_fs, or -1 for the fallback content */
+    int pos;
+    int writable;
+    int open;
+} stub_handle;
+
+static stub_file   stub_fs[STUB_FILES];
+static stub_handle stub_fhs[STUB_HANDLES];
+
+/* The log of every write, in order, whatever file it went to. Kept because it
+ * is what the existing tests read back, and because "what did the editor
+ * write" is a different question from "what is in that file". */
 static char stub_buf[STUB_FILE_CAP];
 static int  stub_len;
+
 static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
 static int  stub_write_opens;
 static int  stub_short_read = -1;
-static int  stub_read_pos;
 static uint32_t stub_objsize;
 static int  stub_objsize_set;
-static int         stub_mkdir_count;
-static int         stub_delete_count;
-static int         stub_short = -1;
-static char        stub_mkdir_path[256];
+static int  stub_mkdir_count;
+static int  stub_delete_count;
+static int  stub_short = -1;
+static char stub_mkdir_path[256];
+
+/* Served by any name the filesystem does not have. Stands in for "the file
+ * exists and holds this", which is how most tests set a document up. */
 static const char* stub_content;
 static int         stub_content_len;
 
-/* Files served by name. Without this every open returns the same bytes, so a
- * test cannot have a settings file, a font and a document at once -- and a test
- * of changing the font while an editor is open needs all three. Names not in
- * the table fall back to stub_content, so existing tests are unaffected. */
-#define STUB_NAMED 8
-
-static struct {
-    const char* name;
-    const char* data;
-    int len;
-} stub_named[STUB_NAMED];
-static int stub_named_n;
-
-void stub_file_add(const char* name, const char* data, int len) {
-    if (stub_named_n < STUB_NAMED) {
-        stub_named[stub_named_n].name = name;
-        stub_named[stub_named_n].data = data;
-        stub_named[stub_named_n].len = len;
-        stub_named_n++;
+static void stub_fs_wipe(void) {
+    for (int i = 0; i < STUB_FILES; i++) {
+        free(stub_fs[i].data);
+        stub_fs[i].data = NULL;
+        stub_fs[i].len = 0;
+        stub_fs[i].cap = 0;
+        stub_fs[i].live = 0;
+        stub_fs[i].registered = 0;
+        stub_fs[i].name[0] = 0;
+    }
+    for (int i = 0; i < STUB_HANDLES; i++) {
+        stub_fhs[i].open = 0;
     }
 }
 
-void stub_file_clear_named(void) { stub_named_n = 0; }
+static int stub_fs_find(const char* name) {
+    if (name == NULL) {
+        return -1;
+    }
+    for (int i = 0; i < STUB_FILES; i++) {
+        if (stub_fs[i].live && strcmp(stub_fs[i].name, name) == 0) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static int stub_fs_make(const char* name) {
+    int at = stub_fs_find(name);
+    if (at >= 0) {
+        return at;
+    }
+    for (int i = 0; i < STUB_FILES; i++) {
+        if (!stub_fs[i].live) {
+            size_t n = strlen(name);
+            if (n >= STUB_NAME_MAX) {
+                n = STUB_NAME_MAX - 1;
+            }
+            memcpy(stub_fs[i].name, name, n);
+            stub_fs[i].name[n] = 0;
+            stub_fs[i].live = 1;
+            stub_fs[i].len = 0;
+
+            return i;
+        }
+    }
+
+    return -1;      /* the disk is full, which is a real thing to be */
+}
+
+/* Grown rather than fixed, so a test does not have to guess how big a scratch
+ * file will get, and so ASan sees the real bounds of each one. */
+static int stub_fs_room(stub_file* f, int want) {
+    if (want <= f->cap) {
+        return 1;
+    }
+    int cap = f->cap > 0 ? f->cap : 1024;
+    while (cap < want) {
+        cap *= 2;
+    }
+    char* grown = (char*) realloc(f->data, (size_t) cap);
+    if (grown == NULL) {
+        return 0;
+    }
+    f->data = grown;
+    f->cap = cap;
+
+    return 1;
+}
+
+void stub_file_add(const char* name, const char* data, int len) {
+    const int at = stub_fs_make(name);
+    if (at < 0) {
+        return;
+    }
+    if (!stub_fs_room(&stub_fs[at], len > 0 ? len : 1)) {
+        return;
+    }
+    if (len > 0) {
+        memcpy(stub_fs[at].data, data, (size_t) len);
+    }
+    stub_fs[at].len = len;
+    stub_fs[at].registered = 1;
+}
+
+void stub_file_clear_named(void) { stub_fs_wipe(); }
+
+const char* stub_file_content(const char* name, int* len) {
+    const int at = stub_fs_find(name);
+    if (at < 0) {
+        if (len != NULL) {
+            *len = 0;
+        }
+
+        return NULL;
+    }
+    if (len != NULL) {
+        *len = stub_fs[at].len;
+    }
+
+    return stub_fs[at].data;
+}
+
+int stub_file_exists(const char* name) { return stub_fs_find(name) >= 0; }
 
 void stub_file_reset(void) {
     stub_len = 0;
@@ -383,7 +507,6 @@ void stub_file_reset(void) {
     stub_fail_open = 0;
     stub_write_opens = 0;
     stub_short_read = -1;
-    stub_read_pos = 0;
     stub_objsize = 0;
     stub_objsize_set = 0;
     stub_content = NULL;
@@ -392,7 +515,7 @@ void stub_file_reset(void) {
     stub_mkdir_path[0] = 0;
     stub_delete_count = 0;
     stub_short = -1;
-    stub_named_n = 0;
+    stub_fs_wipe();
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
@@ -411,15 +534,14 @@ void stub_discard_output(void) {
 void stub_file_set_content(const char* data, int len) {
     stub_content = data;
     stub_content_len = len;
-    stub_read_pos = 0;
 }
 
-/* Serves back whatever has been written, so a test can write a file and then
- * read it in again -- which is the whole of a spilled copy and its paste. */
+/* Was the only way to read back what had been written, when writes went to one
+ * buffer and reads came from somewhere else. A written file can simply be
+ * opened now, so this only still exists for the tests that call it. */
 void stub_file_readback(void) {
     stub_content = stub_buf;
     stub_content_len = stub_len;
-    stub_read_pos = 0;
 }
 
 int         stub_mkdirs(void)      { return stub_mkdir_count; }
@@ -433,11 +555,211 @@ void stub_file_set_objsize(uint32_t n) {
 }
 
 uint8_t mos_del(const char* filename) {
-    (void)filename;
     stub_delete_count++;
+    const int at = stub_fs_find(filename);
+    if (at >= 0) {
+        free(stub_fs[at].data);
+        stub_fs[at].data = NULL;
+        stub_fs[at].len = 0;
+        stub_fs[at].cap = 0;
+        stub_fs[at].live = 0;
+    }
 
     return 0;
 }
+
+uint8_t mos_ren(const char* filename, const char* newname) {
+    const int at = stub_fs_find(filename);
+    if (at < 0 || newname == NULL) {
+        return 4;       /* FR_NO_FILE */
+    }
+    mos_del(newname);
+    stub_delete_count--;    /* a rename is not a delete the test asked for */
+    size_t n = strlen(newname);
+    if (n >= STUB_NAME_MAX) {
+        n = STUB_NAME_MAX - 1;
+    }
+    memcpy(stub_fs[at].name, newname, n);
+    stub_fs[at].name[n] = 0;
+
+    return 0;
+}
+
+uint8_t mos_fopen(const char* filename, uint8_t mode) {
+    stub_opens++;
+    if ((mode & FA_WRITE) != 0) {
+        stub_write_opens++;
+    }
+    if (stub_fail_open) {
+        return 0;       /* MOS reports failure as handle 0 */
+    }
+
+    int at = stub_fs_find(filename);
+    if (at < 0 && filename != NULL) {
+        if (stub_content != NULL && stub_content_len > 0) {
+            /* The fallback stands in for "the file exists and holds this", and
+             * the first open is where it becomes a file like any other -- so a
+             * write to it truncates and a read after that sees the write,
+             * rather than the two going to different places. */
+            at = stub_fs_make(filename);
+            if (at >= 0 && stub_fs_room(&stub_fs[at], stub_content_len)) {
+                memcpy(stub_fs[at].data, stub_content, (size_t) stub_content_len);
+                stub_fs[at].len = stub_content_len;
+            }
+        } else if ((mode & FA_WRITE) != 0) {
+            at = stub_fs_make(filename);
+        }
+    }
+    if (at < 0) {
+        return 0;       /* no such file, and nothing to make one out of */
+    }
+    if ((mode & FA_CREATE_ALWAYS) != 0) {
+        stub_fs[at].len = 0;        /* truncate, as FatFS does */
+    }
+    /* A file a test put there by name is its own size, whatever size some
+     * earlier case asked mos_getfil to report. Opening one is how a test says
+     * "and now this is the file", and the size has to follow the content or a
+     * font would be read as a document's length. */
+    if (stub_fs[at].registered) {
+        stub_objsize = (uint32_t) stub_fs[at].len;
+        stub_objsize_set = 1;
+    }
+
+    for (int i = 0; i < STUB_HANDLES; i++) {
+        if (!stub_fhs[i].open) {
+            stub_fhs[i].open = 1;
+            stub_fhs[i].file = at;
+            stub_fhs[i].writable = (mode & FA_WRITE) != 0;
+            stub_fhs[i].pos = 0;
+            if (at >= 0 && (mode & FA_OPEN_APPEND) == FA_OPEN_APPEND) {
+                stub_fhs[i].pos = stub_fs[at].len;
+            }
+
+            return (uint8_t) (i + 1);
+        }
+    }
+
+    return 0;           /* out of handles */
+}
+
+static stub_handle* stub_handle_of(uint8_t fh) {
+    if (fh == 0 || fh > STUB_HANDLES || !stub_fhs[fh - 1].open) {
+        return NULL;
+    }
+
+    return &stub_fhs[fh - 1];
+}
+
+uint8_t mos_fclose(uint8_t fh) {
+    stub_closes++;
+    stub_handle* h = stub_handle_of(fh);
+    if (h != NULL) {
+        h->open = 0;
+    }
+
+    return 0;
+}
+
+uint8_t mos_flseek(uint8_t fh, uint32_t offset) {
+    stub_handle* h = stub_handle_of(fh);
+    if (h == NULL) {
+        return 9;       /* FR_INVALID_OBJECT */
+    }
+    h->pos = (int) offset;
+
+    return 0;
+}
+
+unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
+    stub_handle* h = stub_handle_of(fh);
+    const char* src;
+    int len;
+    int pos;
+
+    if (h != NULL && h->file >= 0) {
+        src = stub_fs[h->file].data;
+        len = stub_fs[h->file].len;
+        pos = h->pos;
+    } else {
+        src = stub_content;
+        len = stub_content_len;
+        pos = h != NULL ? h->pos : 0;
+    }
+
+    unsigned n = numbytes;
+    const int left = len - pos;
+    if ((int) n > left) {
+        n = (unsigned) (left > 0 ? left : 0);
+    }
+    if (stub_short_read >= 0 && (int) n > stub_short_read) {
+        n = (unsigned) stub_short_read;
+    }
+    /* Actually fill the caller's buffer: a short read would hide an
+     * out-of-bounds destination from the sanitizer. */
+    if (src != NULL && n > 0) {
+        memcpy(buffer, src + pos, n);
+        if (h != NULL) {
+            h->pos = pos + (int) n;
+        }
+    }
+
+    return n;
+}
+
+unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
+    if (stub_short >= 0 && (int) numbytes > stub_short) {
+        numbytes = (unsigned) stub_short;   /* pretend the card filled up */
+    }
+
+    stub_handle* h = stub_handle_of(fh);
+    if (h != NULL && h->file >= 0) {
+        stub_file* f = &stub_fs[h->file];
+        if (!stub_fs_room(f, h->pos + (int) numbytes)) {
+            return 0;
+        }
+        /* A write past the end leaves a hole, which FatFS fills with whatever
+         * was on the disk. Zeroed here so a test reading it back sees something
+         * it can recognise rather than something it cannot reproduce. */
+        if (h->pos > f->len) {
+            memset(f->data + f->len, 0, (size_t) (h->pos - f->len));
+        }
+        memcpy(f->data + h->pos, buffer, numbytes);
+        h->pos += (int) numbytes;
+        if (h->pos > f->len) {
+            f->len = h->pos;
+        }
+    }
+
+    /* And the log, whatever file it went to. */
+    if (stub_len + (int) numbytes > STUB_FILE_CAP) {
+        numbytes = (unsigned) (STUB_FILE_CAP - stub_len);
+    }
+    memcpy(stub_buf + stub_len, buffer, numbytes);
+    stub_len += (int) numbytes;
+    if (stub_len < STUB_FILE_CAP) {
+        stub_buf[stub_len] = 0;     /* see stub_file_reset */
+    }
+
+    return numbytes;
+}
+
+FIL* mos_getfil(uint8_t fh) {
+    static FIL fil;
+    stub_handle* h = stub_handle_of(fh);
+
+    /* Normally the content is the file, but a test can say otherwise to
+     * exercise a size the read does not agree with. */
+    if (stub_objsize_set) {
+        fil.obj.objsize = stub_objsize;
+    } else if (h != NULL && h->file >= 0) {
+        fil.obj.objsize = (uint32_t) stub_fs[h->file].len;
+    } else {
+        fil.obj.objsize = (uint32_t) stub_content_len;
+    }
+
+    return &fil;
+}
+
 const char* stub_last_mkdir(void)  { return stub_mkdir_path; }
 
 uint8_t mos_mkdir(const char* path) {
@@ -508,94 +830,3 @@ uint8_t ffs_dclose(DIR* dir) {
     return 0;
 }
 
-uint8_t mos_fopen(const char* filename, uint8_t mode) {
-    stub_opens++;
-
-    /* A named file, if this is one: it becomes what this handle serves, and
-     * the size mos_getfil reports. */
-    if (filename != NULL) {
-        for (int i = 0; i < stub_named_n; i++) {
-            if (strcmp(filename, stub_named[i].name) == 0) {
-                stub_content = stub_named[i].data;
-                stub_content_len = stub_named[i].len;
-                stub_objsize = (uint32_t) stub_named[i].len;
-                stub_objsize_set = 1;
-                break;
-            }
-        }
-    }
-    stub_read_pos = 0;      /* reads start at the beginning of the file */
-    if ((mode & FA_WRITE) != 0) {
-        stub_write_opens++;
-    }
-    if (stub_fail_open) {
-        return 0;  /* MOS reports failure as handle 0 */
-    }
-    /* Opening for reading alone fails when there is nothing to read, which is
-     * how a file that is not there behaves. The stub cannot tell one name from
-     * another, so "content has been set" stands in for "the file exists" --
-     * enough for the code that probes whether a path is already taken. Opens
-     * that ask to write are unaffected: those create the file. */
-    if ((mode & FA_WRITE) == 0 && stub_content_len == 0) {
-        return 0;
-    }
-
-    return 1;
-}
-
-uint8_t mos_fclose(uint8_t fh) {
-    (void)fh;
-    stub_closes++;
-
-    return 0;
-}
-
-unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
-    (void)fh;
-    /* Actually fill the caller's buffer: a short read would hide an
-     * out-of-bounds destination from the sanitizer. */
-    /* Reads advance through the content the way a real file does, so a caller
-     * that streams it in chunks gets each chunk once and in order. */
-    unsigned n = numbytes;
-    const int left = stub_content_len - stub_read_pos;
-    if ((int) n > left) {
-        n = (unsigned) (left > 0 ? left : 0);
-    }
-    if (stub_short_read >= 0 && (int) n > stub_short_read) {
-        n = (unsigned) stub_short_read;
-    }
-    if (stub_content != NULL && n > 0) {
-        memcpy(buffer, stub_content + stub_read_pos, n);
-        stub_read_pos += (int) n;
-    }
-
-    return n;
-}
-
-unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
-    (void)fh;
-    if (stub_short >= 0 && (int) numbytes > stub_short) {
-        numbytes = (unsigned) stub_short;   // pretend the card filled up
-    }
-    if (stub_len + (int)numbytes > STUB_FILE_CAP) {
-        numbytes = STUB_FILE_CAP - stub_len;
-    }
-    memcpy(stub_buf + stub_len, buffer, numbytes);
-    stub_len += numbytes;
-    if (stub_len < STUB_FILE_CAP) {
-        stub_buf[stub_len] = 0;     /* see stub_file_reset */
-    }
-
-    return numbytes;
-}
-
-FIL* mos_getfil(uint8_t fh) {
-    (void)fh;
-    static FIL fil;
-    /* Normally the content is the file, but a test can say otherwise to
-     * exercise a size the read does not agree with. */
-    fil.obj.objsize = stub_objsize_set
-        ? stub_objsize : (uint32_t) stub_content_len;
-
-    return &fil;
-}

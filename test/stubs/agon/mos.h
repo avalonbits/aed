@@ -20,6 +20,7 @@
 #define FA_WRITE          0x02
 #define FA_CREATE_ALWAYS  0x08
 #define FA_OPEN_ALWAYS    0x10
+#define FA_OPEN_APPEND    0x30
 
 typedef struct { uint32_t objsize; } FFOBJID;
 typedef struct { FFOBJID obj; } FIL;
@@ -111,6 +112,8 @@ void        stub_colours_reset(void);
 uint8_t  mos_fopen(const char* filename, uint8_t mode);
 uint8_t  mos_mkdir(const char* path);
 uint8_t  mos_del(const char* filename);
+uint8_t  mos_ren(const char* filename, const char* newname);
+uint8_t  mos_flseek(uint8_t fh, uint32_t offset);
 uint8_t  mos_fclose(uint8_t fh);
 unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes);
 unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes);
@@ -150,6 +153,14 @@ void        stub_set_dir(const char* const* names, const unsigned* sizes, int n)
  * document at once. Names not registered fall back to stub_file_set_content. */
 void        stub_file_add(const char* name, const char* data, int len);
 void        stub_file_clear_named(void);
+
+/* The contents of one file in the stubbed filesystem, or NULL if there is no
+ * such file. For code that writes a file and then has to read it back -- which
+ * is what paging does with its two scratch files, and what nothing could be
+ * tested on before, because the stubs had one write buffer and one read
+ * source between them. */
+const char* stub_file_content(const char* name, int* len);
+int         stub_file_exists(const char* name);
 
 /* Makes mos_fread return fewer bytes than asked for, so the read path can be
  * checked against a card that stops part way. */
