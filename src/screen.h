@@ -87,6 +87,13 @@ typedef struct _screen {
     // without the font API -- so it is sent only when AED sent the font.
     bool fontLoaded_;
 
+    // The buffer a font was selected from at boot, or -1. AED cannot ask the
+    // VDP which font is in force, so if it changes the font this is the only
+    // name it has for putting the old one back -- see bootfont.h. Without it
+    // the only thing AED can select on the way out is the stock 8x8, which
+    // throws away a font the machine was booted into.
+    int bootFont_;
+
     char tab_size_;
     // Document column shown at screen column 0. The view scrolls horizontally
     // by moving this rather than by slicing lines at a byte offset, which is

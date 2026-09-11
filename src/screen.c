@@ -23,6 +23,7 @@
 #include <agon/mos.h>
 #include <stdio.h>
 
+#include "bootfont.h"
 #include "conv.h"
 
 #define MAX_COLS 255
@@ -271,6 +272,11 @@ screen *scr_init(screen* scr, char cursor) {
     derive_geometry(scr);
     scr->colors_ = getsysvar_scrColours();
     scr->fontLoaded_ = false;
+
+    // Read once, at startup. The boot script is not going to change underneath
+    // a running editor, and reading it on the way out -- when the answer is
+    // wanted -- would put a file read on the exit path for no gain.
+    scr->bootFont_ = bootfont_read(BOOTFONT_PATH);
     scr->cursor_ = cursor;
     scr->lastFname_[0] = 0;
     scr->lastPosW_ = 0;
@@ -292,6 +298,11 @@ screen *scr_init(screen* scr, char cursor) {
 // The buffer the font is uploaded into. Any 16-bit id would do; this one is
 // unlikely to collide with whatever else the machine has put in a buffer.
 #define FONT_BUFFER 0x0AED
+
+// Where AED's font goes if the boot script picked the same buffer. Loading over
+// it would destroy the font AED is trying to be able to put back -- restoring
+// would then select AED's own font and call it the machine's.
+#define FONT_BUFFER_ALT 0x0AEE
 
 // Glyphs in a font file. Fixed by the VDP, not by us.
 #define FONT_GLYPHS 256
@@ -360,10 +371,21 @@ static bool wait_mode_packet(int frames) {
 // Measured on MOS 3.0.2 with VDP 1.04: no flag, and the VDP still reports
 // 80x60 and 640x480 afterwards -- the probe leaves it healthy. On VDP 2.16.0
 // and Console8 the flag arrives within a frame.
-static bool font_api_present(void) {
+static bool font_api_present(const screen* scr) {
+    // Selecting the font that is already selected, so that the probe changes
+    // nothing whatever the answer is. Which font that is matters: sending 65535
+    // on a machine booted into a font of its own would put the stock font up
+    // just to ask a question, and leave it there if the load then failed for
+    // any other reason. The boot script says which one, when it says anything.
+    char probe[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
+    if (scr->bootFont_ >= 0) {
+        probe[4] = (char) (scr->bootFont_ & 0xFF);
+        probe[5] = (char) ((scr->bootFont_ >> 8) & 0xFF);
+    }
+
     volatile uint8_t* sysvar = mos_sysvars();
     sysvar[sysvar_vdp_pflags] = 0;
-    font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
+    font_put(probe, sizeof(probe));
 
     return wait_mode_packet(FONT_PROBE_FRAMES);
 }
@@ -378,13 +400,13 @@ static bool font_api_present(void) {
 // rows does not. It is inert as long as fonts are selected with flags 0 -- the
 // VDP only consults it for FONT_SELECTFLAG_ADJUSTBASE -- but a wrong value
 // stored is a wrong value waiting.
-static char font_upload(char fh, int size, int height) {
+static char font_upload(char fh, int size, int height, char blo, char bhi) {
     char hdr[8];
     hdr[0] = 23;
     hdr[1] = 0;
     hdr[2] = (char) 0xA0;
-    hdr[3] = (char) (FONT_BUFFER & 0xFF);
-    hdr[4] = (char) (FONT_BUFFER >> 8);
+    hdr[3] = blo;
+    hdr[4] = bhi;
     hdr[5] = 0;                              // BUFFERED_WRITE
     hdr[6] = (char) (size & 0xFF);
     hdr[7] = (char) ((size >> 8) & 0xFF);
@@ -441,9 +463,19 @@ static char font_upload(char fh, int size, int height) {
 // system font and selecting it is what it is already using -- but it is only
 // worth the round trip when AED changed something, so the caller decides.
 void scr_system_font(screen* scr) {
+    // Back to the font the machine was in, which is the one the boot script
+    // selected if it selected one. Selecting 65535 would be right only for a
+    // machine that started in the stock font, and wrong for every other -- it
+    // does not restore, it overrides.
+    char sel[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
+    if (scr->bootFont_ >= 0) {
+        sel[4] = (char) (scr->bootFont_ & 0xFF);
+        sel[5] = (char) ((scr->bootFont_ >> 8) & 0xFF);
+    }
+
     volatile uint8_t* sysvar = mos_sysvars();
     sysvar[sysvar_vdp_pflags] = 0;
-    font_put(SYSTEM_FONT, sizeof(SYSTEM_FONT));
+    font_put(sel, sizeof(sel));
     wait_mode_packet(FONT_MODE_FRAMES);
 
     derive_geometry(scr);
@@ -499,18 +531,20 @@ bool scr_load_font(screen* scr, const char* path) {
     // it goes after the ones that do not. This is the whole difference between
     // a setting that is safe to try and one that ruins the screen when the VDP
     // turns out to be older than the user thought.
-    if (!font_api_present()) {
+    if (!font_api_present(scr)) {
         mos_fclose(fh);
 
         return false;
     }
 
-    static char clear[6] = {23, 0, (char) 0xA0,
-                            (char) (FONT_BUFFER & 0xFF), (char) (FONT_BUFFER >> 8),
-                            2};              // BUFFERED_CLEAR
+    const int buf = scr->bootFont_ == FONT_BUFFER ? FONT_BUFFER_ALT : FONT_BUFFER;
+    const char blo = (char) (buf & 0xFF);
+    const char bhi = (char) ((buf >> 8) & 0xFF);
+
+    char clear[6] = {23, 0, (char) 0xA0, blo, bhi, 2};   // BUFFERED_CLEAR
     font_put(clear, sizeof(clear));
 
-    const char ascent = font_upload(fh, size, height);
+    const char ascent = font_upload(fh, size, height, blo, bhi);
     mos_fclose(fh);
 
     char create[10];
@@ -518,17 +552,15 @@ bool scr_load_font(screen* scr, const char* path) {
     create[1] = 0;
     create[2] = (char) 0x95;
     create[3] = 1;                           // create font from buffer
-    create[4] = (char) (FONT_BUFFER & 0xFF);
-    create[5] = (char) (FONT_BUFFER >> 8);
+    create[4] = blo;
+    create[5] = bhi;
     create[6] = 8;                           // width; the VDP has no variable-width fonts
     create[7] = (char) height;
     create[8] = ascent;
     create[9] = 0;                           // flags
     font_put(create, sizeof(create));
 
-    static char select[7] = {23, 0, (char) 0x95, 0,
-                             (char) (FONT_BUFFER & 0xFF), (char) (FONT_BUFFER >> 8),
-                             0};
+    char select[7] = {23, 0, (char) 0x95, 0, blo, bhi, 0};
     volatile uint8_t* sysvar = mos_sysvars();
     sysvar[sysvar_vdp_pflags] = 0;
     font_put(select, sizeof(select));
@@ -711,7 +743,12 @@ void scr_destroy(screen* scr) {
     // taken over reprogramming the system font with VDU 23,n -- that has no
     // way back at all.
     if (scr->fontLoaded_) {
-        mos_puts((char*) SYSTEM_FONT, sizeof(SYSTEM_FONT), 0);
+        char sel[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
+        if (scr->bootFont_ >= 0) {
+            sel[4] = (char) (scr->bootFont_ & 0xFF);
+            sel[5] = (char) ((scr->bootFont_ >> 8) & 0xFF);
+        }
+        mos_puts(sel, sizeof(sel), 0);
         scr->fontLoaded_ = false;
     }
 

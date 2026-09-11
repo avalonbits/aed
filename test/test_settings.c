@@ -40,6 +40,28 @@ static void cap_start(void) {
     mark = ftell(stdout);
 }
 
+// The capture with its NULs intact, for searching by byte rather than by text.
+// cap_read turns them into 1s so that strstr can see past them, which is right
+// for reading the stream as text and wrong for looking for a VDU sequence --
+// those are mostly zeroes.
+static int cap_read_raw(char* buf, int max) {
+    fflush(stdout);
+    const long end = ftell(stdout);
+    int n = (int)(end - mark);
+    if (n > max) {
+        n = max;
+    }
+    FILE* r = fopen("/tmp/aed_set_capture", "rb");
+    if (r == NULL) {
+        return -1;
+    }
+    fseek(r, mark, SEEK_SET);
+    n = (int) fread(buf, 1, (size_t) n, r);
+    fclose(r);
+
+    return n;
+}
+
 static int cap_read(char* buf, int max) {
     fflush(stdout);
     const long end = ftell(stdout);
@@ -456,6 +478,71 @@ int main(void) {
               (char)(ed.scr_.topY_ + (ed.scr_.bottomY_ - ed.scr_.topY_) / 2));
         check("  which is still the same line", tb_ypos(&ed.buf_), line_before);
         ed_destroy(&ed);
+    }
+
+    /* --- a font set at boot is put back, not replaced with the stock one --- */
+    {
+        static char font16[256 * 16];
+        memset(font16, 0, sizeof(font16));
+        static const char boot[] =
+            "SET KEYBOARD 1\r\nloadfont 100 /config/aed/unscii16.bin\r\nfontctl 100\r\n";
+        static const char cfg16[] = "[editor]\r\nfont = /config/aed/unscii16.bin\r\n";
+        static const char doc2[] = "hello\n";
+
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        stub_file_reset();
+        stub_file_add("/autoexec.txt", boot, (int) sizeof(boot) - 1);
+        stub_file_add("/config/aed.cfg", cfg16, (int) sizeof(cfg16) - 1);
+        stub_file_add("/config/aed/unscii16.bin", font16, (int) sizeof(font16));
+        stub_file_add("doc.txt", doc2, (int) sizeof(doc2) - 1);
+        stub_file_set_content(doc2, (int) sizeof(doc2) - 1);
+        stub_file_set_objsize((uint32_t)(sizeof(doc2) - 1));
+
+        editor ed;
+        static char started[200000];
+        cap_start();
+        check("editor starts with a boot font and one of its own",
+              ed_init(&ed, 8, "doc.txt") != NULL, 1);
+        const int startup = cap_read_raw(started, sizeof(started) - 1);
+        check("  and knows which buffer the boot script used",
+              ed.scr_.bootFont_, 100);
+        check("  and did load its own font", ed.scr_.fontLoaded_, 1);
+
+        /* Getting there without putting the stock font up on the way.
+         *
+         * The check for whether this VDP has the font API works by selecting a
+         * font that is already selected, so that asking changes nothing. Asking
+         * with 65535 does change something on a machine booted into a font of
+         * its own -- it shows the stock font, and leaves it there if the load
+         * then fails for any other reason. It has to ask with the boot font. */
+        {
+            const unsigned char stock[] = {23, 0, 0x95, 0, 0xFF, 0xFF, 0};
+            int seen = 0;
+            for (int i = 0; i + 7 <= startup; i++) {
+                if (memcmp(started + i, stock, 7) == 0) { seen = 1; }
+            }
+            check("  without showing the stock font on the way", seen, 0);
+        }
+
+        cap_start();
+        scr_destroy(&ed.scr_);
+        const int m = cap_read_raw(got, sizeof(got) - 1);
+
+        /* Buffer 100, not 65535. Selecting the stock font would not restore
+         * anything -- it would replace the machine's font with the default. */
+        const unsigned char want[] = {23, 0, 0x95, 0, 100, 0, 0};
+        const unsigned char stock[] = {23, 0, 0x95, 0, 0xFF, 0xFF, 0};
+        int has_want = 0;
+        int has_stock = 0;
+        for (int i = 0; i + 7 <= m; i++) {
+            if (memcmp(got + i, want, 7) == 0) { has_want = 1; }
+            if (memcmp(got + i, stock, 7) == 0) { has_stock = 1; }
+        }
+        check("  and puts the boot font back on the way out", has_want, 1);
+        check("  rather than the stock one", has_stock, 0);
+        ed_destroy(&ed);
+        stub_file_clear_named();
     }
 
     fflush(stdout);

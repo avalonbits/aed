@@ -148,8 +148,17 @@ So this is *not* the bargain `ctrl_pause_frames` asks of you. Setting it says "I
 would like this font", not "I promise my VDP is new enough". On an older VDP you
 get the stock font and nothing worse.
 
-AED puts the system font back when it exits, the same way it puts your colours
-back.
+AED puts the font back when it exits, the same way it puts your colours back.
+
+If your `/autoexec.txt` sets a font -- `loadfont` into a buffer and `fontctl` to
+select it, or the same thing written out as a `VDU 23,0,&95,0,<buffer>;` line --
+AED reads which buffer it used and selects that on the way out, rather than the
+stock font. Without that it has no choice: the VDP has no command that reports
+which font is in force, so the only name AED would have for "put it back" is the
+system font, which would replace your font with the default every time you quit.
+
+That is declared intent rather than truth. A font set by anything else, or after
+boot, is invisible to it, and AED then does what it always did.
 
 ### `ctrl_pause_frames`
 
