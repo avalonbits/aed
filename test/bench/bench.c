@@ -138,6 +138,21 @@ int main(int argc, char** argv) {
     }
     report(fh, "find-miss", clock() - t0, find_reps);
 
+    /* --- walk: the traversal a search does, with no searching in it. The
+     * difference between this and find-miss is what the matching costs, and
+     * the two are otherwise the same journey through the gap buffer. --- */
+    int walk_reps = reps > 0 ? reps : 4;
+    t0 = clock();
+    for (int i = 0; i < walk_reps; i++) {
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        for (int y = 1; y < lines; y++) {
+            tb_down(&tb);
+            tb_home(&tb);
+        }
+    }
+    report(fh, "walk-lines", clock() - t0, walk_reps);
+
     /* --- seek: walking the document by line, both ways --- */
     int seek_reps = reps > 0 ? reps : 4;
     t0 = clock();

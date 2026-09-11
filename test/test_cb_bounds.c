@@ -52,6 +52,62 @@ int main(void) {
     check("cb_available is zero", cb_available(&cb), 0);
 
     /* The write that used to run off the end of the allocation. */
+    /* Moving the cursor across a gap smaller than the move, which is what a
+     * nearly full buffer gives. The move is a memmove now rather than a byte
+     * loop, and the two sides overlap exactly here -- with the buffer full the
+     * gap is nothing at all, so source and destination are the same bytes.
+     * memcpy would be free to get this wrong; the byte loop it replaced copied
+     * in the safe direction by construction. */
+    {
+        char_buffer ov;
+        check("a buffer to fill", cb_init(&ov, 8) != NULL, 1);
+        for (int i = 0; i < 8; i++) {
+            cb_put(&ov, (char) ('1' + i));
+        }
+        check("  full, so the gap is empty", cb_available(&ov), 0);
+        cb_prev(&ov, 8);
+        check("  the whole of it moved back", cb_used(&ov), 8);
+        int n = 0;
+        const char* suf = cb_suffix(&ov, &n);
+        check("  and all of it is on the far side", n, 8);
+        check("  with its bytes in order",
+              suf != NULL && memcmp(suf, "12345678", 8) == 0 ? 1 : 0, 1);
+        cb_next(&ov, 8);
+        int pn = 0;
+        const char* pre = cb_prefix(&ov, &pn);
+        check("  and forward again puts them back", pn, 8);
+        check("  still in order",
+              pre != NULL && memcmp(pre, "12345678", 8) == 0 ? 1 : 0, 1);
+        cb_destroy(&ov);
+    }
+
+    /* A move longer than there is text. Both directions clamp to what is
+     * actually there; without that the block move runs off the allocation, and
+     * a count from a caller is not always one the buffer can honour -- tb_up
+     * and tb_down both compute theirs from the line index. ASan is what makes
+     * this bite: the failure is a read and a write past the end, not a wrong
+     * answer. */
+    {
+        char_buffer big;
+        check("a buffer to overrun", cb_init(&big, 8) != NULL, 1);
+        for (int i = 0; i < 8; i++) {
+            cb_put(&big, (char) ('a' + i));
+        }
+        cb_prev(&big, 1000000);
+        int n = 0;
+        const char* suf = cb_suffix(&big, &n);
+        check("  a move past the start stops at the start", n, 8);
+        check("  with the text intact",
+              suf != NULL && memcmp(suf, "abcdefgh", 8) == 0 ? 1 : 0, 1);
+        cb_next(&big, 1000000);
+        int pn = 0;
+        const char* pre = cb_prefix(&big, &pn);
+        check("  a move past the end stops at the end", pn, 8);
+        check("  with the text still intact",
+              pre != NULL && memcmp(pre, "abcdefgh", 8) == 0 ? 1 : 0, 1);
+        cb_destroy(&big);
+    }
+
     check("cb_put refuses when full", cb_put(&cb, 'y') ? 1 : 0, 0);
     check("refused put does not grow the buffer", cb_used(&cb), 8);
     check("still refuses on a second attempt", cb_put(&cb, 'z') ? 1 : 0, 0);

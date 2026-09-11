@@ -316,16 +316,30 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
         return -1;
     }
     const int last = hsz - nsz;
+
+    // The needle's first character, folded once. Almost every position in a
+    // document fails on it, and match_at is a real call -- a call, a frame and
+    // a return -- so asking it was costing one of those per byte of the
+    // document. Testing the cheapest term first and only then paying for the
+    // rest is what a search should do; here it is the whole of the work.
+    //
+    // Both loop bounds are unsigned. i and last are both non-negative -- the
+    // nsz > hsz check above is what makes last so -- and a signed comparison on
+    // this target carries a `call pe, __setflag` to repair the flags, which an
+    // unsigned one does not.
+    const char n0 = fold(needle[0]);
     if (forward) {
-        for (int i = from < 0 ? 0 : from; i <= last; i++) {
-            if (match_at(hay + i, needle, nsz)) {
-                return i;
+        const unsigned stop = (unsigned) last;
+        for (unsigned i = (unsigned)(from < 0 ? 0 : from); i <= stop; i++) {
+            if (fold(hay[i]) == n0 && match_at(hay + i, needle, nsz)) {
+                return (int) i;
             }
         }
     } else {
-        for (int i = (from < 0 || from > last) ? last : from; i >= 0; i--) {
-            if (match_at(hay + i, needle, nsz)) {
-                return i;
+        for (unsigned i = (unsigned)((from < 0 || from > last) ? last : from) + 1;
+             i-- != 0; ) {
+            if (fold(hay[i]) == n0 && match_at(hay + i, needle, nsz)) {
+                return (int) i;
             }
         }
     }
