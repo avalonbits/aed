@@ -599,7 +599,25 @@ static void find_from_cursor(editor* ed, bool forward) {
     }
 
     tb_pos from = tb_tell(tb);
-    from.x += forward ? 1 : -1;
+    if (forward) {
+        from.x += 1;
+    } else {
+        // A match leaves the cursor at its end, so stepping one back from the
+        // cursor is still inside it and the same match is found again -- which
+        // looked exactly like CTRL+P doing nothing at all. Going backwards
+        // starts from where the match began.
+        //
+        // Only when the selection is behind the cursor. A selection made by
+        // hand can run the other way, and its anchor is then ahead of the
+        // cursor -- searching back from there would skip over everything
+        // between the two.
+        if (ed->selecting_
+            && (ed->anchor_.line < from.line
+                || (ed->anchor_.line == from.line && ed->anchor_.x < from.x))) {
+            from = ed->anchor_;
+        }
+        from.x -= 1;
+    }
 
     tb_pos at;
     if (!tb_find(tb, ed->find_, ed->findsz_, from, forward, &at)) {

@@ -200,6 +200,40 @@ int main(void) {
         ui_destroy(&ui);
     }
 
+    /* --- picking colours repaints the whole screen, not just the list --- */
+    {
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        scr_init(&scr, 32);
+        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
+
+        /* Down to the colours, into the picker, change one, accept, close. */
+        const stub_key pick[] = {
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 0,  .vk = VK_UP },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(pick, 5);
+
+        config cfg;
+        cfg_defaults(&cfg);
+        cap_start();
+        check("picking colours is worth writing",
+              ui_settings(&ui, &scr, &cfg), YES_OPT);
+        cap_read(got, sizeof(got) - 1);
+
+        /* The title bar is not one of the rows this modal draws on, so it kept
+         * whatever colours it had and the new scheme looked as though it had
+         * reached only the middle of the screen. Repainting puts the title
+         * back on the wire, which is what to look for. */
+        check("  and the title bar is repainted with them",
+              strstr(got, "Another Text Editor") != NULL, 1);
+        ui_destroy(&ui);
+    }
+
     /* --- a chosen font is written down, and takes effect at once --- */
     {
         stub_set_screen(80, 60);

@@ -786,6 +786,21 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                     cfg->fg = scr_fg(scr);
                     cfg->bg = scr_bg(scr);
                     changed = true;
+
+                    // Repaint the whole screen, not just the rows this modal
+                    // draws on. The title bar is not one of them, so it kept
+                    // the colours it was drawn in and the new scheme appeared
+                    // to have reached only the middle of the screen.
+                    //
+                    // scr_clear moves the cursor's row to the top of the text
+                    // area as a side effect, and what put the document back
+                    // reads that row to work out where the view was -- so it
+                    // is saved across the clear here, the same as there.
+                    const char currX = scr->currX_;
+                    const char currY = scr->currY_;
+                    scr_clear(scr);
+                    scr->currX_ = currX;
+                    scr->currY_ = currY;
                 }
                 break;
             case ROW_FONT: {
