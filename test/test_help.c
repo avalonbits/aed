@@ -123,6 +123,43 @@ int main(void) {
             }
             check("  with a blank row before them", blanks >= 40, 1);
         }
+        /* CTRL+DELETE deletes a whole line, the same as CTRL+D, and for a long
+         * time only CTRL+D was listed. */
+        check("the delete-line synonym is listed too",
+              strstr(got, "CTRL+D / CTRL+DEL") != NULL, 1);
+
+        /* The descriptions line up in a column, and the longest key is now
+         * within two characters of reaching it. A key longer than the column
+         * runs straight into its own description with no gap at all, and the
+         * only thing that stops it is HELP_GAP being wide enough -- which
+         * nothing else here would notice. */
+        {
+            int worst = 1 << 20;
+            static const char* const keys[] = {
+                "CTRL+O", "CTRL+ALT+S", "CTRL+LEFT/RIGHT", "HOME / END",
+                "PAGE UP/DOWN", "BACKSPACE", "CTRL+D / CTRL+DEL",
+                "SHIFT+motion", "CTRL+F", "CTRL+E",
+            };
+            for (int i = 0; i < (int)(sizeof(keys) / sizeof(keys[0])); i++) {
+                const char* at = strstr(got, keys[i]);
+                if (at == NULL) {
+                    worst = -1;
+                    break;
+                }
+                const char* p = at + strlen(keys[i]);
+                int gap = 0;
+                while (*p == ' ') {
+                    gap++;
+                    p++;
+                }
+                if (gap < worst) {
+                    worst = gap;
+                }
+            }
+            check("  and every key clears its description by two spaces",
+                  worst >= 2, 1);
+        }
+
         check("it closed on one key", stub_keys_read(), 1);
         ui_destroy(&ui);
     }
@@ -266,6 +303,58 @@ int main(void) {
         check("  and the whole of it is in the message",
               strstr(got, "font not loaded: abcdefghij") != NULL, 1);
         ed_destroy(&longest);
+    }
+
+    /* --- a file that will not load still hands the machine back --- */
+    /* ed_init sets the screen up first: it measures the colours the machine was
+     * using, puts the user's scheme on, and may load a font. Every way it could
+     * fail after that returned without scr_destroy, so naming a file too large
+     * for memory left the user at the prompt in AED's colours and AED's font.
+     *
+     * The message has to survive that too. It used to be printed from inside
+     * tb_load, before the screen was handed back -- and handing it back clears
+     * it, so restoring the colours would have wiped the one thing that said
+     * why. It is said after the restore now. */
+    {
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        stub_set_screen_colours(7, 1);
+
+        /* A settings file asking for colours of its own, so what the editor
+         * uses and what it must give back are different. */
+        static const char scheme[] = "[colours]\r\nfg = 3\r\nbg = 4\r\n";
+        stub_file_reset();
+        stub_file_set_content(scheme, (int) sizeof(scheme) - 1);
+
+        text_buffer probe;
+        if (tb_init(&probe, 8, NULL) == NULL) {
+            fprintf(stderr, "probe init failed\n");
+
+            return 2;
+        }
+        const uint32_t toobig = (uint32_t) tb_size(&probe) + 64;
+        tb_destroy(&probe);
+
+        stub_file_set_objsize(toobig);
+        stub_colours_reset();
+        cap_start();
+        editor big;
+        check("a file too large is refused", ed_init(&big, 8, "big.asm") == NULL, 1);
+        cap_read(got, sizeof(got) - 1);
+        check("  and the machine gets its foreground back", stub_last_fg(), 7);
+        check("  and its background", stub_last_bg(), 1);
+        /* After the clear, not before it. On the real screen scr_destroy's
+         * VDU 12 wipes everything written up to that point, so a message
+         * printed first is destroyed by the very act of putting the colours
+         * right -- and in the capture, where nothing is really erased, only the
+         * order gives that away. */
+        const char* said = strstr(got, "file too large");
+        const char* cleared = strrchr(got, 12);
+        check("  and is told why", said != NULL, 1);
+        check("  after the screen is handed back, not before",
+              said != NULL && cleared != NULL && said > cleared, 1);
+        stub_file_set_objsize(0);
+        stub_set_screen_colours(15, 0);
     }
 
     /* --- the banner --- */

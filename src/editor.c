@@ -30,6 +30,48 @@
 
 #define DEFAULT_CURSOR 32
 
+// How far ed_init got before it gave up, so that exactly what was built can be
+// taken back down again.
+//
+// The screen is the one that matters. scr_init runs before anything that can
+// fail, and by then it has measured the colours the machine was using, put the
+// user's scheme on, and possibly loaded a font. Returning without scr_destroy
+// hands back a machine still wearing all of it -- which is what naming a file
+// too large for memory used to do.
+typedef enum _ed_built {
+    ED_NOTHING = 0,
+    ED_SCREEN,
+    ED_CLIP,
+    ED_BUF,
+    ED_UNDO,
+} ed_built;
+
+static editor* ed_failed(editor* ed, ed_built built) {
+    if (built >= ED_UNDO) {
+        tb_set_undo(&ed->buf_, NULL);
+        undo_destroy(&ed->undo_);
+    }
+    if (built >= ED_CLIP) {
+        clip_destroy(&ed->clip_);
+    }
+    if (built >= ED_SCREEN) {
+        scr_destroy(&ed->scr_);
+    }
+    if (built >= ED_BUF) {
+        tb_destroy(&ed->buf_);
+    }
+
+    return NULL;
+}
+
+// Said after the screen has been handed back, so that it lands on the user's
+// own screen and stays there. scr_destroy clears, so anything written before it
+// is wiped by the very act of putting the colours right.
+static void ed_say(const char* msg) {
+    mos_puts((char*) msg, strlen(msg), 0);
+    mos_puts("\r\n", 2, 0);
+}
+
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
 
@@ -80,11 +122,22 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     ed->anchor_.line = 1;
     ed->anchor_.x = 0;
     if (clip_init(&ed->clip_, CLIP_SIZE) == NULL) {
-        return NULL;
+        return ed_failed(ed, ED_SCREEN);
     }
 
-    if (!tb_init(&ed->buf_, mem_kb, fname)) {
-       return NULL;
+    // Made empty and loaded separately, so that a file that will not load can
+    // be reported by name and by reason -- tb_init only says whether it worked.
+    if (tb_init(&ed->buf_, mem_kb, NULL) == NULL) {
+        return ed_failed(ed, ED_CLIP);
+    }
+    if (fname != NULL) {
+        const tb_result why = tb_load(&ed->buf_, fname);
+        if (why != TB_OK) {
+            ed_failed(ed, ED_BUF);
+            ed_say(why == TB_TOO_LARGE ? "file too large" : "invalid file");
+
+            return NULL;
+        }
     }
 
     // Attached after the load, on purpose. tb_load normalises the file's line
@@ -95,13 +148,11 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     ed->findsz_ = 0;
 
     if (undo_init(&ed->undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS) == NULL) {
-        tb_destroy(&ed->buf_);
-        return NULL;
+        return ed_failed(ed, ED_BUF);
     }
     tb_set_undo(&ed->buf_, &ed->undo_);
     if (!ui_init(&ed->ui_, 256, ed->scr_.bottomY_, ed->scr_.cols_)) {
-        tb_destroy(&ed->buf_);
-        return NULL;
+        return ed_failed(ed, ED_UNDO);
     }
 
     // The document is only drawn when there is something in it -- painting a
@@ -419,11 +470,7 @@ key_command ctrlCmds(key_command kc, char mods) {
             break;
         case VK_C:
         case VK_c:
-            if (mods & MOD_ALT) {
-                kc.cmd = cmd_color_picker;
-            } else {
-                kc.cmd = cmd_copy;
-            }
+            kc.cmd = cmd_copy;
             break;
         case VK_G:
         case VK_g:

@@ -82,7 +82,6 @@ void cmd_copy(editor* ed);
 void cmd_cut(editor* ed);
 void cmd_paste(editor* ed);
 void cmd_select_all(editor* ed);
-void cmd_color_picker(editor* ed);
 
 // Shows the settings, lets them be changed, and writes the file when any were.
 void cmd_settings(editor* ed);

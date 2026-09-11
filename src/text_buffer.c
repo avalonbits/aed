@@ -50,7 +50,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->undo_ = NULL;
     tb->load_dirty_ = false;
 
-    if (fname != NULL && !tb_load(tb, fname)) {
+    if (fname != NULL && tb_load(tb, fname) != TB_OK) {
         free(tb->fname_);
         tb->fname_ = NULL;
         lb_destroy(&tb->lb_);
@@ -1023,9 +1023,9 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
 }
 
 
-bool tb_load(text_buffer* tb, const char* fname) {
+tb_result tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
-        return false;
+        return TB_NO_FILE;
     }
 
     // Clamped, as tb_set_fname does. This name comes from argv, and copying
@@ -1043,16 +1043,16 @@ bool tb_load(text_buffer* tb, const char* fname) {
         // Try to create the file.
         fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
         if (fh == 0) {
-            char* msg = "invalid file";
-            mos_puts(msg, strlen(msg), 0);
             tb->fname_[0] = 0;
-            return false;
+
+            return TB_NO_FILE;
         }
     }
     FIL* fil = mos_getfil(fh);
     if (fil == NULL) {
         mos_fclose(fh);
-        return false;
+
+        return TB_NO_FILE;
     }
 
     bool ok = true;
@@ -1061,12 +1061,10 @@ bool tb_load(text_buffer* tb, const char* fname) {
     // so a file over 8MB would arrive here as a small or negative number and
     // walk straight past a signed check.
     if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
-        char* msg = "file too large";
-        mos_puts(msg, strlen(msg), 0);
         mos_fclose(fh);
         tb->fname_[0] = 0;
 
-        return false;
+        return TB_TOO_LARGE;
     }
     const int sz = (int) fil->obj.objsize;
     if (sz > 0) {
@@ -1074,7 +1072,7 @@ bool tb_load(text_buffer* tb, const char* fname) {
     }
     mos_fclose(fh);
 
-    return ok;
+    return ok ? TB_OK : TB_NO_FILE;
 }
 
 void tb_clear(text_buffer* tb) {
