@@ -41,6 +41,10 @@ int cb_used(char_buffer* cb);
 
 // Character ops.
 bool cb_put(char_buffer* cb, char ch);
+
+// A whole span at once, which is what a copy and a paste actually have. Fails
+// without writing anything if it does not all fit.
+bool cb_write(char_buffer* cb, const char* buf, int sz);
 bool cb_del(char_buffer* cb);
 bool cb_bksp(char_buffer* cb);
 

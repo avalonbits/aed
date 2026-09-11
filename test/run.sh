@@ -40,10 +40,20 @@ status=0
 # binary asset is a font of the wrong height and nothing else here would notice.
 ./test/fonts.sh || status=$?
 
+# Stack frames, which the host cannot see at all: `(ix + d)` is a signed byte on
+# the eZ80, so a frame past 128 bytes pays an address computation on every local
+# access. The usual way one arrives is a 256-byte buffer, and nothing in the C
+# says it happened.
+./test/frames.sh || status=$?
+
 for t in test/test_*.c; do
     name=$(basename "$t" .c)
     echo "=== $name ==="
-    cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${SRCS[@]}"
+    if ! cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${SRCS[@]}"; then
+        echo "FAIL  $name did not compile"
+        status=1
+        continue
+    fi
     "$OUT/$name" || status=$?
 done
 

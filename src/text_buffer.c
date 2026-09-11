@@ -316,16 +316,30 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
         return -1;
     }
     const int last = hsz - nsz;
+
+    // The needle's first character, folded once. Almost every position in a
+    // document fails on it, and match_at is a real call -- a call, a frame and
+    // a return -- so asking it was costing one of those per byte of the
+    // document. Testing the cheapest term first and only then paying for the
+    // rest is what a search should do; here it is the whole of the work.
+    //
+    // Both loop bounds are unsigned. i and last are both non-negative -- the
+    // nsz > hsz check above is what makes last so -- and a signed comparison on
+    // this target carries a `call pe, __setflag` to repair the flags, which an
+    // unsigned one does not.
+    const char n0 = fold(needle[0]);
     if (forward) {
-        for (int i = from < 0 ? 0 : from; i <= last; i++) {
-            if (match_at(hay + i, needle, nsz)) {
-                return i;
+        const unsigned stop = (unsigned) last;
+        for (unsigned i = (unsigned)(from < 0 ? 0 : from); i <= stop; i++) {
+            if (fold(hay[i]) == n0 && match_at(hay + i, needle, nsz)) {
+                return (int) i;
             }
         }
     } else {
-        for (int i = (from < 0 || from > last) ? last : from; i >= 0; i--) {
-            if (match_at(hay + i, needle, nsz)) {
-                return i;
+        for (unsigned i = (unsigned)((from < 0 || from > last) ? last : from) + 1;
+             i-- != 0; ) {
+            if (fold(hay[i]) == n0 && match_at(hay + i, needle, nsz)) {
+                return (int) i;
             }
         }
     }
@@ -540,15 +554,27 @@ void tb_seek(text_buffer* tb, tb_pos p) {
     // tb_up and tb_down report the character they land on, which is 0 for
     // several legitimate positions, so progress is judged by the line number
     // instead -- the same way the repaint loop decides it has run out of lines.
-    int prev = -1;
-    while (tb_ypos(tb) < p.line && tb_ypos(tb) != prev) {
-        prev = tb_ypos(tb);
+    //
+    // Read once per line rather than three times. tb_ypos is a call, and the
+    // lb_curr inside it is another, and the loop asked for it twice in the
+    // condition on top of the copy kept to notice standing still. A seek across
+    // a document was paying six calls a line to answer the same question.
+    int y = tb_ypos(tb);
+    while (y < p.line) {
         tb_down(tb);
+        const int now = tb_ypos(tb);
+        if (now == y) {
+            break;              // the end of the document; nothing below it
+        }
+        y = now;
     }
-    prev = -1;
-    while (tb_ypos(tb) > p.line && tb_ypos(tb) != prev) {
-        prev = tb_ypos(tb);
+    while (y > p.line) {
         tb_up(tb);
+        const int now = tb_ypos(tb);
+        if (now == y) {
+            break;
+        }
+        y = now;
     }
 
     const int len = line_len(tb);
@@ -647,14 +673,7 @@ bool tb_range_walk(text_buffer* tb, tb_pos a, tb_pos b, tb_sink sink, void* ctx)
 // and the caller empties the buffer rather than leaving a truncated copy: one
 // that went on to cut the range would otherwise delete text it could not keep.
 static bool cb_sink(void* ctx, const char* buf, int sz) {
-    char_buffer* out = (char_buffer*) ctx;
-    for (int i = 0; i < sz; i++) {
-        if (!cb_put(out, buf[i])) {
-            return false;
-        }
-    }
-
-    return true;
+    return cb_write((char_buffer*) ctx, buf, sz);
 }
 
 int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {
@@ -858,8 +877,18 @@ static void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, 
 
 static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     int added = 0;
+
+    // Look at the character behind the cursor and put the cursor back where it
+    // was. Only put back what was actually taken: at the very start of the
+    // buffer there is nothing behind the cursor, cb_prev moves nothing, and an
+    // unconditional cb_next would walk the cursor *forward* over a byte nobody
+    // asked it to pass. A file whose first character is a line feed does that
+    // on its first byte, and every byte after it is then one out.
+    char* const was = cb->curr_;
     const char pch = cb_prev(cb, 1);
-    cb_next(cb, 1);
+    if (cb->curr_ != was) {
+        cb_next(cb, 1);
+    }
 
     if (pch != '\r') {
         if (!cb_put(cb, '\r')) {
@@ -900,19 +929,64 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
     // `added` counts the CRs put in front of a bare LF, `crlf` the breaks that
     // already had one. Together they say what the file's endings were, which is
     // what decides how it goes back out.
+    //
+    // The walk is written out here rather than made of calls to cb_peek,
+    // cb_next and lb_cinc. Those are three external calls for every byte of the
+    // file -- a call, a frame and a return each, none of which the compiler can
+    // inline across translation units -- and on a 64 KB document that was the
+    // whole of a three-second load. The steps are the same ones those functions
+    // take; only the call is gone.
+    //
+    // The cursor is put back into the buffer around ensure_newline, which works
+    // on the structure and is reached once a line rather than once a byte.
     int added = 0;
     int crlf = 0;
-    for (int i = 0; i < sz; i++) {
-        lb_cinc(&tb->lb_);
-        if (cb_peek(cb) == '\n') {
-            const int n = ensure_newline(&tb->cb_, &tb->lb_);
-            if (n == 0) {
-                crlf++;
-            }
-            added += n;
+    char* curr = cb->curr_;
+    char* cend = cb->cend_;
+    int* lcur = tb->lb_.curr_;
+    int llen = *lcur;
+
+    int left = sz;
+
+    while (left != 0) {
+        // The run up to the next line feed, found and moved whole. memchr is a
+        // CPIR on this machine and memmove an LDIR -- block instructions that
+        // do a byte a cycle or two -- where testing and copying a byte at a
+        // time in C is a dozen instructions each. Only the line feed itself is
+        // handled one at a time, and there is one of those per line.
+        const char* nl = (const char*) memchr(cend, '\n', (size_t) left);
+        const int run = nl != NULL ? (int) (nl - cend) : left;
+        if (run != 0) {
+            memmove(curr, cend, (size_t) run);
+            curr += run;
+            cend += run;
+            llen += run;
+            left -= run;
         }
-        cb_next(cb, 1);
+        if (nl == NULL) {
+            break;
+        }
+
+        llen++;                 // the line feed, counted before it is passed
+        cb->curr_ = curr;
+        cb->cend_ = cend;
+        *lcur = llen;
+        const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n == 0) {
+            crlf++;
+        }
+        added += n;
+        curr = cb->curr_;
+        cend = cb->cend_;
+        lcur = tb->lb_.curr_;
+        llen = *lcur;
+
+        *curr++ = *cend++;
+        left--;
     }
+    cb->curr_ = curr;
+    cb->cend_ = cend;
+    *lcur = llen;
 
     if (cb_peek(cb) == '\n') {
         const int n = ensure_newline(&tb->cb_, &tb->lb_);
@@ -1022,7 +1096,9 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
         return TB_NO_FILE;
     }
 
-    char name[TB_FNAME_MAX];
+    // Static: 256 bytes of name on the stack would put this frame past the
+    // 128 bytes an ix displacement reaches, and charge every other local for it.
+    static char name[TB_FNAME_MAX];
     if (sz >= (int) sizeof(name)) {
         sz = sizeof(name) - 1;
     }
@@ -1114,7 +1190,10 @@ static void lfw_put(lf_writer* w, char c) {
 // that remains true of every edit path.
 static void tb_write_lf(char fh, const char* pre, int psz,
                         const char* suf, int ssz) {
-    lf_writer w;
+    // Static: an lf_writer is a 256-byte buffer, and on the stack it puts this
+    // frame past the 128 bytes an ix displacement reaches -- which is charged
+    // to every local the function has, not just the buffer. One save at a time.
+    static lf_writer w;
     w.fh = fh;
     w.n = 0;
 

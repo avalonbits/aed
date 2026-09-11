@@ -114,7 +114,10 @@ bool clip_spill_would_overwrite(clipboard* c, text_buffer* tb, int size) {
         return false;       // it will fit in memory; no file involved
     }
 
-    char path[sizeof(((clipboard*) 0)->path_)];
+    // Static so the frame stays inside the ix displacement: 280 bytes of
+    // path on the stack costs five instructions for every other local this
+    // function touches. Nothing here is re-entrant.
+    static char path[sizeof(((clipboard*) 0)->path_)];
     if (!build_scratch_path(tb, path, (int) sizeof(path))) {
         return false;
     }
@@ -142,7 +145,7 @@ bool clip_verify(clipboard* c) {
         return false;
     }
 
-    char buf[CLIP_CHUNK];
+    static char buf[CLIP_CHUNK];    // off the frame; see the note in spill
     int left = c->size_;
     bool ok = true;
     while (left > 0) {
@@ -206,7 +209,12 @@ static bool spill(clipboard* c, text_buffer* tb, tb_pos a, tb_pos b, int size) {
         return false;
     }
 
-    file_sink f;
+    // Static, and this is the note the other three refer to. A file_sink is
+    // a 256-byte buffer and change; on the stack it puts this function's frame
+    // past 128 bytes, and `(ix + d)` takes a signed byte -- so every local it
+    // has, not just the buffer, costs an address computation on every access.
+    // AED has one clipboard and one thread, and these four never overlap.
+    static file_sink f;
     f.fh = mos_fopen(c->path_, FA_WRITE | FA_CREATE_ALWAYS);
     if (f.fh == 0) {
         c->path_[0] = 0;
@@ -284,7 +292,7 @@ static bool paste_file(clipboard* c, text_buffer* tb) {
     // asked for, and there is no undo to remove it with.
     const tb_pos before = tb_tell(tb);
 
-    char buf[CLIP_CHUNK];
+    static char buf[CLIP_CHUNK];    // off the frame; see the note in spill
     bool pending_cr = false;
     bool ok = true;
     int left = c->size_;
