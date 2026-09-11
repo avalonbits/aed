@@ -402,8 +402,12 @@ typedef struct _font_entry {
 // Anything whose size is not a whole number of 256-byte rows is not a font and
 // is left out, which is the same rule scr_load_font applies.
 static int font_list(font_entry* out, int max) {
-    DIR dir;
-    FILINFO info;
+    // Static: a FILINFO carries a 256-byte name, and this function is inlined
+    // into the settings modal -- so on the stack those bytes join *its* frame,
+    // take it past the 128 an ix displacement reaches, and charge an address
+    // computation to every local the modal has. One directory walk at a time.
+    static DIR dir;
+    static FILINFO info;
     int n = 0;
 
     if (ffs_dopen(&dir, FONT_DIR) != 0) {
@@ -685,7 +689,11 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
     const int fg_now = scr_fg(scr);
     const int bg_now = scr_bg(scr);
 
-    char font_now[CFG_FONT_MAX];
+    // The two CFG_FONT_MAX buffers here are static for the same reason the
+    // directory walk's are: together they are 128 bytes, which is the whole ix
+    // displacement, and everything past it in the frame then costs five
+    // instructions an access. A modal is entered once at a time.
+    static char font_now[CFG_FONT_MAX];
     const int fl = (int) strlen(cfg->font);
     memcpy(font_now, cfg->font, (size_t)(fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1));
     font_now[fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1] = 0;
@@ -804,7 +812,7 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                 }
                 break;
             case ROW_FONT: {
-                char picked[CFG_FONT_MAX];
+                static char picked[CFG_FONT_MAX];
                 const RESPONSE got = ui_font_picker(ui, scr, picked, CFG_FONT_MAX);
                 if (got == YES_OPT) {
                     const int n = (int) strlen(picked);

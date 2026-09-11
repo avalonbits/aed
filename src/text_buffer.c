@@ -1022,7 +1022,9 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
         return TB_NO_FILE;
     }
 
-    char name[TB_FNAME_MAX];
+    // Static: 256 bytes of name on the stack would put this frame past the
+    // 128 bytes an ix displacement reaches, and charge every other local for it.
+    static char name[TB_FNAME_MAX];
     if (sz >= (int) sizeof(name)) {
         sz = sizeof(name) - 1;
     }
@@ -1114,7 +1116,10 @@ static void lfw_put(lf_writer* w, char c) {
 // that remains true of every edit path.
 static void tb_write_lf(char fh, const char* pre, int psz,
                         const char* suf, int ssz) {
-    lf_writer w;
+    // Static: an lf_writer is a 256-byte buffer, and on the stack it puts this
+    // frame past the 128 bytes an ix displacement reaches -- which is charged
+    // to every local the function has, not just the buffer. One save at a time.
+    static lf_writer w;
     w.fh = fh;
     w.n = 0;
 
