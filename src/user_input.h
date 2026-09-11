@@ -59,7 +59,7 @@ void ui_message(user_input* ui, screen* scr, char* msg);
 //
 // It only draws: putting the document back is the caller's job, because the
 // view cannot -- it has no access to the document. cmd_help does it the same
-// way cmd_color_picker does.
+// way cmd_settings does.
 void ui_help(user_input* ui, screen* scr);
 
 // The startup banner, centred in the text area, for a session started with no

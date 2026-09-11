@@ -419,11 +419,7 @@ key_command ctrlCmds(key_command kc, char mods) {
             break;
         case VK_C:
         case VK_c:
-            if (mods & MOD_ALT) {
-                kc.cmd = cmd_color_picker;
-            } else {
-                kc.cmd = cmd_copy;
-            }
+            kc.cmd = cmd_copy;
             break;
         case VK_G:
         case VK_g:

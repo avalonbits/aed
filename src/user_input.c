@@ -159,7 +159,6 @@ static const help_line HELP[] = {
 
     { NULL,               "SETTINGS" },
     { "CTRL+E",           "settings" },
-    { "CTRL+ALT+C",       "pick the colours" },
     { "CTRL+H",           "this list" },
 };
 #define HELP_LINES ((int)(sizeof(HELP) / sizeof(HELP[0])))

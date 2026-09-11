@@ -484,10 +484,15 @@ int main(void) {
     check("exit restores the entry background", stub_last_bg(), 1);
 
     /* --- picking a colour writes it down --- */
-    /* Drive the picker: one UP (foreground up by one) then RETURN to accept. */
+    /* Through the settings modal, which is the only way to the picker now:
+     * DOWN to the colours row, RETURN to open it, UP to move the foreground on
+     * by one, RETURN to accept, ESC to close the settings. */
     static const stub_key pick[] = {
+        { 0, VK_DOWN, 0 },
+        { 0, VK_RETURN, 0 },
         { 0, VK_UP, 0 },
         { 0, VK_RETURN, 0 },
+        { 27, VK_ESCAPE, 0 },
     };
     static const char before_pick[] =
         "# keep me\r\n[editor]\r\ntab = 4\r\n"
@@ -499,8 +504,8 @@ int main(void) {
     const char fg_before = scr_fg(&pe.scr_);
     stub_file_reset();
     stub_file_set_content(before_pick, (int) sizeof(before_pick) - 1);
-    stub_set_keys(pick, 2);
-    cmd_color_picker(&pe);
+    stub_set_keys(pick, 5);
+    cmd_settings(&pe);
     check("the picker changed the foreground",
           scr_fg(&pe.scr_) != fg_before, 1);
     check("  and wrote the file", stub_file_size() > 0, 1);
@@ -518,8 +523,8 @@ int main(void) {
     static const char odd_tab[] = "[editor]\r\ntab = 99\r\n[colours]\r\nfg = 1\r\n";
     stub_file_reset();
     stub_file_set_content(odd_tab, (int) sizeof(odd_tab) - 1);
-    stub_set_keys(pick, 2);
-    cmd_color_picker(&pe);
+    stub_set_keys(pick, 5);
+    cmd_settings(&pe);
     memcpy(merged, stub_file_bytes(), (size_t) stub_file_size());
     merged[stub_file_size()] = 0;
     check("the picker leaves an out-of-range tab exactly as written",
@@ -528,8 +533,8 @@ int main(void) {
     static const char no_tab[] = "[colours]\r\nfg = 1\r\nbg = 0\r\n";
     stub_file_reset();
     stub_file_set_content(no_tab, (int) sizeof(no_tab) - 1);
-    stub_set_keys(pick, 2);
-    cmd_color_picker(&pe);
+    stub_set_keys(pick, 5);
+    cmd_settings(&pe);
     memcpy(merged, stub_file_bytes(), (size_t) stub_file_size());
     merged[stub_file_size()] = 0;
     check("  and does not invent a tab setting that was never there",

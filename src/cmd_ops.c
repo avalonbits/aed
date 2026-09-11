@@ -935,27 +935,6 @@ static void restore_after_modal(editor* ed, bool moved) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void cmd_color_picker(editor* ed) {
-    SCR(ed);
-    UI(ed);
-
-    RESPONSE ret = ui_color_picker(ui, scr);
-    if (ret == YES_OPT) {
-        restore_after_modal(ed, false);
-
-        // Write the choice down. Settings live in the file now, and a scheme
-        // that vanished on exit was the wart this was meant to fix. Only the
-        // colours are set here: everything left unset is copied through
-        // untouched, so picking a colour cannot rewrite or invent a tab setting
-        // the user never asked to change.
-        config cfg;
-        cfg_defaults(&cfg);
-        cfg.fg = scr_fg(scr);
-        cfg.bg = scr_bg(scr);
-        cfg_update(&cfg, CFG_PATH);
-    }
-}
-
 void cmd_help(editor* ed) {
     SCR(ed);
     UI(ed);

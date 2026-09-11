@@ -191,10 +191,9 @@ line. Anything AED does not recognise is skipped rather than rejected, so a file
 written for a newer version still works with an older one, and a setting with a missing
 or malformed value keeps its default instead of making the whole file fail.
 
-Changing the colour scheme from inside the editor (`CTRL+ALT+C`) writes the new colours
-back to this file, and leaves the rest of it -- your comments, spacing, and every
-setting other than `fg` and `bg` -- exactly as you wrote it. Every other setting still
-needs the file edited by hand and AED restarted.
+Changing a setting from inside the editor (`CTRL+E`) writes it back to this file, and
+leaves the rest of it -- your comments, spacing, and every setting you did not change
+-- exactly as you wrote it.
 
 If `/config` cannot be created -- a write-protected card, say -- AED starts normally
 with its defaults and simply does not save them.
@@ -310,8 +309,10 @@ clears it too.
 `CTRL+Q` will save the buffer to the specified file on startup (or `/aed.txt` of none was specified) and exit the editor.
 If no file was specified on startup, it will prompt for a file name to save the text buffer.
 
-`CTRL+ALT+C` will show the colour picker at the bottom of the screen. Use `UP/DOWN` to select the foreground color and `LEFT/RIGHT` to
-select the background color. 
+`CTRL+E` opens the settings: tab width, colours, and font. `UP/DOWN` chooses a row and
+`RETURN` changes it; `ESC` closes. Choosing the colours row shows the picker at the
+bottom of the screen, where `UP/DOWN` selects the foreground colour and `LEFT/RIGHT`
+the background. 
 
 # Road to v1.0
 The following features will be implemented before releasing v1.0 of the editor:

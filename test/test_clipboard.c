@@ -870,8 +870,11 @@ int main(void) {
     memset(&kc, 0, sizeof(kc));
     kc.k.vkey = VK_c;
     check("CTRL+C copies", ctrlCmds(kc, 0).cmd == cmd_copy, 1);
-    check("CTRL+ALT+C is still the colour picker",
-          ctrlCmds(kc, MOD_ALT).cmd == cmd_color_picker, 1);
+    /* ALT is ignored on C now. The colour picker used to hang off CTRL+ALT+C
+     * and is reached through the settings on CTRL+E, so the chord is not a
+     * second binding any more -- it copies, like the chord without ALT. */
+    check("CTRL+ALT+C copies too, ALT meaning nothing here",
+          ctrlCmds(kc, MOD_ALT).cmd == cmd_copy, 1);
     kc.k.vkey = VK_x;
     check("CTRL+X cuts", ctrlCmds(kc, 0).cmd == cmd_cut, 1);
     kc.k.vkey = VK_v;
