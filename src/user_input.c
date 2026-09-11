@@ -206,12 +206,14 @@ static int help_render(const help_line* h, char* out, int width) {
 }
 
 void ui_help(user_input* ui, screen* scr) {
-    (void) ui;
     scr_footer_invalidate(scr);
 
-    // The text area, less one row kept for the prompt at the bottom of it.
+    // The prompt goes on ui->ypos_, the row every other modal uses. Putting it
+    // one row higher left that row showing whatever the last modal had drawn
+    // there -- the colour picker's own prompt sat under the settings list,
+    // still offering its arrow keys, long after it had been answered.
     const char top = scr->topY_;
-    const char bottom = (char) (scr->bottomY_ - 1);
+    const char bottom = ui->ypos_;
     const int rows = bottom - top - 1;
     if (rows < 1) {
         return;
@@ -471,13 +473,12 @@ static int put_num(char* out, int at, int width, int v) {
 // Picks a font, or none. Returns YES_OPT with `out` holding a path, or holding
 // an empty string for "the machine's own font".
 static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) {
-    (void) ui;
 
     static font_entry fonts[FONT_MAX];
     const int n = font_list(fonts, FONT_MAX);
 
     const char top = scr->topY_;
-    const char bottom = (char) (scr->bottomY_ - 1);
+    const char bottom = ui->ypos_;
     const int width = scr->cols_ < 255 ? scr->cols_ : 255;
     const int px = getsysvar_scrheight();
     const int cols = getsysvar_scrCols();
@@ -686,7 +687,7 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
     cfg_defaults(cfg);
 
     const char top = scr->topY_;
-    const char bottom = (char) (scr->bottomY_ - 1);
+    const char bottom = ui->ypos_;
     const int width = scr->cols_ < 255 ? scr->cols_ : 255;
     static char line[256];
     int at = 0;
@@ -727,7 +728,7 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                                font[0] != 0 ? font : "(the machine's own)");
                     break;
                 case ROW_PAUSE:
-                    k = put_at(line, k, width, "ctrl_pause_frames");
+                    k = put_at(line, k, width, "ctrl pause (Console8)");
                     k = pad_to(line, k, width, 24);
                     if (pause >= 0) {
                         k = put_num(line, k, width, pause);
@@ -805,7 +806,14 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
             } break;
             case ROW_PAUSE: {
                 int v = 0;
-                if (ask_number(ui, scr, "CTRL pause frames, 0 to 255:",
+                // The warning is in the prompt because there is nowhere
+                // later to put it: AED cannot tell which VDP this is, and the
+                // sequence that carries this setting means something else
+                // entirely on one that does not know it -- one of the bytes
+                // that follows is a screen clear. See scr_set_ctrl_pause_frames.
+                if (ask_number(ui, scr,
+                               "Frames the VDP pauses on a wrap with CTRL held."
+                               " Console8 VDP only. 0 to 255:",
                                pause, 0, 255, &v)) {
                     cfg->ctrl_pause = v;
                     changed = true;
