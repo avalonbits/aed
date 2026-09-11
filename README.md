@@ -95,6 +95,10 @@ bg = 0
 The settings can also be edited from inside AED with **CTRL+E**, which writes
 them back to the file. It changes only what you change: every other line is
 copied through as it was, comments and all.
+
+`ctrl_pause_frames` is not offered there, on purpose -- it is the one setting
+that can do harm to get wrong, and a row in a list is no place to explain why.
+Set it in the file, having read the section below.
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
 | `[vdp]` | `ctrl_pause_frames` | how long the VDP pauses when a line wraps while CTRL is held, in frames. Not written by default -- see below. |

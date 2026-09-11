@@ -629,11 +629,16 @@ static const char dismiss[17] = " (press any key)";
 // The settings, in the order they are shown. Each is edited in the way that
 // suits it: a number is typed, the colours go to the picker that already
 // exists, and a font is chosen from what is on the card.
+// ctrl_pause_frames is deliberately not here. It is the one setting that can
+// do harm to get wrong -- the sequence carrying it means something else on a
+// VDP that does not know it, and one of the bytes after it clears the screen --
+// and explaining that in a row of a list is more confusing than useful. It
+// stays in the settings file for anyone who wants it; the README says what it
+// is for.
 typedef enum _setting_row {
     ROW_TAB = 0,
     ROW_COLOURS,
     ROW_FONT,
-    ROW_PAUSE,
     ROW_COUNT,
 } setting_row;
 
@@ -697,7 +702,6 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
         int tab = cfg->tab_size >= 0 ? cfg->tab_size : tab_now;
         int fg = cfg->fg >= 0 ? cfg->fg : fg_now;
         int bg = cfg->bg >= 0 ? cfg->bg : bg_now;
-        int pause = cfg->ctrl_pause;
         const char* font = cfg->font[0] != 0 ? cfg->font : font_now;
 
         char y = top;
@@ -726,15 +730,6 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                     k = pad_to(line, k, width, 24);
                     k = put_at(line, k, width,
                                font[0] != 0 ? font : "(the machine's own)");
-                    break;
-                case ROW_PAUSE:
-                    k = put_at(line, k, width, "ctrl pause (Console8)");
-                    k = pad_to(line, k, width, 24);
-                    if (pause >= 0) {
-                        k = put_num(line, k, width, pause);
-                    } else {
-                        k = put_at(line, k, width, "(not set)");
-                    }
                     break;
                 default:
                     break;
@@ -801,21 +796,6 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                     // empty rather than left alone.
                     cfg->font[0] = 0;
                     cfg->font_none = true;
-                    changed = true;
-                }
-            } break;
-            case ROW_PAUSE: {
-                int v = 0;
-                // The warning is in the prompt because there is nowhere
-                // later to put it: AED cannot tell which VDP this is, and the
-                // sequence that carries this setting means something else
-                // entirely on one that does not know it -- one of the bytes
-                // that follows is a screen clear. See scr_set_ctrl_pause_frames.
-                if (ask_number(ui, scr,
-                               "Frames the VDP pauses on a wrap with CTRL held."
-                               " Console8 VDP only. 0 to 255:",
-                               pause, 0, 255, &v)) {
-                    cfg->ctrl_pause = v;
                     changed = true;
                 }
             } break;

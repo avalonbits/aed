@@ -100,7 +100,11 @@ int main(void) {
         cap_read(got, sizeof(got) - 1);
         check("the settings list every setting", strstr(got, "tab width") != NULL, 1);
         check("  including the font", strstr(got, "font") != NULL, 1);
-        check("  and the pause, unset", strstr(got, "(not set)") != NULL, 1);
+        /* ctrl_pause_frames is not offered. It is the one setting that can do
+         * harm to get wrong, and a row in a list is no place to explain that;
+         * it stays in the file for anyone who wants it. */
+        check("  and not the ctrl pause", strstr(got, "ctrl") == NULL, 1);
+        check("  which the file still carries", strstr(got, "pause") == NULL, 1);
         ui_destroy(&ui);
     }
 
