@@ -941,24 +941,43 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
     int* lcur = tb->lb_.curr_;
     int llen = *lcur;
 
-    for (int i = sz; i != 0; i--) {
-        const char ch = *cend;
-        llen++;
-        if (ch == '\n') {
-            cb->curr_ = curr;
-            cb->cend_ = cend;
-            *lcur = llen;
-            const int n = ensure_newline(&tb->cb_, &tb->lb_);
-            if (n == 0) {
-                crlf++;
-            }
-            added += n;
-            curr = cb->curr_;
-            cend = cb->cend_;
-            lcur = tb->lb_.curr_;
-            llen = *lcur;
+    int left = sz;
+
+    while (left != 0) {
+        // The run up to the next line feed, found and moved whole. memchr is a
+        // CPIR on this machine and memmove an LDIR -- block instructions that
+        // do a byte a cycle or two -- where testing and copying a byte at a
+        // time in C is a dozen instructions each. Only the line feed itself is
+        // handled one at a time, and there is one of those per line.
+        const char* nl = (const char*) memchr(cend, '\n', (size_t) left);
+        const int run = nl != NULL ? (int) (nl - cend) : left;
+        if (run != 0) {
+            memmove(curr, cend, (size_t) run);
+            curr += run;
+            cend += run;
+            llen += run;
+            left -= run;
         }
+        if (nl == NULL) {
+            break;
+        }
+
+        llen++;                 // the line feed, counted before it is passed
+        cb->curr_ = curr;
+        cb->cend_ = cend;
+        *lcur = llen;
+        const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n == 0) {
+            crlf++;
+        }
+        added += n;
+        curr = cb->curr_;
+        cend = cb->cend_;
+        lcur = tb->lb_.curr_;
+        llen = *lcur;
+
         *curr++ = *cend++;
+        left--;
     }
     cb->curr_ = curr;
     cb->cend_ = cend;
