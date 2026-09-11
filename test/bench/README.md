@@ -48,12 +48,12 @@ lines. Per repeat, in centiseconds:
 
 | case | `9f53dc9` | now | change |
 |---|---:|---:|---:|
-| load | 287 | 59 | **-79%** |
-| find-miss | 233 | 88 | **-62%** |
-| walk-lines | -- | 50 | |
-| seek-lines | -- | 150 | |
-| range-copy | -- | 58 | |
-| type | 0.030 | 0.030 | |
+| load | 287 | 30 | **-89%** |
+| find-miss | 233 | 64 | **-73%** |
+| walk-lines | -- | 32 | |
+| seek-lines | -- | 82 | |
+| range-copy | -- | 31 | |
+| type | 0.030 | 0.028 | |
 | undo | 0.013 | 0.012 | |
 
 seek-lines, walk-lines and range-copy have no first reading because the first
@@ -62,3 +62,16 @@ two cases were measuring nothing and the third did not exist: `tb_pos` is
 line 0 and the range was empty. Worth remembering as a warning about
 benchmarks -- both cases ran, both reported a number, and the number was of no
 work being done.
+
+## What did not pay
+
+Kept here because a measurement that says "no" is worth as much as one that
+says "yes", and both of these looked obviously right:
+
+* **Hoisting `tb_ypos` out of `tb_range_walk`'s loop**, exactly the change that
+  was worth 36% in `tb_seek`. One call fewer per line, and it measured 124 to
+  126 -- no better, and past the emulator's 0.25% determinism in the wrong
+  direction. Reverted.
+* **`-ffunction-sections -fdata-sections` with `--gc-sections`.** The flags work
+  and the sections are emitted, but the linker removed nothing: the toolchain's
+  script matches `.text` exactly, so the per-function sections become orphans.
