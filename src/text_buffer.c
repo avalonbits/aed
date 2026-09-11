@@ -554,15 +554,27 @@ void tb_seek(text_buffer* tb, tb_pos p) {
     // tb_up and tb_down report the character they land on, which is 0 for
     // several legitimate positions, so progress is judged by the line number
     // instead -- the same way the repaint loop decides it has run out of lines.
-    int prev = -1;
-    while (tb_ypos(tb) < p.line && tb_ypos(tb) != prev) {
-        prev = tb_ypos(tb);
+    //
+    // Read once per line rather than three times. tb_ypos is a call, and the
+    // lb_curr inside it is another, and the loop asked for it twice in the
+    // condition on top of the copy kept to notice standing still. A seek across
+    // a document was paying six calls a line to answer the same question.
+    int y = tb_ypos(tb);
+    while (y < p.line) {
         tb_down(tb);
+        const int now = tb_ypos(tb);
+        if (now == y) {
+            break;              // the end of the document; nothing below it
+        }
+        y = now;
     }
-    prev = -1;
-    while (tb_ypos(tb) > p.line && tb_ypos(tb) != prev) {
-        prev = tb_ypos(tb);
+    while (y > p.line) {
         tb_up(tb);
+        const int now = tb_ypos(tb);
+        if (now == y) {
+            break;
+        }
+        y = now;
     }
 
     const int len = line_len(tb);
