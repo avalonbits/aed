@@ -872,8 +872,18 @@ static void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, 
 
 static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     int added = 0;
+
+    // Look at the character behind the cursor and put the cursor back where it
+    // was. Only put back what was actually taken: at the very start of the
+    // buffer there is nothing behind the cursor, cb_prev moves nothing, and an
+    // unconditional cb_next would walk the cursor *forward* over a byte nobody
+    // asked it to pass. A file whose first character is a line feed does that
+    // on its first byte, and every byte after it is then one out.
+    char* const was = cb->curr_;
     const char pch = cb_prev(cb, 1);
-    cb_next(cb, 1);
+    if (cb->curr_ != was) {
+        cb_next(cb, 1);
+    }
 
     if (pch != '\r') {
         if (!cb_put(cb, '\r')) {

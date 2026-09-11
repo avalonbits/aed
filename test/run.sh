@@ -49,7 +49,11 @@ status=0
 for t in test/test_*.c; do
     name=$(basename "$t" .c)
     echo "=== $name ==="
-    cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${SRCS[@]}"
+    if ! cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${SRCS[@]}"; then
+        echo "FAIL  $name did not compile"
+        status=1
+        continue
+    fi
     "$OUT/$name" || status=$?
 done
 
