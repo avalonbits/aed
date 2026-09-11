@@ -399,10 +399,6 @@ bool redo_apply(undo* u, text_buffer* tb) {
     return true;
 }
 
-bool undo_can_undo(undo* u) {
-    return u != NULL && u->cur_ > 0;
-}
-
 bool undo_can_redo(undo* u) {
     return u != NULL && u->cur_ < u->top_;
 }

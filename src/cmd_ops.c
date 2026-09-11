@@ -406,17 +406,23 @@ static bool keep_cursor_row(editor* ed, int top_line, int cursor_line) {
     return kept;
 }
 
-// Repaints after a selection delete without redrawing the text area.
+// Repaints after an edit that changed how many lines the document has, without
+// redrawing the text area.
 //
-// A delete does one thing to the screen, however many lines it spanned: the row
-// the selection started on becomes the join of the text before it and the text
-// after it, the rows below move up by the number of lines that collapsed, and
-// that many rows come into view at the bottom. So one row is repainted, the rest
-// are moved by the VDP's own region scroll rather than resent, and only the rows
-// newly exposed are drawn.
+// Such an edit does one thing to the screen, however many lines it spanned: the
+// cursor's row becomes the join of the text before it and the text after it,
+// the rows below move by the number of lines that went or arrived, and that
+// many rows at the far end are the only ones that have to be drawn. So one row
+// is repainted, the rest are moved by the VDP's own region scroll rather than
+// resent, and only the newly exposed rows are sent.
+//
+// `delta` is the change: positive when lines went, negative when they arrived.
+// The two directions used to be separate functions and were the same function
+// -- the whole difference between them is which way the region scrolls and
+// which end of it is left needing paint.
 //
 // Returns false if it cannot, having drawn nothing, so the caller can fall back.
-static bool reshow_span(editor* ed, int collapsed) {
+static bool reshow_delta(editor* ed, int delta) {
     SCR(ed);
     TB(ed);
 
@@ -432,15 +438,19 @@ static bool reshow_span(editor* ed, int collapsed) {
 
     const char first = (char) (scr->currY_ + 1);
     const char last = (char) (scr->bottomY_ - 1);
-    if (collapsed > 0 && first <= last) {
+    const int moved = delta < 0 ? -delta : delta;
+    if (moved > 0 && first <= last) {
         const int height = last - first + 1;
-        if (collapsed < height) {
-            scr_scroll_rows_up(scr, first, last, collapsed);
-            cmd_repaint_rows(ed, (char) (last - collapsed + 1), last);
-        } else {
-            // More lines went than there are rows below: nothing down there
+        if (moved >= height) {
+            // More lines moved than there are rows below: nothing down there
             // survives, so scrolling it would be wasted bytes.
             cmd_repaint_rows(ed, first, last);
+        } else if (delta > 0) {
+            scr_scroll_rows_up(scr, first, last, moved);
+            cmd_repaint_rows(ed, (char) (last - moved + 1), last);
+        } else {
+            scr_scroll_rows_down(scr, first, last, moved);
+            cmd_repaint_rows(ed, first, (char) (first + moved - 1));
         }
     }
 
@@ -469,41 +479,6 @@ static void show_line_at(editor* ed, int line, int top_before) {
     scr->currY_ = (char) y;
 }
 
-// Repaints after an edit that put `added` lines back, the mirror of the
-// `collapsed` case in reshow_span: the rows below the cursor move down, and the
-// gap that opens under it holds the restored lines.
-static bool reshow_expand(editor* ed, int added) {
-    SCR(ed);
-    TB(ed);
-
-    int psz = 0;
-    char* prefix = tb_prefix(tb, &psz);
-    if (scr_place_cursor(scr, prefix, psz) != 0) {
-        return false;
-    }
-
-    cmd_repaint_rows(ed, scr->currY_, scr->currY_);
-
-    const char first = (char) (scr->currY_ + 1);
-    const char last = (char) (scr->bottomY_ - 1);
-    if (added > 0 && first <= last) {
-        const int height = last - first + 1;
-        if (added < height) {
-            scr_scroll_rows_down(scr, first, last, added);
-            cmd_repaint_rows(ed, first, (char) (first + added - 1));
-        } else {
-            // More lines arrived than there are rows below, so nothing already
-            // down there survives and scrolling it would be wasted bytes.
-            cmd_repaint_rows(ed, first, last);
-        }
-    }
-
-    scr_sync_cursor(scr);
-    scr_show_cursor_ch(scr, tb_peek(tb));
-
-    return true;
-}
-
 // Repaints after an undo or a redo.
 //
 // A record either holds line breaks or it does not, and that decides everything:
@@ -518,9 +493,8 @@ static void reshow_edit(editor* ed, int lines_before, int top_before) {
     show_line_at(ed, tb_ypos(tb), top_before);
 
     const int delta = tb_ymax(tb) - lines_before;
-    const bool done = delta == 0 ? reshow_span(ed, 0)
-                    : delta < 0  ? reshow_span(ed, -delta)
-                                 : reshow_expand(ed, delta);
+    // `delta` counts lines gained, and reshow_delta counts lines lost.
+    const bool done = reshow_delta(ed, -delta);
     if (!done) {
         // The horizontal origin moved, so every row is drawn against the old
         // one and none can be kept.
@@ -709,7 +683,7 @@ bool cmd_delete_selection(editor* ed) {
     // moved up, but the text above it has not moved at all -- so neither should
     // the view.
     if (!keep_cursor_row(ed, a.line, cursor_line)
-            || !reshow_span(ed, b.line - a.line)) {
+            || !reshow_delta(ed, b.line - a.line)) {
         reshow(ed);
     }
 

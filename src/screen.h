@@ -302,6 +302,5 @@ void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz);
 
 void scr_show_cursor_ch(screen* scr, char ch);
 void scr_hide_cursor_ch(screen* scr, char ch);
-void scr_erase(screen* scr, int sz);
 
 #endif  // _SCREEN_H_

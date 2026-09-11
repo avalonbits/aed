@@ -174,8 +174,7 @@ void undo_clear(undo* u);
 
 // --- for tests ---
 
-// Whether there is anything to undo, or to redo.
-bool undo_can_undo(undo* u);
+// Whether there is anything to redo.
 bool undo_can_redo(undo* u);
 
 // Records held, oldest first.

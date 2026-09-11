@@ -1351,13 +1351,3 @@ void scr_scroll_up(
     scroll_region(scr, topY, bottomY, up, sizeof(up), line, sz, ch);
 }
 
-void scr_erase(screen* scr, int sz) {
-    sz = sz + scr->currX_;
-    if (sz > scr->cols_) {
-        sz = scr->cols_;
-    }
-    out_run(' ', sz - scr->currX_);
-    out_flush();
-    scr_tab(scr, scr->currX_, scr->currY_);
-}
-
