@@ -22,7 +22,7 @@
 #include <agon/mos.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
+#include <string.h>
 
 #include "cmd_ops.h"
 #include "config.h"
@@ -119,8 +119,19 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     // point: it is a mistake in a settings file, and it will happen every time
     // until it is fixed.
     if (font_asked && !font_loaded) {
-        static char msg[CFG_FONT_MAX + 24];
-        snprintf(msg, sizeof(msg), "font not loaded: %s", cfg.font);
+        // Built by hand rather than with snprintf. This is the program's only
+        // formatted print, and asking for it links nanoprintf: 4,994 bytes,
+        // eight per cent of the binary, for one %s.
+        static const char lead[] = "font not loaded: ";
+        static char msg[CFG_FONT_MAX + sizeof(lead)];
+        const int lead_n = (int) sizeof(lead) - 1;
+        int n = (int) strlen(cfg.font);
+        if (n > (int) sizeof(msg) - lead_n - 1) {
+            n = (int) sizeof(msg) - lead_n - 1;
+        }
+        memcpy(msg, lead, (size_t) lead_n);
+        memcpy(msg + lead_n, cfg.font, (size_t) n);
+        msg[lead_n + n] = 0;
         ui_message(&ed->ui_, &ed->scr_, msg);
         scr_clear(&ed->scr_);
     }

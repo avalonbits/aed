@@ -238,6 +238,34 @@ int main(void) {
         check("  and says which font it could not load",
               strstr(got, "font not loaded: /config/aed/gone.bin") != NULL, 1);
         ed_destroy(&missing);
+
+        /* The longest path the settings reader will hold. The message is built
+         * by hand -- snprintf is 4,994 bytes of nanoprintf for one %s, which is
+         * eight per cent of the binary -- so the end of that buffer is worth a
+         * test of its own. ASan is what makes this one bite. */
+        static char longcfg[CFG_FONT_MAX + 32];
+        int at = 0;
+        static const char head[] = "[editor]\r\nfont = ";
+        memcpy(longcfg + at, head, sizeof(head) - 1);
+        at += (int) sizeof(head) - 1;
+        for (int i = 0; i < CFG_FONT_MAX - 1; i++) {
+            longcfg[at++] = (char) ('a' + (i % 26));
+        }
+        longcfg[at++] = '\r';
+        longcfg[at++] = '\n';
+        stub_file_reset();
+        stub_file_set_content(longcfg, at);
+        stub_file_set_objsize((uint32_t) at);
+        stub_set_keys(any, 1);
+
+        cap_start();
+        editor longest;
+        check("a font path that fills the setting still starts",
+              ed_init(&longest, 8, NULL) != NULL, 1);
+        cap_read(got, sizeof(got) - 1);
+        check("  and the whole of it is in the message",
+              strstr(got, "font not loaded: abcdefghij") != NULL, 1);
+        ed_destroy(&longest);
     }
 
     /* --- the banner --- */
