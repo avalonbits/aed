@@ -72,6 +72,31 @@ int main(void) {
     check("  and 65535 written out means the same",
           scan("fontctl 100\r\nVDU 23 0 149 0 65535; 0\r\n"), -1);
 
+    /* -1 reaches the VDP as two's complement, so it is 65535 -- MOS only
+     * rejects negatives for callers that ask for EXTRACT_FLAG_POSITIVE_ONLY,
+     * and the VDU command does not. */
+    check("  and so does -1, which is 65535 on the wire",
+          scan("fontctl 100\r\nVDU 23 0 149 0 -1; 0\r\n"), -1);
+    check("  or -1 given to fontctl",
+          scan("fontctl 100\r\nfontctl -1\r\n"), -1);
+    check("a negative that is not the system font is still a selection",
+          scan("fontctl -65436\r\n"), 100);
+
+    /* --- the other ways MOS lets a number be written --- */
+    check("an ampersand means hex",     scan("VDU 23 0 &95 0 &64; 0\r\n"), 100);
+    check("  as does a 0x prefix",      scan("VDU 23 0 0x95 0 0x64; 0\r\n"), 100);
+    check("  and base_number",          scan("VDU 23 0 16_95 0 16_64; 0\r\n"), 100);
+    check("  base 2 counts too",        scan("fontctl 2_1100100\r\n"), 100);
+    check("a plus sign is allowed",     scan("fontctl +100\r\n"), 100);
+    /* A VDU line this cannot parse is left alone, so an earlier selection
+     * stands -- which is how a rejected number shows up from the outside. */
+    check("a digit outside the base is not a number",
+          scan("fontctl 100\r\nVDU 23 0 149 0 2_1200; 0\r\n"), 100);
+    check("  nor is an unreachable base",
+          scan("fontctl 100\r\nVDU 23 0 149 0 40_10; 0\r\n"), 100);
+    check("  nor anything past sixteen bits",
+          scan("fontctl 100\r\nVDU 23 0 149 0 65536; 0\r\n"), 100);
+
     /* --- the last one wins --- */
     check("the last selection is the one in force",
           scan("fontctl 100\r\nfontctl 200\r\n"), 200);

@@ -52,9 +52,15 @@ static bool starts_with_word(const char* s, int len, const char* word) {
     return i >= len || is_space(s[i]);
 }
 
-// One number from a VDU argument list, as MOS reads them: decimal, or hex with
-// an 'H' suffix, and a ';' suffix meaning "this is sixteen bits" -- which this
-// does not need to act on, because the value is the same either way.
+// One number from a VDU argument list, as MOS reads them (extractNumber in
+// mos_sysvars.c): an optional sign, then decimal, `&hex`, `0xhex`, `base_digits`
+// or hex with an 'H' suffix. A ';' suffix means "this is sixteen bits", which
+// does not change the value.
+//
+// Negatives are accepted -- MOS only rejects them when a caller opts in to
+// EXTRACT_FLAG_POSITIVE_ONLY, and the VDU command does not -- and reach the VDP
+// as two's complement, so `-1` is the system font. That is what is returned
+// here: the value masked to sixteen bits, exactly what goes on the wire.
 //
 // Returns false when the token is not a number, which ends the scan of a line:
 // a VDU line with something unparseable in it is not one this understands.
@@ -67,52 +73,119 @@ static bool take_number(const char* s, int len, int* at, int* out) {
         return false;
     }
 
-    // Hex is marked by a suffix, so the base is not known until the end. Both
-    // are accumulated and the suffix picks one.
-    int dec = 0;
-    int hex = 0;
-    int digits = 0;
-    bool dec_ok = true;
-    for (; i < len; i++) {
-        const char c = lower(s[i]);
-        int v;
-        if (c >= '0' && c <= '9') {
-            v = c - '0';
-        } else if (c >= 'a' && c <= 'f') {
-            v = c - 'a' + 10;
-            dec_ok = false;
-        } else {
-            break;
-        }
-        if (dec_ok) {
-            dec = dec * 10 + v;
-        }
-        hex = hex * 16 + v;
-        digits++;
-        if (hex > 0xFFFFF) {
-            return false;       // far past anything a buffer id can be
-        }
-    }
-    if (digits == 0) {
-        return false;
-    }
-
-    bool is_hex = false;
-    if (i < len && lower(s[i]) == 'h') {
-        is_hex = true;
+    bool neg = false;
+    if (s[i] == '-' || s[i] == '+') {
+        neg = (s[i] == '-');
         i++;
     }
+
+    // 0 means "not stated": decimal, unless an 'H' suffix turns out to say hex.
+    int base = 0;
+    if (i < len && s[i] == '&') {
+        base = 16;
+        i++;
+    } else if (i + 1 < len && s[i] == '0' && lower(s[i + 1]) == 'x') {
+        base = 16;
+        i += 2;
+    } else {
+        // `base_number`, e.g. 16_AED. Only a run of digits then '_' counts.
+        int j = i;
+        int b = 0;
+        int d = 0;
+        while (j < len && s[j] >= '0' && s[j] <= '9') {
+            b = b * 10 + (s[j] - '0');
+            d++;
+            j++;
+        }
+        if (d > 0 && j < len && s[j] == '_') {
+            if (b < 2 || b > 36) {
+                return false;
+            }
+            base = b;
+            i = j + 1;
+        }
+    }
+
+    long val = 0;
+    int digits = 0;
+    if (base == 0) {
+        // The base is not known until the suffix is seen, so both readings are
+        // accumulated and the suffix picks one.
+        long dec = 0;
+        long hex = 0;
+        bool dec_ok = true;
+        for (; i < len; i++) {
+            const char c = lower(s[i]);
+            int v;
+            if (c >= '0' && c <= '9') {
+                v = c - '0';
+            } else if (c >= 'a' && c <= 'f') {
+                v = c - 'a' + 10;
+                dec_ok = false;
+            } else {
+                break;
+            }
+            if (dec_ok) {
+                dec = dec * 10 + v;
+            }
+            hex = hex * 16 + v;
+            digits++;
+            if (hex > 0xFFFFFF) {
+                return false;   // long past any reading that could be in range
+            }
+        }
+        if (digits == 0) {
+            return false;
+        }
+
+        bool is_hex = false;
+        if (i < len && lower(s[i]) == 'h') {
+            is_hex = true;
+            i++;
+        }
+        if (!is_hex && !dec_ok) {
+            return false;       // hex digits without the suffix
+        }
+        val = is_hex ? hex : dec;
+        if (val > 0xFFFF) {
+            return false;       // MOS rejects anything past sixteen bits
+        }
+    } else {
+        for (; i < len; i++) {
+            const char c = lower(s[i]);
+            int v;
+            if (c >= '0' && c <= '9') {
+                v = c - '0';
+            } else if (c >= 'a' && c <= 'z') {
+                v = c - 'a' + 10;
+            } else {
+                break;
+            }
+            if (v >= base) {
+                return false;
+            }
+            val = val * base + v;
+            digits++;
+            if (val > 0xFFFF) {
+                return false;
+            }
+        }
+        if (digits == 0) {
+            return false;
+        }
+        if (base == 16 && i < len && lower(s[i]) == 'h') {
+            i++;                // '&95h' -- redundant, but MOS allows it
+        }
+    }
+
     if (i < len && s[i] == ';') {
         i++;                    // sixteen bits; the value is unchanged
     }
     if (i < len && !is_space(s[i]) && s[i] != ',') {
         return false;           // trailing rubbish: not a plain number
     }
-    if (!is_hex && !dec_ok) {
-        return false;           // hex digits without the suffix
-    }
 
-    *out = is_hex ? hex : dec;
+    *out = (int) ((neg ? -val : val) & 0xFFFFL);
     *at = i;
 
     return true;
