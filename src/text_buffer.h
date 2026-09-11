@@ -59,6 +59,41 @@ typedef struct _text_buffer {
     // per repaint -- and 256 bytes of name rode along on each of those for
     // nothing, since a walker never has a file. Copies get NULL.
     char* fname_;
+
+    // The document either side of what is in memory.
+    //
+    // The line index can only describe the lines the character buffer is
+    // holding, so on its own it can only answer "which line of *this*", and
+    // every line number the editor deals in is "which line of the document".
+    // Today those are the same question because the whole document is in
+    // memory; when it stops being, these are the difference.
+    //
+    // Both count whole lines, each ending in a break, which is why they add to
+    // the line count rather than to the break count: lines = breaks + 1, and
+    // the +1 belongs to the document once rather than to each of its pieces.
+    // See .internal/docs/PAGING.md.
+    //
+    // Zero throughout, until there is somewhere for a document to live but
+    // memory. They are here now because every line number in the editor is
+    // computed from them, and it is better to have that right while a document
+    // entirely in memory can still prove it.
+    int head_lines_;    // complete lines before the character buffer
+    int tail_lines_;    // complete lines after it
+
+    // A walker: a copy made by tb_copy, for reading the document without
+    // disturbing the cursor that owns it.
+    //
+    // A copy shares the original's buffers -- that is the point of it, and why
+    // it is cheap -- so a write through one does not make a private change, it
+    // corrupts the document the original is still pointing into. Nothing does
+    // that today, by discipline rather than by anything stopping it.
+    //
+    // It is here now because the discipline is about to matter more than it
+    // does: once the document can be partly on disk, moving a walker far enough
+    // would slide the window out from under the cursor that owns it. Refusing
+    // the writes is the half of that which can be enforced while everything is
+    // still in memory. See .internal/docs/PAGING.md, pitfalls 1 and 2.
+    bool walker_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
@@ -75,6 +110,8 @@ bool tb_changed(text_buffer* tb);
 void tb_set_fname(text_buffer* tb, const char* fname, int sz);
 
 // Character ops.
+// Every one of these refuses on a walker, changing nothing and reporting
+// failure, the same as running out of room does.
 bool tb_put(text_buffer* tb, char ch);
 bool tb_del(text_buffer* tb);
 bool tb_bksp(text_buffer* tb);
@@ -179,6 +216,11 @@ tb_pos tb_tell(text_buffer* tb);
 // Moves the cursor to `p`, clamping to the document: past the last line lands
 // on the last line, past the end of a line lands at its end.
 void tb_seek(text_buffer* tb, tb_pos p);
+
+// For tests, which are the only way to see the paging arithmetic before there is
+// any paging: pretend some of the document is elsewhere. Everything derived from
+// a line number must move with these, and nothing else may.
+void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines);
 
 // Negative, zero or positive as `a` is before, at, or after `b`. Lets a caller
 // hand ranges over in either order without sorting them first.

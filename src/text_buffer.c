@@ -49,6 +49,9 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->eol_ = TB_EOL_CRLF;
     tb->undo_ = NULL;
     tb->load_dirty_ = false;
+    tb->head_lines_ = 0;
+    tb->tail_lines_ = 0;
+    tb->walker_ = false;
 
     if (fname != NULL && tb_load(tb, fname) != TB_OK) {
         free(tb->fname_);
@@ -125,6 +128,9 @@ void tb_set_fname(text_buffer* tb, const char* fname, int sz) {
 
 // Character ops.
 bool tb_put(text_buffer* tb, char ch) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     // Read before the write: the record says where the byte landed, and after
     // the put the cursor has already moved past it.
     const tb_pos at = tb_tell(tb);
@@ -140,6 +146,9 @@ bool tb_put(text_buffer* tb, char ch) {
 }
 
 bool tb_del(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     // Peeked before the delete: cb_del does not hand back what it removed, and
     // undoing a delete means putting the byte back.
     const char gone = cb_peek(&tb->cb_);
@@ -154,6 +163,9 @@ bool tb_del(text_buffer* tb) {
 }
 
 bool tb_bksp(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     const char gone = cb_prev(&tb->cb_, 1);
     cb_next(&tb->cb_, 1);
     const bool ok = cb_bksp(&tb->cb_);
@@ -170,6 +182,9 @@ bool tb_bksp(text_buffer* tb) {
 }
 
 bool tb_newline(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     // Both halves of the CRLF must fit, or the line index and the text would
     // disagree about where the line ends.
     if (cb_available(&tb->cb_) < 2) {
@@ -207,6 +222,9 @@ bool tb_newline(text_buffer* tb) {
 }
 
 bool tb_del_line(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     if (lb_last(&tb->lb_) && lb_csize(&tb->lb_) == 0) {
         return false;
     }
@@ -222,6 +240,9 @@ bool tb_del_line(text_buffer* tb) {
 }
 
 bool tb_del_merge(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     if (lb_last(&tb->lb_) || !tb_eol(tb)) {
        return false;
     }
@@ -244,6 +265,9 @@ bool tb_del_merge(text_buffer* tb) {
 }
 
 bool tb_bksp_merge(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     if (!tb_bol(tb) || tb_ypos(tb) == 1) {
         return false;
     }
@@ -510,12 +534,23 @@ int tb_xpos(text_buffer* tb) {
     return tb->x_ + 1;
 }
 
+// Lines held in memory. The index counts breaks, so a document with none of them
+// is one line.
+static int mem_lines(text_buffer* tb) {
+    return lb_max(&tb->lb_) - lb_avai(&tb->lb_) + 1;
+}
+
 int tb_ypos(text_buffer* tb) {
-    return lb_curr(&tb->lb_)+1;
+    return tb->head_lines_ + lb_curr(&tb->lb_) + 1;
 }
 
 int tb_ymax(text_buffer* tb) {
-    return lb_max(&tb->lb_)  - lb_avai(&tb->lb_) +1;
+    return tb->head_lines_ + mem_lines(tb) + tb->tail_lines_;
+}
+
+void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
+    tb->head_lines_ = head_lines;
+    tb->tail_lines_ = tail_lines;
 }
 
 // --- positions and ranges ---
@@ -695,6 +730,9 @@ int tb_range_copy(text_buffer* tb, tb_pos a, tb_pos b, char_buffer* out) {
 }
 
 bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     order(&a, &b);
     int left = tb_range_size(tb, a, b);
     if (left <= 0) {
@@ -738,6 +776,9 @@ bool tb_can_insert(text_buffer* tb, int bytes, int lines,
 }
 
 bool tb_insert_span(text_buffer* tb, const char* buf, int sz, bool* pending_cr) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     for (int i = 0; i < sz; i++) {
         // A CR held back from the last call, or from the byte before this one.
         // Whatever follows it, the break belongs to the CR; an LF right after
@@ -770,6 +811,9 @@ bool tb_insert_span(text_buffer* tb, const char* buf, int sz, bool* pending_cr) 
 }
 
 bool tb_insert(text_buffer* tb, const char* buf, int sz) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     if (buf == NULL || sz <= 0) {
         return false;
     }
@@ -819,6 +863,11 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->cb_.size_ = src->cb_.size_;
 
     dst->x_ = src->x_;
+    dst->walker_ = true;
+    // A walker reports the same line numbers the cursor does, so it needs the
+    // same idea of how much of the document is not in memory.
+    dst->head_lines_ = src->head_lines_;
+    dst->tail_lines_ = src->tail_lines_;
     dst->fname_ = NULL;
     dst->dirty_ = false;
     dst->load_dirty_ = false;
@@ -1081,6 +1130,9 @@ void tb_clear(text_buffer* tb) {
     tb->x_ = 0;
     tb->dirty_ = false;
     tb->load_dirty_ = false;
+    // Nothing is anywhere else once there is no document.
+    tb->head_lines_ = 0;
+    tb->tail_lines_ = 0;
     // A different document, or none. The records describe text that is no
     // longer there and their positions point into it.
     undo_clear(tb->undo_);
@@ -1211,6 +1263,9 @@ static void tb_write_lf(char fh, const char* pre, int psz,
 }
 
 bool tb_save(text_buffer* tb) {
+    if (tb->walker_) {
+        return false;       // a copy shares the original's buffers
+    }
     if (!tb_valid_file(tb)) {
         return false;
     }
