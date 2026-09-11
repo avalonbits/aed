@@ -49,6 +49,8 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->eol_ = TB_EOL_CRLF;
     tb->undo_ = NULL;
     tb->load_dirty_ = false;
+    tb->head_lines_ = 0;
+    tb->tail_lines_ = 0;
 
     if (fname != NULL && tb_load(tb, fname) != TB_OK) {
         free(tb->fname_);
@@ -510,12 +512,23 @@ int tb_xpos(text_buffer* tb) {
     return tb->x_ + 1;
 }
 
+// Lines held in memory. The index counts breaks, so a document with none of them
+// is one line.
+static int mem_lines(text_buffer* tb) {
+    return lb_max(&tb->lb_) - lb_avai(&tb->lb_) + 1;
+}
+
 int tb_ypos(text_buffer* tb) {
-    return lb_curr(&tb->lb_)+1;
+    return tb->head_lines_ + lb_curr(&tb->lb_) + 1;
 }
 
 int tb_ymax(text_buffer* tb) {
-    return lb_max(&tb->lb_)  - lb_avai(&tb->lb_) +1;
+    return tb->head_lines_ + mem_lines(tb) + tb->tail_lines_;
+}
+
+void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
+    tb->head_lines_ = head_lines;
+    tb->tail_lines_ = tail_lines;
 }
 
 // --- positions and ranges ---
@@ -819,6 +832,10 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->cb_.size_ = src->cb_.size_;
 
     dst->x_ = src->x_;
+    // A walker reports the same line numbers the cursor does, so it needs the
+    // same idea of how much of the document is not in memory.
+    dst->head_lines_ = src->head_lines_;
+    dst->tail_lines_ = src->tail_lines_;
     dst->fname_ = NULL;
     dst->dirty_ = false;
     dst->load_dirty_ = false;
@@ -1081,6 +1098,9 @@ void tb_clear(text_buffer* tb) {
     tb->x_ = 0;
     tb->dirty_ = false;
     tb->load_dirty_ = false;
+    // Nothing is anywhere else once there is no document.
+    tb->head_lines_ = 0;
+    tb->tail_lines_ = 0;
     // A different document, or none. The records describe text that is no
     // longer there and their positions point into it.
     undo_clear(tb->undo_);
