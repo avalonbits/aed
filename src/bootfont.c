@@ -52,6 +52,27 @@ static bool starts_with_word(const char* s, int len, const char* word) {
     return i >= len || is_space(s[i]);
 }
 
+// A digit's value in base 36, or -1. Written as unsigned subtraction so each
+// range is one comparison: a signed `c >= '0' && c <= '9'` is two, and on this
+// target every signed comparison carries a `call pe, __setflag` to repair the
+// flags afterwards.
+static int digit_val(char c) {
+    unsigned d = (unsigned)(unsigned char) c - (unsigned) '0';
+    if (d <= 9u) {
+        return (int) d;
+    }
+    d = (unsigned)(unsigned char) lower(c) - (unsigned) 'a';
+    if (d <= 25u) {
+        return (int) d + 10;
+    }
+
+    return -1;
+}
+
+static bool is_alnum(char c) {
+    return digit_val(c) >= 0;
+}
+
 // One number from a VDU argument list, as MOS reads them (extractNumber in
 // mos_sysvars.c): an optional sign, then decimal, `&hex`, `0xhex`, `base_digits`
 // or hex with an 'H' suffix. A ';' suffix means "this is sixteen bits", which
@@ -61,6 +82,11 @@ static bool starts_with_word(const char* s, int len, const char* word) {
 // EXTRACT_FLAG_POSITIVE_ONLY, and the VDU command does not -- and reach the VDP
 // as two's complement, so `-1` is the system font. That is what is returned
 // here: the value masked to sixteen bits, exactly what goes on the wire.
+//
+// The base is settled before any digit is read, including the case where only
+// a trailing 'H' says what it is. Deciding it afterwards means accumulating the
+// same digits twice, in two bases, and throwing one away -- which is two nearly
+// identical loops for a token of at most five characters.
 //
 // Returns false when the token is not a number, which ends the scan of a line:
 // a VDU line with something unparseable in it is not one this understands.
@@ -79,7 +105,6 @@ static bool take_number(const char* s, int len, int* at, int* out) {
         i++;
     }
 
-    // 0 means "not stated": decimal, unless an 'H' suffix turns out to say hex.
     int base = 0;
     if (i < len && s[i] == '&') {
         base = 16;
@@ -92,92 +117,48 @@ static bool take_number(const char* s, int len, int* at, int* out) {
         int j = i;
         int b = 0;
         int d = 0;
-        while (j < len && s[j] >= '0' && s[j] <= '9') {
+        while (j < len && (unsigned)(s[j] - '0') <= 9u) {
             b = b * 10 + (s[j] - '0');
             d++;
             j++;
         }
         if (d > 0 && j < len && s[j] == '_') {
-            if (b < 2 || b > 36) {
-                return false;
+            if ((unsigned)(b - 2) > 34u) {
+                return false;       // no such base
             }
             base = b;
             i = j + 1;
         }
     }
-
-    long val = 0;
-    int digits = 0;
     if (base == 0) {
-        // The base is not known until the suffix is seen, so both readings are
-        // accumulated and the suffix picks one.
-        long dec = 0;
-        long hex = 0;
-        bool dec_ok = true;
-        for (; i < len; i++) {
-            const char c = lower(s[i]);
-            int v;
-            if (c >= '0' && c <= '9') {
-                v = c - '0';
-            } else if (c >= 'a' && c <= 'f') {
-                v = c - 'a' + 10;
-                dec_ok = false;
-            } else {
-                break;
-            }
-            if (dec_ok) {
-                dec = dec * 10 + v;
-            }
-            hex = hex * 16 + v;
-            digits++;
-            if (hex > 0xFFFFFF) {
-                return false;   // long past any reading that could be in range
-            }
+        // Nothing said, so a trailing 'H' is what decides it. 'h' is not a hex
+        // digit, so it can only be the suffix.
+        int j = i;
+        while (j < len && is_alnum(s[j])) {
+            j++;
         }
-        if (digits == 0) {
-            return false;
-        }
-
-        bool is_hex = false;
-        if (i < len && lower(s[i]) == 'h') {
-            is_hex = true;
-            i++;
-        }
-        if (!is_hex && !dec_ok) {
-            return false;       // hex digits without the suffix
-        }
-        val = is_hex ? hex : dec;
-        if (val > 0xFFFF) {
-            return false;       // MOS rejects anything past sixteen bits
-        }
-    } else {
-        for (; i < len; i++) {
-            const char c = lower(s[i]);
-            int v;
-            if (c >= '0' && c <= '9') {
-                v = c - '0';
-            } else if (c >= 'a' && c <= 'z') {
-                v = c - 'a' + 10;
-            } else {
-                break;
-            }
-            if (v >= base) {
-                return false;
-            }
-            val = val * base + v;
-            digits++;
-            if (val > 0xFFFF) {
-                return false;
-            }
-        }
-        if (digits == 0) {
-            return false;
-        }
-        if (base == 16 && i < len && lower(s[i]) == 'h') {
-            i++;                // '&95h' -- redundant, but MOS allows it
-        }
+        base = (j > i && lower(s[j - 1]) == 'h') ? 16 : 10;
     }
 
+    int val = 0;
+    int digits = 0;
+    for (; i < len; i++) {
+        const unsigned v = (unsigned) digit_val(s[i]);
+        if (v >= (unsigned) base) {
+            break;              // -1 lands here too, as a very large unsigned
+        }
+        val = val * base + (int) v;
+        digits++;
+        if ((unsigned) val > 0xFFFFu) {
+            return false;       // MOS rejects anything past sixteen bits
+        }
+    }
+    if (digits == 0) {
+        return false;
+    }
+    if (base == 16 && i < len && lower(s[i]) == 'h') {
+        i++;
+    }
     if (i < len && s[i] == ';') {
         i++;                    // sixteen bits; the value is unchanged
     }
@@ -185,7 +166,7 @@ static bool take_number(const char* s, int len, int* at, int* out) {
         return false;           // trailing rubbish: not a plain number
     }
 
-    *out = (int) ((neg ? -val : val) & 0xFFFFL);
+    *out = (neg ? -val : val) & 0xFFFF;
     *at = i;
 
     return true;
