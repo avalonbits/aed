@@ -702,7 +702,14 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
         int tab = cfg->tab_size >= 0 ? cfg->tab_size : tab_now;
         int fg = cfg->fg >= 0 ? cfg->fg : fg_now;
         int bg = cfg->bg >= 0 ? cfg->bg : bg_now;
-        const char* font = cfg->font[0] != 0 ? cfg->font : font_now;
+        // Three states, not two: a path that was chosen, no font asked for,
+        // and nothing said either way -- in which case the row shows what the
+        // file already had. Reading only the path conflated the middle one
+        // with the last, so choosing "none" left the old font on the row and
+        // looked as though nothing had happened.
+        const char* font = cfg->font_none
+                           ? ""
+                           : (cfg->font[0] != 0 ? cfg->font : font_now);
 
         char y = top;
         int k = put_at(line, 0, width, "  SETTINGS");

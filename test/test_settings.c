@@ -262,10 +262,37 @@ int main(void) {
         config cfg;
         cfg_defaults(&cfg);
         strcpy(cfg.font, "/config/aed/unscii16.bin");   /* as the file has it */
+        cap_start();
         check("choosing none is a change worth writing",
               ui_settings(&ui, &scr, &cfg), YES_OPT);
+        cap_read(got, sizeof(got) - 1);
         check("  recorded as wanting none", cfg.font_none, 1);
         check("  and not as a path", cfg.font[0], 0);
+
+        /* And the row says so. It has three states, not two -- chosen, none,
+         * and nothing said -- and reading only the path conflated "none" with
+         * "nothing said", so the row went on showing the old font and choosing
+         * none looked as though it had done nothing at all. */
+        {
+            // The last time the row was drawn is the one that matters: the
+            // list is redrawn on every pass, so the stream holds the row as it
+            // looked before the choice as well as after.
+            const char* last = NULL;
+            for (const char* q = strstr(got, "font ");
+                 q != NULL; q = strstr(q + 1, "font ")) {
+                last = q;
+            }
+            char row[48];
+            int rn = 0;
+            for (const char* q = last; q != NULL && *q != 0 && rn < 47; q++) {
+                row[rn++] = *q;
+            }
+            row[rn] = 0;
+            check("  and the row stops showing the old font",
+                  last != NULL && strstr(row, "unscii16") == NULL, 1);
+            check("  saying the machine's own instead",
+                  last != NULL && strstr(row, "machine") != NULL, 1);
+        }
         ui_destroy(&ui);
     }
 
