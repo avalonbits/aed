@@ -141,7 +141,7 @@ static const help_line HELP[] = {
     { NULL,               "EDITING" },
     { "BACKSPACE",        "delete to the left" },
     { "DELETE",           "delete to the right" },
-    { "CTRL+D",           "delete the whole line" },
+    { "CTRL+D / CTRL+DEL", "delete the whole line" },
     { "CTRL+Z",           "undo" },
     { "CTRL+Y",           "redo" },
 
@@ -164,9 +164,9 @@ static const help_line HELP[] = {
 #define HELP_LINES ((int)(sizeof(HELP) / sizeof(HELP[0])))
 
 // Where the description starts. The keys begin at column six -- four of indent
-// and a bullet -- so this leaves a gap after CTRL+LEFT/RIGHT, the longest of
-// them at fifteen characters.
-#define HELP_GAP 24
+// and a bullet -- so this leaves a gap after CTRL+D / CTRL+DEL, the longest of
+// them at seventeen characters.
+#define HELP_GAP 26
 
 // Renders one entry into `out` and returns its length. A heading is written on
 // its own, a pair is written as key then description at a fixed column. The

@@ -123,6 +123,43 @@ int main(void) {
             }
             check("  with a blank row before them", blanks >= 40, 1);
         }
+        /* CTRL+DELETE deletes a whole line, the same as CTRL+D, and for a long
+         * time only CTRL+D was listed. */
+        check("the delete-line synonym is listed too",
+              strstr(got, "CTRL+D / CTRL+DEL") != NULL, 1);
+
+        /* The descriptions line up in a column, and the longest key is now
+         * within two characters of reaching it. A key longer than the column
+         * runs straight into its own description with no gap at all, and the
+         * only thing that stops it is HELP_GAP being wide enough -- which
+         * nothing else here would notice. */
+        {
+            int worst = 1 << 20;
+            static const char* const keys[] = {
+                "CTRL+O", "CTRL+ALT+S", "CTRL+LEFT/RIGHT", "HOME / END",
+                "PAGE UP/DOWN", "BACKSPACE", "CTRL+D / CTRL+DEL",
+                "SHIFT+motion", "CTRL+F", "CTRL+E",
+            };
+            for (int i = 0; i < (int)(sizeof(keys) / sizeof(keys[0])); i++) {
+                const char* at = strstr(got, keys[i]);
+                if (at == NULL) {
+                    worst = -1;
+                    break;
+                }
+                const char* p = at + strlen(keys[i]);
+                int gap = 0;
+                while (*p == ' ') {
+                    gap++;
+                    p++;
+                }
+                if (gap < worst) {
+                    worst = gap;
+                }
+            }
+            check("  and every key clears its description by two spaces",
+                  worst >= 2, 1);
+        }
+
         check("it closed on one key", stub_keys_read(), 1);
         ui_destroy(&ui);
     }
