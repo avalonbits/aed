@@ -599,7 +599,25 @@ static void find_from_cursor(editor* ed, bool forward) {
     }
 
     tb_pos from = tb_tell(tb);
-    from.x += forward ? 1 : -1;
+    if (forward) {
+        from.x += 1;
+    } else {
+        // A match leaves the cursor at its end, so stepping one back from the
+        // cursor is still inside it and the same match is found again -- which
+        // looked exactly like CTRL+P doing nothing at all. Going backwards
+        // starts from where the match began.
+        //
+        // Only when the selection is behind the cursor. A selection made by
+        // hand can run the other way, and its anchor is then ahead of the
+        // cursor -- searching back from there would skip over everything
+        // between the two.
+        if (ed->selecting_
+            && (ed->anchor_.line < from.line
+                || (ed->anchor_.line == from.line && ed->anchor_.x < from.x))) {
+            from = ed->anchor_;
+        }
+        from.x -= 1;
+    }
 
     tb_pos at;
     if (!tb_find(tb, ed->find_, ed->findsz_, from, forward, &at)) {
@@ -915,17 +933,45 @@ void cmd_open(editor* ed) {
     cmd_show(ed);
 }
 
+// Puts the document back after a modal has drawn over it.
+//
+// scr_clear resets the cursor's row to the top of the text area, and
+// refresh_screen reads that row as "how many lines above the cursor are on
+// screen" -- so clearing and refreshing without putting it back first paints
+// the cursor's line at the top, and the view has apparently scrolled. With the
+// cursor on the last line of a file that is exactly what it looked like:
+// everything above it gone, and one press of UP bringing it all back.
+//
+// `moved` says the geometry changed under it, which a font does. The old row is
+// meaningless then -- there may not be that many rows any more -- so the
+// cursor's line is centred instead, or put as far down as the document allows
+// when there is not enough above it to centre against.
+static void restore_after_modal(editor* ed, bool moved) {
+    SCR(ed);
+    TB(ed);
+
+    const char currX = scr->currX_;
+    const char currY = scr->currY_;
+    const char ch = tb_peek(tb);
+
+    scr_clear(scr);
+    scr->currX_ = currX;
+    if (moved) {
+        centre_line(ed, tb_ypos(tb));
+    } else {
+        scr->currY_ = currY;
+    }
+    refresh_screen(scr, tb);
+    scr_show_cursor_ch(scr, ch);
+}
+
 void cmd_color_picker(editor* ed) {
     SCR(ed);
     UI(ed);
 
     RESPONSE ret = ui_color_picker(ui, scr);
     if (ret == YES_OPT) {
-        TB(ed);
-        char ch = tb_peek(tb);
-        scr_clear(scr);
-        refresh_screen(scr, tb);
-        scr_show_cursor_ch(scr, ch);
+        restore_after_modal(ed, false);
 
         // Write the choice down. Settings live in the file now, and a scheme
         // that vanished on exit was the wart this was meant to fix. Only the
@@ -936,6 +982,63 @@ void cmd_color_picker(editor* ed) {
         cfg_defaults(&cfg);
         cfg.fg = scr_fg(scr);
         cfg.bg = scr_bg(scr);
+        cfg_update(&cfg, CFG_PATH);
+    }
+}
+
+void cmd_help(editor* ed) {
+    SCR(ed);
+    UI(ed);
+    TB(ed);
+
+    ui_help(ui, scr);
+
+    // The help wrote over the document, and the view cannot put it back on its
+    // own -- it has no access to the buffer.
+    restore_after_modal(ed, false);
+}
+
+void cmd_settings(editor* ed) {
+    SCR(ed);
+    UI(ed);
+    TB(ed);
+
+    // Comes in holding what the settings file says, so the font row can show
+    // the one in use, and goes out holding only what was changed.
+    config cfg;
+    cfg_defaults(&cfg);
+    cfg_load(&cfg, CFG_PATH);
+
+    const RESPONSE ret = ui_settings(ui, scr, &cfg);
+
+    // A font changes the cell size, and with it the number of rows and where
+    // the footer sits. Everything below is laid out from those, so the font
+    // goes in first and the screen is rebuilt from what it leaves behind.
+    bool moved = false;
+    if (ret == YES_OPT && (cfg.font[0] != 0 || cfg.font_none)) {
+        if (cfg.font[0] != 0) {
+            scr_load_font(scr, cfg.font);
+        } else {
+            scr_system_font(scr);
+        }
+
+        // The prompt row moved with the geometry; ui_ places everything it
+        // draws from it, so a prompt left on the old bottom row would land in
+        // the middle of the document.
+        ui_resize(ui, scr->bottomY_, scr->cols_);
+
+        // Fewer rows than before can leave the cursor past the bottom. Pulling
+        // it back to the last text row keeps it somewhere the screen has, and
+        // refresh_screen re-anchors the view from wherever it ends up.
+        moved = true;
+    }
+
+    restore_after_modal(ed, moved);
+
+    if (ret == YES_OPT) {
+        // Only the changed settings are set, and cfg_update copies every other
+        // line through as it found it -- comments, spacing, and anything a
+        // later version understands and this one does not.
         cfg_update(&cfg, CFG_PATH);
     }
 }

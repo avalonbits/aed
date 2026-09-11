@@ -328,6 +328,57 @@ int main(void) {
               glyphs, 2304);
     }
 
+    /* --- the colours the machine was using, read back off its own screen --- */
+    {
+        stub_set_screen(80, 30);
+        stub_set_cell(8, 16);
+        stub_set_screen_colours(11, 3);
+
+        /* A sixteen-row font draws low in its cell -- unscii-16 has nothing in
+         * the middle column of '*' at row 4, which is the one place AED used to
+         * look. Reading a blank pixel there recorded the background as the
+         * foreground, and a screen handed back with fg == bg is a blank one,
+         * with no cursor on it either: the VDP builds its text cursor by
+         * XOR-ing the two colours together, and an equal pair has no colour. */
+        stub_set_glyph_ink(9);
+        scr_init(&scr, 32);
+        check("ink below the middle of a tall cell is still found",
+              scr.entryFg_, 11);
+        check("  and a blank cell gives the background",
+              scr.entryBg_, 3);
+
+        /* Ink in the top half, where an eight row font puts it. */
+        stub_set_cell(8, 8);
+        stub_set_glyph_ink(2);
+        scr_init(&scr, 32);
+        check("ink in a short cell is found too", scr.entryFg_, 11);
+
+        /* A cell with no ink in that column at all. Any two colours are better
+         * than handing the screen back drawn in one. */
+        stub_set_glyph_ink(99);
+        scr_init(&scr, 32);
+        check("no ink anywhere falls back rather than leaving fg == bg",
+              scr.entryFg_ != scr.entryBg_, 1);
+
+        /* And those are the colours put back on the way out, not whatever the
+         * editor happened to be drawing in. */
+        stub_set_cell(8, 16);
+        stub_set_glyph_ink(9);
+        scr_init(&scr, 32);
+        scr.fg_ = 1;
+        scr.bg_ = 2;
+        set_colours(scr.fg_, scr.bg_);
+        stub_colours_reset();
+        scr_destroy(&scr);
+        check("the screen is handed back in the colours it was found in",
+              stub_last_fg(), 11);
+        check("  background as well", stub_last_bg(), 3);
+
+        stub_set_screen_colours(15, 0);
+        stub_set_glyph_ink(0);
+        stub_set_cell(8, 8);
+    }
+
     /* --- the system font goes back on the way out, and only if AED changed it --- */
     {
         const unsigned char sysfont[] = {23, 0, 0x95, 0, 0xFF, 0xFF, 0};

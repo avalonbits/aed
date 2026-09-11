@@ -37,6 +37,7 @@
 
 #include "editor.h"
 #include "screen.h"
+#include "cmd_ops.h"
 #include "text_buffer.h"
 
 static int failures = 0;
@@ -316,6 +317,38 @@ int main(void) {
               e.selecting_ ? 1 : 0, 0);
 
         ed_destroy(&e);
+    }
+
+    /* --- walking backwards through the matches --- */
+    //
+    // Through the commands rather than tb_find. A match leaves the cursor at
+    // its end, so a backward search starting one step back from the cursor is
+    // still inside the match it just found, and finds it again -- which looked
+    // exactly like CTRL+P doing nothing. Nothing above this could see that: it
+    // all tests tb_find, which was never wrong.
+    {
+        static const char doc[] = "aaa target bbb\ntarget ccc\nddd target\n";
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        stub_file_reset();
+        stub_file_set_content(doc, (int) sizeof(doc) - 1);
+        stub_file_set_objsize((uint32_t)(sizeof(doc) - 1));
+
+        editor ed;
+        check("editor starts for the walk", ed_init(&ed, 64, "doc.txt") != NULL, 1);
+        strcpy(ed.find_, "target");
+        ed.findsz_ = 6;
+
+        cmd_find_next(&ed);
+        cmd_find_next(&ed);
+        cmd_find_next(&ed);
+        check("forward reaches the last match", tb_ypos(&ed.buf_), 3);
+
+        cmd_find_prev(&ed);
+        check("and back goes to the one before it", tb_ypos(&ed.buf_), 2);
+        cmd_find_prev(&ed);
+        check("and the one before that", tb_ypos(&ed.buf_), 1);
+        ed_destroy(&ed);
     }
 
     if (failures > 0) {

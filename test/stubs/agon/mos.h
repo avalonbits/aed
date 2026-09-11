@@ -24,6 +24,25 @@
 typedef struct { uint32_t objsize; } FFOBJID;
 typedef struct { FFOBJID obj; } FIL;
 
+/* Enough of FatFS's directory types for the font picker. The real ones carry
+ * more; nothing here reads the rest. */
+#define AM_DIR 0x10   /* directory attribute bit */
+
+typedef struct { int dummy; } DIR;
+
+typedef struct {
+    uint32_t fsize;
+    uint16_t fdate;
+    uint16_t ftime;
+    uint8_t  fattrib;
+    char     altname[13];
+    char     fname[256];
+} FILINFO;
+
+uint8_t  ffs_dopen(DIR* dir, const char* path);
+uint8_t  ffs_dread(DIR* dir, FILINFO* info);
+uint8_t  ffs_dclose(DIR* dir);
+
 void     waitvblank(void);
 void     mos_puts(const char* buffer, unsigned size, char delimiter);
 uint8_t* mos_sysvars(void);
@@ -111,6 +130,26 @@ int         stub_keys_read(void);
  * the only way to assert where a paint was positioned. */
 int         stub_last_tab_x(void);
 int         stub_last_tab_y(void);
+
+/* Whether vdp_cursor_tab puts its VDU 31,x,y into the captured stream, so a
+ * test can see which row something was painted on. */
+void        stub_emit_tabs(int on);
+
+/* What the screen was in before AED ran -- the colours its startup probe is
+ * trying to read back off it -- and where in the cell the font puts ink, as the
+ * first glyph row that has any. A sixteen-row font draws low in its cell, and
+ * that is what made the probe read the background as the foreground. */
+void        stub_set_screen_colours(int fg, int bg);
+void        stub_set_glyph_ink(int first_row);
+
+/* A directory for ffs_dopen/ffs_dread to walk. Names and sizes, in order;
+ * ffs_dread hands them back one at a time and then reports the end. */
+void        stub_set_dir(const char* const* names, const unsigned* sizes, int n);
+
+/* Files served by name, so one test can have a settings file, a font and a
+ * document at once. Names not registered fall back to stub_file_set_content. */
+void        stub_file_add(const char* name, const char* data, int len);
+void        stub_file_clear_named(void);
 
 /* Makes mos_fread return fewer bytes than asked for, so the read path can be
  * checked against a card that stops part way. */

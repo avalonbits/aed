@@ -70,10 +70,23 @@ static int stub_tab_y = -1;
 int stub_last_tab_x(void) { return stub_tab_x; }
 int stub_last_tab_y(void) { return stub_tab_y; }
 
+/* Whether the tab reaches the captured stream. Off by default: it puts control
+ * bytes into what most tests read back as text. On, the stream carries what the
+ * real call carries -- VDU 31, x, y -- which is the only way to see *where* a
+ * row was painted, as opposed to what was in it. */
+static int stub_tab_bytes;
+
+void stub_emit_tabs(int on) { stub_tab_bytes = on; }
+
 void vdp_cursor_tab(int x, int y) {
     stub_tab_x = x;
     stub_tab_y = y;
     stub_tab_write_n = stub_write_n;
+    if (stub_tab_bytes) {
+        putchar(31);
+        putchar(x & 0xFF);
+        putchar(y & 0xFF);
+    }
 }
 
 /* --- MOS: screen/system --- */
@@ -111,6 +124,38 @@ static void stub_apply_cell(int h) {
     stub_rows = (uint8_t) (stub_screen_px / h);
 }
 
+/* The stubbed VDP's pixel read, which is how AED finds the colours the machine
+ * was using before it started. AED writes a character in the top left cell and
+ * asks for the colour of a pixel of it with VDU 23,0,&84; whether that pixel is
+ * ink depends on where in the cell the font draws the glyph, and getting that
+ * wrong is what left a machine booted into a sixteen-row font with a blank
+ * screen and no cursor. So the glyph is modelled: rows below stub_ink_from are
+ * blank, the rest are ink.
+ *
+ * stub_set_screen_colours says what the screen was in before AED ran, which is
+ * the thing the probe is trying to recover. */
+static int stub_scr_fg = 15;
+static int stub_scr_bg = 0;
+static int stub_ink_from = 0;
+static char stub_cell_ch = ' ';
+static uint8_t stub_pixel;
+
+void stub_set_screen_colours(int fg, int bg) {
+    stub_scr_fg = fg;
+    stub_scr_bg = bg;
+}
+
+void stub_set_glyph_ink(int first_row) { stub_ink_from = first_row; }
+
+static void stub_pixel_vdu(const char* b, unsigned size) {
+    if (size < 7 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x84) {
+        return;
+    }
+    const int y = (unsigned char) b[5] | ((unsigned char) b[6] << 8);
+    const int ink = stub_cell_ch != ' ' && y >= stub_ink_from;
+    stub_pixel = (uint8_t) (ink ? stub_scr_fg : stub_scr_bg);
+}
+
 static void stub_font_vdu(const char* b, unsigned size) {
     if (size < 7 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x95) {
         return;
@@ -135,6 +180,10 @@ void mos_puts(const char* b, unsigned size, char d) {
     stub_write_n++;
     if (b != NULL) {
         stub_font_vdu(b, size);
+        stub_pixel_vdu(b, size);
+        if (size == 1 && (unsigned char) b[0] >= 32) {
+            stub_cell_ch = b[0];    /* one character on its own: the probe */
+        }
     }
     if ((int) size > stub_write_max) {
         stub_write_max = (int) size;
@@ -178,6 +227,7 @@ void stub_vdp_mode_reply(int on) { stub_mode_reply = on; }
 uint8_t* mos_sysvars(void) {
     static uint8_t sysvars[64];
     sysvars[sysvar_vdp_pflags] = vdp_pflag_point;  /* pretend the VDP replied */
+    sysvars[sysvar_scrpixelIndex] = stub_pixel;
     if (stub_mode_reply) {
         sysvars[sysvar_vdp_pflags] |= vdp_pflag_mode;
     }
@@ -298,8 +348,36 @@ static char        stub_mkdir_path[256];
 static const char* stub_content;
 static int         stub_content_len;
 
+/* Files served by name. Without this every open returns the same bytes, so a
+ * test cannot have a settings file, a font and a document at once -- and a test
+ * of changing the font while an editor is open needs all three. Names not in
+ * the table fall back to stub_content, so existing tests are unaffected. */
+#define STUB_NAMED 8
+
+static struct {
+    const char* name;
+    const char* data;
+    int len;
+} stub_named[STUB_NAMED];
+static int stub_named_n;
+
+void stub_file_add(const char* name, const char* data, int len) {
+    if (stub_named_n < STUB_NAMED) {
+        stub_named[stub_named_n].name = name;
+        stub_named[stub_named_n].data = data;
+        stub_named[stub_named_n].len = len;
+        stub_named_n++;
+    }
+}
+
+void stub_file_clear_named(void) { stub_named_n = 0; }
+
 void stub_file_reset(void) {
     stub_len = 0;
+    /* Terminated as well as emptied: stub_file_bytes hands back the buffer and
+     * every caller reads it as a string, so bytes left from an earlier write
+     * would be found by a strstr looking for something this one never wrote. */
+    stub_buf[0] = 0;
     stub_opens = 0;
     stub_closes = 0;
     stub_fail_open = 0;
@@ -314,6 +392,7 @@ void stub_file_reset(void) {
     stub_mkdir_path[0] = 0;
     stub_delete_count = 0;
     stub_short = -1;
+    stub_named_n = 0;
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
@@ -375,9 +454,76 @@ uint8_t mos_mkdir(const char* path) {
     return 0;
 }
 
+/* --- MOS: directory walking --- */
+
+static const char* const* stub_dir_names;
+static const unsigned*    stub_dir_sizes;
+static int                stub_dir_n;
+static int                stub_dir_at;
+
+void stub_set_dir(const char* const* names, const unsigned* sizes, int n) {
+    stub_dir_names = names;
+    stub_dir_sizes = sizes;
+    stub_dir_n = n;
+    stub_dir_at = 0;
+}
+
+uint8_t ffs_dopen(DIR* dir, const char* path) {
+    (void) dir;
+    (void) path;
+    stub_dir_at = 0;
+
+    return stub_dir_names == NULL ? 5 : 0;   /* 5 is FR_NO_PATH */
+}
+
+/* An empty name is how FatFS says the directory has ended. */
+uint8_t ffs_dread(DIR* dir, FILINFO* info) {
+    (void) dir;
+    if (info == NULL) {
+        return 9;
+    }
+    if (stub_dir_names == NULL || stub_dir_at >= stub_dir_n) {
+        info->fname[0] = 0;
+        info->fsize = 0;
+
+        return 0;
+    }
+    const char* name = stub_dir_names[stub_dir_at];
+    size_t n = strlen(name);
+    if (n >= sizeof(info->fname)) {
+        n = sizeof(info->fname) - 1;
+    }
+    memcpy(info->fname, name, n);
+    info->fname[n] = 0;
+    info->fsize = stub_dir_sizes[stub_dir_at];
+    info->fattrib = 0;
+    stub_dir_at++;
+
+    return 0;
+}
+
+uint8_t ffs_dclose(DIR* dir) {
+    (void) dir;
+
+    return 0;
+}
+
 uint8_t mos_fopen(const char* filename, uint8_t mode) {
-    (void)filename;
     stub_opens++;
+
+    /* A named file, if this is one: it becomes what this handle serves, and
+     * the size mos_getfil reports. */
+    if (filename != NULL) {
+        for (int i = 0; i < stub_named_n; i++) {
+            if (strcmp(filename, stub_named[i].name) == 0) {
+                stub_content = stub_named[i].data;
+                stub_content_len = stub_named[i].len;
+                stub_objsize = (uint32_t) stub_named[i].len;
+                stub_objsize_set = 1;
+                break;
+            }
+        }
+    }
     stub_read_pos = 0;      /* reads start at the beginning of the file */
     if ((mode & FA_WRITE) != 0) {
         stub_write_opens++;
@@ -436,6 +582,9 @@ unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
     }
     memcpy(stub_buf + stub_len, buffer, numbytes);
     stub_len += numbytes;
+    if (stub_len < STUB_FILE_CAP) {
+        stub_buf[stub_len] = 0;     /* see stub_file_reset */
+    }
 
     return numbytes;
 }

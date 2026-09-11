@@ -91,6 +91,14 @@ bg = 0
 |---|---|---|
 | `[editor]` | `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
 | `[editor]` | `font` | path to a font to load at startup. Commented out by default -- see below. |
+
+The settings can also be edited from inside AED with **CTRL+E**, which writes
+them back to the file. It changes only what you change: every other line is
+copied through as it was, comments and all.
+
+`ctrl_pause_frames` is not offered there, on purpose -- it is the one setting
+that can do harm to get wrong, and a row in a list is no place to explain why.
+Set it in the file, having read the section below.
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
 | `[vdp]` | `ctrl_pause_frames` | how long the VDP pauses when a line wraps while CTRL is held, in frames. Not written by default -- see below. |
@@ -140,8 +148,17 @@ So this is *not* the bargain `ctrl_pause_frames` asks of you. Setting it says "I
 would like this font", not "I promise my VDP is new enough". On an older VDP you
 get the stock font and nothing worse.
 
-AED puts the system font back when it exits, the same way it puts your colours
-back.
+AED puts the font back when it exits, the same way it puts your colours back.
+
+If your `/autoexec.txt` sets a font -- `loadfont` into a buffer and `fontctl` to
+select it, or the same thing written out as a `VDU 23,0,&95,0,<buffer>;` line --
+AED reads which buffer it used and selects that on the way out, rather than the
+stock font. Without that it has no choice: the VDP has no command that reports
+which font is in force, so the only name AED would have for "put it back" is the
+system font, which would replace your font with the default every time you quit.
+
+That is declared intent rather than truth. A font set by anything else, or after
+boot, is invisible to it, and AED then does what it always did.
 
 ### `ctrl_pause_frames`
 

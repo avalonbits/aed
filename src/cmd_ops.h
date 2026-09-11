@@ -84,6 +84,12 @@ void cmd_paste(editor* ed);
 void cmd_select_all(editor* ed);
 void cmd_color_picker(editor* ed);
 
+// Shows the settings, lets them be changed, and writes the file when any were.
+void cmd_settings(editor* ed);
+
+// Shows the command list, then puts the document back.
+void cmd_help(editor* ed);
+
 void cmd_putc(editor* ed, key k);
 void cmd_del(editor* ed);
 void cmd_bksp(editor* ed);
