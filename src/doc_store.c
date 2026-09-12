@@ -62,6 +62,7 @@ bool store_init(doc_store* st, const char* base) {
         return false;
     }
     st->open_ = false;
+    st->tail_fh_ = 0;
     st->head_len_ = 0;
     st->tail_start_ = STORE_HEADROOM;
     st->tail_end_ = STORE_HEADROOM;
@@ -113,6 +114,7 @@ void store_destroy(doc_store* st) {
     if (st == NULL || !st->open_) {
         return;
     }
+    store_tail_release(st);
     mos_del(st->head_);
     mos_del(st->tail_);
     st->open_ = false;
@@ -133,6 +135,23 @@ bool store_tail_has_room(const doc_store* st, int n) {
     return st != NULL && st->open_ && n >= 0 && st->tail_start_ >= n;
 }
 
+bool store_tail_hold(doc_store* st) {
+    if (st == NULL || !st->open_ || st->tail_fh_ != 0) {
+        return false;
+    }
+    st->tail_fh_ = open_rw(st->tail_);
+
+    return st->tail_fh_ != 0;
+}
+
+void store_tail_release(doc_store* st) {
+    if (st == NULL || st->tail_fh_ == 0) {
+        return;
+    }
+    mos_fclose(st->tail_fh_);
+    st->tail_fh_ = 0;
+}
+
 bool store_tail_append(doc_store* st, const char* buf, int n) {
     if (st == NULL || !st->open_ || buf == NULL || n < 0) {
         return false;
@@ -140,7 +159,9 @@ bool store_tail_append(doc_store* st, const char* buf, int n) {
     if (n == 0) {
         return true;
     }
-    const char fh = open_rw(st->tail_);
+    // The held handle when a load is running, its own otherwise.
+    const bool held = st->tail_fh_ != 0;
+    const char fh = held ? st->tail_fh_ : open_rw(st->tail_);
     if (fh == 0) {
         return false;
     }
@@ -148,7 +169,9 @@ bool store_tail_append(doc_store* st, const char* buf, int n) {
     // dead space free: nothing is transferred to create it.
     const bool ok = mos_flseek(fh, (uint32_t) st->tail_end_) == 0
                     && mos_fwrite(fh, (char*) buf, (unsigned) n) == (unsigned) n;
-    mos_fclose(fh);
+    if (!held) {
+        mos_fclose(fh);
+    }
     if (ok) {
         st->tail_end_ += n;
     }

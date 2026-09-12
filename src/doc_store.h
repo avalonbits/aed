@@ -81,6 +81,13 @@ typedef struct _doc_store {
     int tail_end_;
 
     bool open_;
+
+    // A handle held across a run of appends, or 0. Every other operation opens
+    // and closes around itself, which costs two MOS calls and is nothing
+    // beside the read and write a slide does. A load is different: it appends
+    // a chunk at a time, so the opens are per 2 KiB of document rather than
+    // per slide, and on a 419 KiB file that was most of a twelve second open.
+    char tail_fh_;
 } doc_store;
 
 // Names the scratch files after `base` and creates them both empty. `base` is
@@ -90,6 +97,11 @@ bool store_init(doc_store* st, const char* base);
 
 // Closes and removes both files. Safe on a store that never opened.
 void store_destroy(doc_store* st);
+
+// Holds TAIL open across a run of appends, and lets it go. Optional: appending
+// works either way, and this only saves the opening and closing.
+bool store_tail_hold(doc_store* st);
+void store_tail_release(doc_store* st);
 
 // Builds TAIL, front to back, as the document is read in at open. Appends after
 // the headroom and after whatever has already been appended.

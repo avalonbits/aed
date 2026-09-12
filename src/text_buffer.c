@@ -1524,6 +1524,11 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         return false;
     }
 
+    // Held open for the whole read. Appending opens and closes the file
+    // otherwise, which is fine for a slide and is once per 2 KiB of document
+    // here -- 214 opens for a 419 KiB file, and most of what its open cost.
+    const bool held = store_tail_hold(tb->store_);
+
     int left = size;
     bool pending_cr = false;
     int added = 0;
@@ -1533,6 +1538,10 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         const int want = left < TB_CHUNK ? left : TB_CHUNK;
         const int got = (int) mos_fread(fh, in, (unsigned) want);
         if (got <= 0) {
+            if (held) {
+                store_tail_release(tb->store_);
+            }
+
             return false;
         }
         int n = 0;
@@ -1552,9 +1561,16 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
             out[n++] = c;
         }
         if (!tb_page_fill(tb, out, n)) {
+            if (held) {
+                store_tail_release(tb->store_);
+            }
+
             return false;
         }
         left -= got;
+    }
+    if (held) {
+        store_tail_release(tb->store_);   // priming reads it back
     }
 
     tb_page_prime(tb);

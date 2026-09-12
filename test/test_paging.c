@@ -630,6 +630,36 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- the load does not open the tail once per chunk --- */
+    {
+        /* Appending opens and closes around itself, which is right for a
+         * slide and wrong for a load: the loader appends a chunk at a time,
+         * so the opens come out at one per 2 KiB of document. On hardware
+         * that was most of a 12.4 s open on a 419 KiB file.
+         *
+         * What makes it a bug is that it scales, so that is what is measured:
+         * open a document, then open one twice as long, and the number of
+         * files opened for writing has to be the same both times. Counting
+         * against a fixed number would pass just as well with the holding
+         * taken out, as long as the document were small enough. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES / 2);
+        check("a paged document opens", tb_init(&tb, DOC_KB, "/half.txt") != NULL, 1);
+        const int half_opens = stub_file_opens_for_write();
+        tb_destroy(&tb);
+
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("  and one twice as long", tb_init(&tb, DOC_KB, "/big.txt") != NULL, 1);
+        const int full_opens = stub_file_opens_for_write();
+        tb_destroy(&tb);
+
+        check("  which pages, so the loader really did chunk",
+              DOC_BYTES > DOC_KB * 1024, 1);
+        check("  opening the tail the same number of times either way",
+              full_opens, half_opens);
+    }
+
     /* --- a file of bare line feeds is normalised on the way in --- */
     {
         /* The loader converts as it streams, a chunk at a time, and the one
