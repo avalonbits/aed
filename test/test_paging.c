@@ -608,6 +608,134 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- loading a file too big for memory --- */
+    {
+        /* The point of all of it. A document larger than the buffer used to be
+         * refused with "file too large"; it opens now, with the store holding
+         * what memory cannot. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a document larger than memory opens",
+              tb_init(&tb, DOC_KB, "/big.txt") != NULL, 1);
+        check("  with all of its lines", tb_ymax(&tb), DOC_LINES + 1);
+        check("  but not all of it in memory", tb_used(&tb) < DOC_BYTES, 1);
+        check("  and the rest in the store", store_tail_bytes(tb.store_) > 0, 1);
+        check("  reading its first line", strcmp(LINE_NOW(&tb), WANT(0)), 0);
+
+        /* Including the far end, which is only reachable by sliding. */
+        tb_pos last = { DOC_LINES, 0 };
+        tb_seek(&tb, last);
+        check("  and its last", strcmp(LINE_NOW(&tb), WANT(DOC_LINES - 1)), 0);
+        check("  at the line it should be", tb_ypos(&tb), DOC_LINES);
+        tb_destroy(&tb);
+    }
+
+    /* --- a file of bare line feeds is normalised on the way in --- */
+    {
+        /* The loader converts as it streams, a chunk at a time, and the one
+         * piece of state that cannot live inside a chunk is whether the last
+         * byte of the one before was a carriage return. Get that wrong and
+         * every break landing on a chunk boundary gains a second one. */
+        #define LF_LINES 5000
+        static char LF[LF_LINES * 20 + 1];
+        int lf_at = 0;
+        for (int i = 0; i < LF_LINES; i++) {
+            for (int k = 0; k < 19; k++) {
+                LF[lf_at++] = (char) ('a' + ((i + k) % 26));
+            }
+            LF[lf_at++] = '\n';        // bare, no carriage return
+        }
+        stub_file_reset();
+        stub_file_set_content(LF, lf_at);
+        check("a bare-LF document opens", tb_init(&tb, DOC_KB, "/lf.txt") != NULL, 1);
+        check("  with the lines it has, not twice as many",
+              tb_ymax(&tb), LF_LINES + 1);
+        check("  and opens clean, because saving it changes nothing",
+              tb_changed(&tb) ? 1 : 0, 0);
+
+        int wrong = 0;
+        for (int n = 1; n <= LF_LINES && wrong == 0; n++) {
+            tb_pos p = { n, 0 };
+            tb_seek(&tb, p);
+            const split_line ln = tb_curr_line(&tb);
+            if (ln.ssz_ != 19 || memcmp(ln.suffix_, LF + (n - 1) * 20, 19) != 0) {
+                wrong = n;
+            }
+        }
+        check("  every line of it reads as itself", wrong, 0);
+        tb_destroy(&tb);
+    }
+
+    /* --- a CRLF split across a chunk boundary --- */
+    {
+        /* Lines of three bytes, "a\r\n", so that byte 2047 is a carriage
+         * return and byte 2048 a line feed: the loader's first chunk ends on
+         * one half of a break and the second begins with the other.
+         *
+         * Whether the last byte of the previous chunk was a carriage return is
+         * the only state the conversion carries across chunks. Losing it makes
+         * the loader treat that line feed as bare and give it a second
+         * carriage return, so the document gains a line at every chunk
+         * boundary and the text gains a byte. */
+        #define CR_LINES 12000
+        static char CR[CR_LINES * 3 + 1];
+        for (int i = 0; i < CR_LINES; i++) {
+            CR[i * 3 + 0] = (char) ('a' + (i % 26));
+            CR[i * 3 + 1] = '\r';
+            CR[i * 3 + 2] = '\n';
+        }
+        /* 36,000 bytes into 32 KiB of buffer, so it really does page -- at
+         * DOC_KB it would fit in memory and never go near the loader's
+         * chunking. */
+        stub_file_reset();
+        stub_file_set_content(CR, CR_LINES * 3);
+        check("a CRLF document opens", tb_init(&tb, 32, "/cr.txt") != NULL, 1);
+        check("  with exactly its own lines", tb_ymax(&tb), CR_LINES + 1);
+        check("  and nothing added to it", tb_changed(&tb) ? 1 : 0, 0);
+
+        /* The lines either side of each chunk boundary, which is where a lost
+         * carry shows up: 2048 / 3 falls between the carriage return of line
+         * 683 and its line feed. */
+        int wrong = 0;
+        for (int n = 680; n <= 690 && wrong == 0; n++) {
+            tb_pos p = { n, 0 };
+            tb_seek(&tb, p);
+            const split_line ln = tb_curr_line(&tb);
+            if (tb_ypos(&tb) != n || ln.ssz_ != 1
+                    || ln.suffix_[0] != (char) ('a' + ((n - 1) % 26))) {
+                wrong = n;
+            }
+        }
+        check("  and the lines around a chunk boundary read as themselves",
+              wrong, 0);
+        tb_destroy(&tb);
+    }
+
+    /* --- a buffer smaller than a chunk --- */
+    {
+        /* Nothing stops memory being smaller than the chunk a slide moves, and
+         * then a pop of a whole chunk cannot be given to it -- the filling
+         * would stop before it started, leaving a document that opened with
+         * nothing in it. The pop is capped to what will fit. */
+        #define WIDE_LINES 200
+        static char WIDE[WIDE_LINES * 100 + 1];
+        for (int i = 0; i < WIDE_LINES; i++) {
+            for (int k = 0; k < 98; k++) {
+                WIDE[i * 100 + k] = (char) ('a' + ((i + k) % 26));
+            }
+            WIDE[i * 100 + 98] = '\r';
+            WIDE[i * 100 + 99] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(WIDE, WIDE_LINES * 100);
+        check("a document opens into a buffer smaller than a chunk",
+              tb_init(&tb, 1, "/wide.txt") != NULL, 1);
+        check("  with something actually in memory", tb_used(&tb) > 0, 1);
+        check("  and its first line readable", tb_curr_line(&tb).ssz_, 98);
+        check("  counting all of its lines", tb_ymax(&tb), WIDE_LINES + 1);
+        tb_destroy(&tb);
+    }
+
     /* --- an unpaged document never slides --- */
     {
         check("an ordinary document", load_five(&tb), 1);

@@ -697,8 +697,14 @@ bool tb_page_prime(text_buffer* tb) {
         return false;
     }
     // Room kept back so the first slide has somewhere to put what it brings in,
-    // and so the margins have something to be margins of.
-    const int spare = TB_CHUNK * 2;
+    // and so the margins have something to be margins of. A share of the buffer
+    // rather than a fixed amount: two chunks is right for the 248 KiB the
+    // editor runs with and larger than the whole of a small one, and a reserve
+    // bigger than the buffer fills nothing at all.
+    int spare = cb_size(&tb->cb_) / 4;
+    if (spare > TB_CHUNK * 2) {
+        spare = TB_CHUNK * 2;
+    }
 
     // An empty buffer is not nothing: it is one line, of no length, and that
     // line belongs at the *end* of what gets filled in -- it is the line the
@@ -714,7 +720,14 @@ bool tb_page_prime(text_buffer* tb) {
     bool gave = false;
 
     while (store_tail_bytes(tb->store_) > 0 && cb_available(&tb->cb_) > spare) {
-        const int got = store_tail_pop(tb->store_, slide_bytes, TB_CHUNK);
+        // Never more than will fit: a buffer smaller than a chunk would take
+        // nothing at all otherwise, because the give would be refused and the
+        // filling would stop before it started.
+        int want = cb_available(&tb->cb_) - spare;
+        if (want > TB_CHUNK) {
+            want = TB_CHUNK;
+        }
+        const int got = store_tail_pop(tb->store_, slide_bytes, want);
         if (got <= 0) {
             break;
         }
@@ -1493,6 +1506,75 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
 }
 
 
+// Reads a document too big for memory into the store, normalising its line
+// endings on the way.
+//
+// The same normalisation tb_read does, but streaming: a chunk at a time, with
+// the one piece of state that cannot live inside a chunk -- whether the last
+// byte of the previous one was a carriage return, which decides whether the
+// line feed opening this one already has its pair.
+//
+// The output can be twice the input, in a file of nothing but bare line feeds,
+// which is why there are two buffers rather than one.
+static bool tb_load_paged(text_buffer* tb, char fh, int size) {
+    static char in[TB_CHUNK];
+    static char out[TB_CHUNK * 2];
+
+    if (!tb_page_open(tb, tb->fname_)) {
+        return false;
+    }
+
+    int left = size;
+    bool pending_cr = false;
+    int added = 0;
+    int crlf = 0;
+
+    while (left > 0) {
+        const int want = left < TB_CHUNK ? left : TB_CHUNK;
+        const int got = (int) mos_fread(fh, in, (unsigned) want);
+        if (got <= 0) {
+            return false;
+        }
+        int n = 0;
+        for (int i = 0; i < got; i++) {
+            const char c = in[i];
+            if (c == '\n') {
+                if (pending_cr) {
+                    crlf++;         // it already had its carriage return
+                } else {
+                    out[n++] = '\r';
+                    added++;
+                }
+                pending_cr = false;
+            } else {
+                pending_cr = (c == '\r');
+            }
+            out[n++] = c;
+        }
+        if (!tb_page_fill(tb, out, n)) {
+            return false;
+        }
+        left -= got;
+    }
+
+    tb_page_prime(tb);
+
+    // A file whose breaks were all bare line feeds goes back out the same way,
+    // so opening and saving it leaves it byte for byte as it was -- which is
+    // what lets it be clean on open. One with both kinds cannot have that, and
+    // opens dirty because a save really will rewrite it.
+    if (added > 0 && crlf == 0) {
+        tb->eol_ = TB_EOL_LF;
+        tb->dirty_ = false;
+    } else {
+        tb->eol_ = TB_EOL_CRLF;
+        tb->dirty_ = added != 0;
+    }
+    tb->load_dirty_ = tb->dirty_;
+
+    return true;
+}
+
 tb_result tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
         return TB_NO_FILE;
@@ -1530,11 +1612,28 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
     // Compared before narrowing: objsize is 32 bits and the eZ80's int is 24,
     // so a file over 8MB would arrive here as a small or negative number and
     // walk straight past a signed check.
-    if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
+    //
+    // Too big for memory is no longer too big to open. It goes to the store
+    // instead and memory holds a window on it -- which is the whole of what
+    // .internal/docs/PAGING.md is for. What is still refused is a file too big
+    // for the arithmetic: 8 MB is where a size stops fitting in this machine's
+    // int, and nothing below that line can be trusted about it.
+    if (fil->obj.objsize > (uint32_t) 0x7FFFFF) {
         mos_fclose(fh);
         tb->fname_[0] = 0;
 
         return TB_TOO_LARGE;
+    }
+    if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
+        const bool paged = tb_load_paged(tb, fh, (int) fil->obj.objsize);
+        mos_fclose(fh);
+        if (!paged) {
+            tb->fname_[0] = 0;
+
+            return TB_TOO_LARGE;
+        }
+
+        return TB_OK;
     }
     const int sz = (int) fil->obj.objsize;
     if (sz > 0) {
