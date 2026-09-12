@@ -216,6 +216,49 @@ int store_tail_pop(doc_store* st, char* buf, int n) {
     return got;
 }
 
+static int read_at(const char* path, int at, char* buf, int n) {
+    if (path == NULL || buf == NULL || n <= 0 || at < 0) {
+        return 0;
+    }
+    const char fh = mos_fopen(path, FA_READ);
+    if (fh == 0) {
+        return 0;
+    }
+    int got = 0;
+    if (mos_flseek(fh, (uint32_t) at) == 0) {
+        got = (int) mos_fread(fh, buf, (unsigned) n);
+    }
+    mos_fclose(fh);
+
+    return got;
+}
+
+int store_head_read(doc_store* st, int at, char* buf, int n) {
+    if (st == NULL || !st->open_) {
+        return 0;
+    }
+    if (at + n > st->head_len_) {
+        n = st->head_len_ - at;     // never past what the document owns
+    }
+
+    return read_at(st->head_, at, buf, n);
+}
+
+int store_tail_read(doc_store* st, int at, char* buf, int n) {
+    if (st == NULL || !st->open_) {
+        return 0;
+    }
+    if (at + n > st->tail_end_) {
+        n = st->tail_end_ - at;
+    }
+
+    return read_at(st->tail_, at, buf, n);
+}
+
+int store_tail_from(const doc_store* st) {
+    return (st == NULL || !st->open_) ? 0 : st->tail_start_;
+}
+
 void store_head_rewind(doc_store* st, int n) {
     if (st == NULL || !st->open_ || n <= 0) {
         return;

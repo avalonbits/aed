@@ -736,6 +736,74 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- saving a paged document --- */
+    {
+        /* The head, then memory, then what is left of the tail -- and what
+         * comes out has to be the document, byte for byte, wherever the window
+         * happened to be sitting. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to save", tb_init(&tb, DOC_KB, "/big.txt") != NULL, 1);
+
+        /* With the window in the middle, so all three pieces have something in
+         * them. Saving from the top or the bottom would leave one empty and
+         * never notice an ordering mistake. */
+        tb_pos mid = { DOC_LINES / 2, 0 };
+        tb_seek(&tb, mid);
+        check("  with all three pieces holding something",
+              store_head_bytes(tb.store_) > 0 && tb_used(&tb) > 0
+              && store_tail_bytes(tb.store_) > 0, 1);
+
+        check("saving works", tb_save(&tb) ? 1 : 0, 1);
+
+        int saved_len = 0;
+        const char* saved = stub_file_content("/big.txt", &saved_len);
+        check("  and writes the whole document", saved_len, DOC_BYTES);
+        check("  byte for byte",
+              saved != NULL && memcmp(saved, DOC, (size_t) DOC_BYTES) == 0 ? 1 : 0, 1);
+
+        /* Through a temp and a rename: opening the document itself with
+         * FA_CREATE_ALWAYS would truncate what the save is still reading out
+         * of the head and the tail. */
+        check("  leaving no temp file behind", stub_file_exists("/big.txt.aeds"), 0);
+
+        /* And the document is still usable afterwards -- the window has not
+         * moved and the scratch files are still there. */
+        check("  with the cursor where it was", tb_ypos(&tb), DOC_LINES / 2);
+        check("  reading its own line",
+              strcmp(LINE_NOW(&tb), WANT(DOC_LINES / 2 - 1)), 0);
+        check("  and nothing left unsaved", tb_changed(&tb) ? 1 : 0, 0);
+        tb_destroy(&tb);
+        check("closing it takes the scratch away",
+              stub_file_exists("/big.txt.aedh") || stub_file_exists("/big.txt.aedt"), 0);
+    }
+
+    /* --- saving one that has been edited --- */
+    {
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        tb_init(&tb, DOC_KB, "/big.txt");
+        tb_pos mid = { DOC_LINES / 2, 0 };
+        tb_seek(&tb, mid);
+
+        check("typing into a paged document", tb_put(&tb, 'Z') ? 1 : 0, 1);
+        check("  makes it dirty", tb_changed(&tb) ? 1 : 0, 1);
+        check("saving it", tb_save(&tb) ? 1 : 0, 1);
+
+        int saved_len = 0;
+        const char* saved = stub_file_content("/big.txt", &saved_len);
+        check("  writes one byte more than it read", saved_len, DOC_BYTES + 1);
+        const int at = (DOC_LINES / 2 - 1) * DOC_LEN;
+        check("  with the new byte where it was typed",
+              saved != NULL && saved[at] == 'Z' ? 1 : 0, 1);
+        check("  the document before it untouched",
+              saved != NULL && memcmp(saved, DOC, (size_t) at) == 0 ? 1 : 0, 1);
+        check("  and everything after it carried through",
+              saved != NULL && memcmp(saved + at + 1, DOC + at,
+                                      (size_t)(DOC_BYTES - at)) == 0 ? 1 : 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- an unpaged document never slides --- */
     {
         check("an ordinary document", load_five(&tb), 1);

@@ -108,6 +108,15 @@ bool store_tail_push(doc_store* st, const char* buf, int n);
 void store_head_rewind(doc_store* st, int n);
 void store_tail_rewind(doc_store* st, int n);
 
+// Reads `n` bytes of a side at `at`, without changing what belongs to the
+// document. For saving, which walks both files end to end and must leave them
+// exactly as it found them -- the document is still open afterwards.
+int store_head_read(doc_store* st, int at, char* buf, int n);
+int store_tail_read(doc_store* st, int at, char* buf, int n);
+
+// Where the tail's live text begins, for a save to read from.
+int store_tail_from(const doc_store* st);
+
 // Whether TAIL still has room in front of it for `n` more bytes to be pushed
 // back. False means the headroom is spent and TAIL has to be rebuilt before
 // another push -- a slow path, and the caller's problem rather than this one's.

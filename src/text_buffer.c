@@ -1782,12 +1782,105 @@ static void tb_write_lf(char fh, const char* pre, int psz,
     lfw_flush(&w);
 }
 
+// Saves a paged document: the head, then memory, then what is left of the tail.
+//
+// Through a temp file and a rename, because the document's own name is where
+// the head and the tail were read from -- opening it with FA_CREATE_ALWAYS
+// would truncate what the save is still reading. That is pitfall 4, and it is
+// why the floor needs mos_ren.
+//
+// The scratch files are left as they are. The document is still open when this
+// returns, the window has not moved, and the cursor is where it was.
+static bool tb_save_paged(text_buffer* tb) {
+    static char buf[TB_CHUNK];
+    static const char TMP_SUFFIX[] = ".aeds";
+    static char tmp[TB_FNAME_MAX + sizeof(TMP_SUFFIX)];
+
+    const int nlen = (int) strlen(tb->fname_);
+    if (nlen + (int) sizeof(TMP_SUFFIX) > (int) sizeof(tmp)) {
+        return false;
+    }
+    memcpy(tmp, tb->fname_, (size_t) nlen);
+    memcpy(tmp + nlen, TMP_SUFFIX, sizeof(TMP_SUFFIX));
+
+    const char fh = mos_fopen(tmp, FA_WRITE | FA_CREATE_ALWAYS);
+    if (fh == 0) {
+        return false;
+    }
+
+    bool ok = true;
+
+    // The head, front to back.
+    for (int at = 0; ok && at < store_head_bytes(tb->store_); ) {
+        const int got = store_head_read(tb->store_, at, buf, TB_CHUNK);
+        if (got <= 0) {
+            ok = false;
+            break;
+        }
+        ok = mos_fwrite(fh, buf, (unsigned) got) == (unsigned) got;
+        at += got;
+    }
+
+    // Memory: the prefix and the suffix, in order. The gap between them holds
+    // no live text.
+    if (ok) {
+        char* prefix = NULL;
+        char* suffix = NULL;
+        int psz = 0;
+        int ssz = 0;
+        tb_content(tb, &prefix, &psz, &suffix, &ssz);
+        if (prefix != NULL && psz > 0) {
+            ok = mos_fwrite(fh, prefix, (unsigned) psz) == (unsigned) psz;
+        }
+        if (ok && suffix != NULL && ssz > 0) {
+            ok = mos_fwrite(fh, suffix, (unsigned) ssz) == (unsigned) ssz;
+        }
+    }
+
+    // And whatever the tail still holds, from where its live text starts.
+    {
+        int at = store_tail_from(tb->store_);
+        const int end = at + store_tail_bytes(tb->store_);
+        while (ok && at < end) {
+            const int got = store_tail_read(tb->store_, at, buf, TB_CHUNK);
+            if (got <= 0) {
+                ok = false;
+                break;
+            }
+            ok = mos_fwrite(fh, buf, (unsigned) got) == (unsigned) got;
+            at += got;
+        }
+    }
+    mos_fclose(fh);
+
+    if (!ok) {
+        mos_del(tmp);
+
+        return false;
+    }
+    if (mos_ren(tmp, tb->fname_) != 0) {
+        mos_del(tmp);
+
+        return false;
+    }
+
+    return true;
+}
+
 bool tb_save(text_buffer* tb) {
     if (tb->walker_) {
         return false;       // a copy shares the original's buffers
     }
     if (!tb_valid_file(tb)) {
         return false;
+    }
+    if (tb->paged_) {
+        if (!tb_save_paged(tb)) {
+            return false;
+        }
+        tb_saved(tb);
+
+        return true;
     }
 
     char fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
