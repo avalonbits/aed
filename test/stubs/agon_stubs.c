@@ -362,6 +362,10 @@ typedef struct {
     int pos;
     int writable;
     int open;
+
+    /* Opened with FA_OPEN_ALWAYS, which on MOS 3.0.2 makes every write append
+     * whatever the file position says -- see `appends` in mos_fwrite. */
+    int appends;
 } stub_handle;
 
 static stub_file   stub_fs[STUB_FILES];
@@ -630,6 +634,8 @@ uint8_t mos_fopen(const char* filename, uint8_t mode) {
             stub_fhs[i].open = 1;
             stub_fhs[i].file = at;
             stub_fhs[i].writable = (mode & FA_WRITE) != 0;
+            stub_fhs[i].appends = (mode & FA_WRITE) != 0
+                                  && (mode & FA_OPEN_ALWAYS) == FA_OPEN_ALWAYS;
             stub_fhs[i].pos = 0;
             if (at >= 0 && (mode & FA_OPEN_APPEND) == FA_OPEN_APPEND) {
                 stub_fhs[i].pos = stub_fs[at].len;
@@ -714,6 +720,20 @@ unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
     stub_handle* h = stub_handle_of(fh);
     if (h != NULL && h->file >= 0) {
         stub_file* f = &stub_fs[h->file];
+        /* FA_OPEN_ALWAYS on MOS 3.0.2 writes at the end of the file whatever
+         * the position is. A seek before the write reports success and moves
+         * fptr, and then the bytes land on the end anyway -- measured on the
+         * emulator's MOS 3.0.2, where a seek to 100 in a 1000 byte file put
+         * the write at 1000 and left the file 1004 long. Seeking to read is
+         * unaffected, and a handle opened FA_READ|FA_WRITE without the flag
+         * writes where it was told to.
+         *
+         * Modelled because the paging store seeks backwards to write, and a
+         * stub that let it silently turned the whole feature into something
+         * that only worked when the bytes it wrote were already there. */
+        if (h->appends) {
+            h->pos = f->len;
+        }
         if (!stub_fs_room(f, h->pos + (int) numbytes)) {
             return 0;
         }
@@ -730,14 +750,22 @@ unsigned mos_fwrite(uint8_t fh, char* buffer, unsigned numbytes) {
         }
     }
 
-    /* And the log, whatever file it went to. */
-    if (stub_len + (int) numbytes > STUB_FILE_CAP) {
-        numbytes = (unsigned) (STUB_FILE_CAP - stub_len);
+    /* And the log, whatever file it went to. It has a ceiling and the files
+     * do not, so a long enough test fills it. What it must not do then is
+     * report a short write: the bytes went into the file, and the code above
+     * reads a short return as the card having filled up. A paging test that
+     * pushed a few hundred kilobytes through here had slides start failing
+     * for a reason that existed only in the stub. */
+    int logged = (int) numbytes;
+    if (stub_len + logged > STUB_FILE_CAP) {
+        logged = STUB_FILE_CAP - stub_len;
     }
-    memcpy(stub_buf + stub_len, buffer, numbytes);
-    stub_len += (int) numbytes;
-    if (stub_len < STUB_FILE_CAP) {
-        stub_buf[stub_len] = 0;     /* see stub_file_reset */
+    if (logged > 0) {
+        memcpy(stub_buf + stub_len, buffer, (size_t) logged);
+        stub_len += logged;
+        if (stub_len < STUB_FILE_CAP) {
+            stub_buf[stub_len] = 0;     /* see stub_file_reset */
+        }
     }
 
     return numbytes;

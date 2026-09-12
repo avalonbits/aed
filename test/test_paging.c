@@ -766,6 +766,47 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- an edit that has to travel through the tail --- */
+    {
+        /* Sliding up writes memory's back into TAIL, below where the live
+         * text starts. That is the one place the store writes anywhere but
+         * the end of a file, and on MOS 3.0.2 a handle opened FA_OPEN_ALWAYS
+         * appends whatever the position says -- so it wrote nothing where it
+         * meant to and put a copy past tail_end_ where nothing reads.
+         *
+         * Loading used to write the whole document to TAIL, which hid it: the
+         * bytes a push failed to write were already at that offset, put there
+         * by the load. An edit is not. Change a line near the bottom, walk
+         * back to the top so the change goes out through TAIL, and the save
+         * says whether the push landed. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to edit", tb_init(&tb, DOC_KB, "/edit.txt") != NULL, 1);
+
+        tb_pos low = { DOC_LINES - 5, 0 };
+        tb_seek(&tb, low);
+        check("  at a line near the bottom", tb_ypos(&tb), DOC_LINES - 5);
+        check("  typing into it", tb_put(&tb, 'Z') ? 1 : 0, 1);
+
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        check("  and back to the top", tb_ypos(&tb), 1);
+        check("    with the edit somewhere below", store_tail_bytes(tb.store_) > 0, 1);
+
+        check("  saving works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        const char* saved = stub_file_content("/edit.txt", &saved_len);
+        check("  and the document is one byte longer", saved_len, DOC_BYTES + 1);
+
+        /* The edited line, as it should now read. */
+        const int at = (DOC_LINES - 6) * DOC_LEN;
+        check("    with the typed byte at the front of that line",
+              saved != NULL && saved[at] == 'Z', 1);
+        check("      and the line it was pushed off still behind it",
+              saved != NULL && memcmp(saved + at + 1, DOC + at, DOC_LEN - 2) == 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- saving a paged document --- */
     {
         /* The head, then memory, then what is left of the tail -- and what

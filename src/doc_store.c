@@ -29,8 +29,20 @@
 // clipboard wants one, and a second document would want two more. A slide is
 // already a read and a write of a couple of kilobytes; two opens on top of that
 // are not what makes it slow.
+// Both scratch files are made by store_init, so neither wants creating here --
+// and asking for it would break every write that is not an append.
+// FA_OPEN_ALWAYS on MOS 3.0.2 puts writes at the end of the file whatever the
+// position says: a seek to 100 in a 1000 byte file reports success, moves fptr
+// to 100, and then writes at 1000. Sliding up seeks backwards to write, so
+// under that flag it wrote nothing where it meant to and appended instead.
+//
+// It went unseen because the load used to write the whole document to TAIL,
+// so the bytes a push "wrote" were already sitting at the offset it meant to
+// write them to, and the appended copies were past tail_end_ where nothing
+// reads. Filling memory off the read instead left real gaps, and the save
+// read them back as the zeroes store_init had put there.
 static char open_rw(const char* path) {
-    return mos_fopen(path, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
+    return mos_fopen(path, FA_READ | FA_WRITE);
 }
 
 static bool name_with(char* out, const char* base, const char* suffix) {
