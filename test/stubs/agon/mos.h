@@ -170,6 +170,7 @@ void        stub_file_short_read(int n);
  * filesystem claims more than can actually be read. */
 void        stub_file_set_objsize(uint32_t n);
 
+void        stub_file_reset_counts(void); /* the counters only, files kept */
 int         stub_file_opens(void);   /* mos_fopen calls */
 int         stub_file_opens_for_write(void); /* those asking to write */
 int         stub_file_closes(void);  /* mos_fclose calls */

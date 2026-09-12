@@ -522,6 +522,15 @@ void stub_file_reset(void) {
     stub_fs_wipe();
 }
 
+/* The counters alone, leaving the files and the handles as they are. For a
+ * test that wants to know what a single operation cost on a document that is
+ * already open -- stub_file_reset would wipe the filesystem out from under it. */
+void stub_file_reset_counts(void) {
+    stub_opens = 0;
+    stub_closes = 0;
+    stub_write_opens = 0;
+}
+
 const char* stub_file_bytes(void)  { return stub_buf; }
 int         stub_file_size(void)   { return stub_len; }
 int         stub_file_opens(void)  { return stub_opens; }

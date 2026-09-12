@@ -1093,8 +1093,161 @@ static void order(tb_pos* a, tb_pos* b) {
     }
 }
 
+/*
+ * Streaming a range out of a paged document.
+ *
+ * The walker the in-memory path uses cannot leave MEM, so a range with an end
+ * outside the window came back short -- and came back short quietly, which is
+ * how a select-all copy on a 160,000 byte document returned 59,324 bytes with
+ * tb_range_size agreeing with it the whole way.
+ *
+ * doc_stream gives the document from the beginning, in order, so this counts
+ * lines and columns as the bytes go past and keeps the ones inside the range.
+ * A byte at (line, x) is in [a, b) when it is at or after `a` and before `b`;
+ * the two bytes of the break that ends a line belong to that line, so they are
+ * in when the line is at or after a.line and before b.line. That is the same
+ * arithmetic tb_range_size does in memory -- the rest of the first line, two
+ * for each break crossed, whole lines in between, and b.x of the last.
+ *
+ * A break counts as two whatever it is stored as, because the contract says a
+ * range carries CRLF. Nothing else has to agree with the store's bytes.
+ */
+// Defined with the save, which was its first caller.
+static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx);
+
+typedef struct _range_pass {
+    tb_pos a;
+    tb_pos b;
+    int line;           // the document line the next byte belongs to
+    int x;              // its column
+    bool held_cr;       // the last byte was a carriage return, still undecided
+    int count;          // bytes taken so far
+    tb_sink out;        // where they go, or NULL to count them only
+    void* ctx;
+    bool done;          // past the end of the range; stop the stream
+    bool stopped;       // the sink said stop, which is not an error either
+} range_pass;
+
+static bool rp_take(range_pass* rp, const char* buf, int n) {
+    rp->count += n;
+    if (rp->out == NULL) {
+        return true;
+    }
+    if (!rp->out(rp->ctx, buf, n)) {
+        rp->stopped = true;
+
+        return false;
+    }
+
+    return true;
+}
+
+// One ordinary character, at the position the pass is sitting on.
+static bool rp_char(range_pass* rp, char c) {
+    const bool after_a = rp->line > rp->a.line
+                         || (rp->line == rp->a.line && rp->x >= rp->a.x);
+    const bool before_b = rp->line < rp->b.line
+                          || (rp->line == rp->b.line && rp->x < rp->b.x);
+    rp->x++;
+    if (!after_a || !before_b) {
+        return true;
+    }
+
+    return rp_take(rp, &c, 1);
+}
+
+static bool range_sink(void* ctx, const char* buf, int sz) {
+    static const char crlf[2] = { '\r', '\n' };
+    range_pass* rp = (range_pass*) ctx;
+
+    for (int i = 0; i < sz; i++) {
+        const char c = buf[i];
+        if (c == '\r' && !rp->held_cr) {
+            rp->held_cr = true;     // a break, or a stray -- the next byte says
+            continue;
+        }
+        if (c == '\n') {
+            // The break that ends this line. Two bytes by contract, whatever
+            // the store holds.
+            rp->held_cr = false;
+            if (rp->line >= rp->a.line && rp->line < rp->b.line
+                    && !rp_take(rp, crlf, 2)) {
+                return false;
+            }
+            rp->line++;
+            rp->x = 0;
+            if (rp->line > rp->b.line) {
+                rp->done = true;    // nothing after this can be in the range
+
+                return false;
+            }
+            continue;
+        }
+        if (rp->held_cr) {
+            // Not a break after all: a carriage return on its own is a
+            // character like any other.
+            rp->held_cr = false;
+            if (!rp_char(rp, '\r')) {
+                return false;
+            }
+        }
+        if (!rp_char(rp, c)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Runs a pass over the whole document. Returns false only on a real failure --
+// running off the end of the range and a sink that asked to stop are both
+// ordinary ways to finish early.
+static bool range_stream(text_buffer* tb, tb_pos a, tb_pos b,
+                         tb_sink out, void* ctx, int* count) {
+    range_pass rp;
+    rp.a = a;
+    rp.b = b;
+    rp.line = 1;
+    rp.x = 0;
+    rp.held_cr = false;
+    rp.count = 0;
+    rp.out = out;
+    rp.ctx = ctx;
+    rp.done = false;
+    rp.stopped = false;
+
+    const bool ok = doc_stream(tb, range_sink, &rp);
+    if (count != NULL) {
+        *count = rp.count;
+    }
+    if (rp.stopped) {
+        return false;
+    }
+
+    return ok || rp.done;
+}
+
+// Whether a position is on a line memory is holding. Everything outside it has
+// to be streamed, and everything inside it can use the walker -- which is the
+// common case, because a selection made by hand is on the screen.
+static bool pos_in_mem(text_buffer* tb, tb_pos p) {
+    return p.line > tb->head_lines_ && p.line <= tb_ymax(tb) - tb->tail_lines_;
+}
+
+static bool range_needs_stream(text_buffer* tb, tb_pos a, tb_pos b) {
+    return tb->paged_ && (!pos_in_mem(tb, a) || !pos_in_mem(tb, b));
+}
+
 int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b) {
     order(&a, &b);
+    if (range_needs_stream(tb, a, b)) {
+        int n = 0;
+        if (!range_stream(tb, a, b, NULL, NULL, &n)) {
+            return 0;
+        }
+
+        return n;
+    }
     if (a.line == b.line) {
         const int n = b.x - a.x;
 
@@ -1126,6 +1279,9 @@ bool tb_range_walk(text_buffer* tb, tb_pos a, tb_pos b, tb_sink sink, void* ctx)
     static const char crlf[2] = { '\r', '\n' };
 
     order(&a, &b);
+    if (range_needs_stream(tb, a, b)) {
+        return range_stream(tb, a, b, sink, ctx, NULL);
+    }
     int left = tb_range_size(tb, a, b);
     if (left <= 0) {
         return true;    // nothing to send is not a failure
@@ -1961,8 +2117,83 @@ static void lf_end(lf_out* o) {
     }
 }
 
-static bool tb_save_paged(text_buffer* tb) {
+/*
+ * The whole document, in order, to a sink: HEAD, then what memory holds, then
+ * what is left of TAIL.
+ *
+ * This is the only way to read a paged document end to end. A walker cannot do
+ * it -- walkers must not slide, or painting would move the window out from
+ * under the cursor that owns it -- so anything that has to see text outside the
+ * window comes through here instead. Saving was the first, and find and the
+ * range operations are the rest.
+ *
+ * The text arrives exactly as it is held: CRLF line endings whatever the file
+ * had, and the gap in the middle of memory skipped rather than sent. Nothing
+ * here converts; a caller that wants bare line feeds puts a converting sink in
+ * front, which is what saving does.
+ *
+ * Reads only. The window does not move and the cursor does not either, so a
+ * caller can stream the document and carry on from where it was.
+ */
+static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx) {
     static char buf[TB_CHUNK];
+
+    // The head, front to back.
+    for (int at = 0; at < store_head_bytes(tb->store_); ) {
+        const int got = store_head_read(tb->store_, at, buf, TB_CHUNK);
+        if (got <= 0) {
+            return false;
+        }
+        if (!sink(ctx, buf, got)) {
+            return false;
+        }
+        at += got;
+    }
+
+    // Memory: the prefix and the suffix, in order. The gap between them holds
+    // no live text.
+    {
+        char* prefix = NULL;
+        char* suffix = NULL;
+        int psz = 0;
+        int ssz = 0;
+        tb_content(tb, &prefix, &psz, &suffix, &ssz);
+        if (prefix != NULL && psz > 0 && !sink(ctx, prefix, psz)) {
+            return false;
+        }
+        if (suffix != NULL && ssz > 0 && !sink(ctx, suffix, ssz)) {
+            return false;
+        }
+    }
+
+    // And whatever the tail still holds, from where its live text starts.
+    {
+        int at = store_tail_from(tb->store_);
+        const int end = at + store_tail_bytes(tb->store_);
+        while (at < end) {
+            const int got = store_tail_read(tb->store_, at, buf, TB_CHUNK);
+            if (got <= 0) {
+                return false;
+            }
+            if (!sink(ctx, buf, got)) {
+                return false;
+            }
+            at += got;
+        }
+    }
+
+    return true;
+}
+
+// doc_stream's sink for saving: the line-ending conversion, and the file.
+static bool save_sink(void* ctx, const char* buf, int sz) {
+    lf_out* o = (lf_out*) ctx;
+    lf_put(o, buf, sz);
+
+    return o->ok;
+}
+
+static bool tb_save_paged(text_buffer* tb) {
     static const char TMP_SUFFIX[] = ".aeds";
     static char tmp[TB_FNAME_MAX + sizeof(TMP_SUFFIX)];
 
@@ -1989,46 +2220,8 @@ static bool tb_save_paged(text_buffer* tb) {
     o.held_cr = false;
     o.ok = true;
 
-    // The head, front to back.
-    for (int at = 0; o.ok && at < store_head_bytes(tb->store_); ) {
-        const int got = store_head_read(tb->store_, at, buf, TB_CHUNK);
-        if (got <= 0) {
-            o.ok = false;
-            break;
-        }
-        lf_put(&o, buf, got);
-        at += got;
-    }
-
-    // Memory: the prefix and the suffix, in order. The gap between them holds
-    // no live text.
-    if (o.ok) {
-        char* prefix = NULL;
-        char* suffix = NULL;
-        int psz = 0;
-        int ssz = 0;
-        tb_content(tb, &prefix, &psz, &suffix, &ssz);
-        if (prefix != NULL && psz > 0) {
-            lf_put(&o, prefix, psz);
-        }
-        if (suffix != NULL && ssz > 0) {
-            lf_put(&o, suffix, ssz);
-        }
-    }
-
-    // And whatever the tail still holds, from where its live text starts.
-    {
-        int at = store_tail_from(tb->store_);
-        const int end = at + store_tail_bytes(tb->store_);
-        while (o.ok && at < end) {
-            const int got = store_tail_read(tb->store_, at, buf, TB_CHUNK);
-            if (got <= 0) {
-                o.ok = false;
-                break;
-            }
-            lf_put(&o, buf, got);
-            at += got;
-        }
+    if (!doc_stream(tb, save_sink, &o)) {
+        o.ok = false;
     }
     lf_end(&o);
     const bool ok = o.ok;

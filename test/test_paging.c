@@ -22,6 +22,7 @@
 
 #include <agon/mos.h>
 
+#include "char_buffer.h"
 #include "doc_store.h"
 #include "text_buffer.h"
 
@@ -982,6 +983,103 @@ int main(void) {
         check("  and gives back every byte", saved_len, long_at);
         check("    unchanged",
               saved != NULL && memcmp(saved, LONG, (size_t) long_at) == 0, 1);
+        tb_destroy(&tb);
+    }
+
+    /* --- a range that reaches outside the window --- */
+    {
+        /* Select-all copy on a paged document used to come back with the
+         * window and nothing else: 59,324 bytes of 160,000 on this one, 37%,
+         * with tb_range_size agreeing with it the whole way. Both run on a
+         * tb_copy walker, and a walker cannot slide, so the walk stopped at
+         * the bottom of memory and reported success.
+         *
+         * A range with an end outside memory streams the document instead --
+         * head, then memory, then tail -- and counts lines as it goes. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to select all of",
+              tb_init(&tb, DOC_KB, "/all.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&tb) < DOC_BYTES, 1);
+
+        const tb_pos first = { 1, 0 };
+        const tb_pos last = { DOC_LINES + 1, 0 };
+        check("  the whole of it measures as the whole of it",
+              tb_range_size(&tb, first, last), DOC_BYTES);
+
+        static char_buffer out;
+        check("  somewhere to put it", cb_init(&out, DOC_BYTES + 16) != NULL, 1);
+        check("  copying it gives every byte",
+              tb_range_copy(&tb, first, last, &out), DOC_BYTES);
+
+        int got = 0;
+        const char* txt = cb_prefix(&out, &got);
+        check("    and they are the document's bytes",
+              txt != NULL && got == DOC_BYTES
+              && memcmp(txt, DOC, (size_t) DOC_BYTES) == 0, 1);
+
+        /* Backwards, because a caller may hand the ends over either way. */
+        check("  and the ends may be given in either order",
+              tb_range_size(&tb, last, first), DOC_BYTES);
+
+        /* A range that starts inside the window and ends past it: the case
+         * that used to return a prefix of itself. */
+        const tb_pos mid = { DOC_LINES / 2, 0 };
+        const int want = (DOC_LINES / 2 + 1) * DOC_LEN;
+        check("  a range from the middle to the end",
+              tb_range_size(&tb, mid, last), want);
+        check("    copies whole", tb_range_copy(&tb, mid, last, &out), want);
+        txt = cb_prefix(&out, &got);
+        check("      and reads as the document does",
+              txt != NULL && memcmp(txt, DOC + (DOC_LINES / 2 - 1) * DOC_LEN,
+                                    (size_t) want) == 0, 1);
+
+        /* Ending part way along a line, past the window. Both bounds matter
+         * and neither is exercised by a range that ends on a line start: the
+         * column decides where the last line is cut, and the break that ends
+         * that line is the one thing outside the range on it. */
+        const tb_pos part = { DOC_LINES - 2, 7 };
+        const int part_want = (DOC_LINES - 3) * DOC_LEN + 7;
+        check("  a range ending part way along a line past the window",
+              tb_range_size(&tb, first, part), part_want);
+        check("    copies to exactly there",
+              tb_range_copy(&tb, first, part, &out), part_want);
+        txt = cb_prefix(&out, &got);
+        check("      and reads as the document does",
+              txt != NULL && memcmp(txt, DOC, (size_t) part_want) == 0, 1);
+
+        /* Stopping early is worth testing and is not free to test: the stream
+         * reads a chunk at a time and opens the file for each, so a range that
+         * ends near the top of the document must cost fewer opens than one
+         * that runs to the bottom. Without the early exit both read all of it.
+         *
+         * The window has to be somewhere else for either range to stream at
+         * all -- with it at the top, a range over the first few lines is
+         * answered out of memory and costs nothing whatever this does. */
+        tb_seek(&tb, last);
+        check("  with the window at the bottom", store_head_bytes(tb.store_) > 0, 1);
+
+        const tb_pos early = { 3, 0 };
+        stub_file_reset_counts();
+        tb_range_size(&tb, first, early);
+        const int short_opens = stub_file_opens();
+        stub_file_reset_counts();
+        tb_range_size(&tb, first, last);
+        const int long_opens = stub_file_opens();
+        check("    a range near the top reads less than one to the bottom",
+              short_opens < long_opens, 1);
+        check("      and still measures right", tb_range_size(&tb, first, early),
+              2 * DOC_LEN);
+        tb_seek(&tb, first);
+
+        /* One entirely inside the window still goes the short way and still
+         * gives the same answer. */
+        const tb_pos p1 = { 2, 3 };
+        const tb_pos p2 = { 4, 5 };
+        check("  a range inside the window is unchanged",
+              tb_range_size(&tb, p1, p2), DOC_LEN - 3 + DOC_LEN + 5);
+
+        cb_destroy(&out);
         tb_destroy(&tb);
     }
 
