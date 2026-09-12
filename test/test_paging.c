@@ -766,6 +766,225 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- the load does not write memory's share out and read it back --- */
+    {
+        /* The loader used to hand every chunk to the tail and then let
+         * priming pull the window back out of it. That is a buffer's worth of
+         * writing and the same again of reading, for text that had just been
+         * in memory -- half a megabyte of card traffic on a 419 KiB file.
+         *
+         * Memory is filled off the read instead, and only what will not fit
+         * goes to the tail. The tail file keeps everything ever appended --
+         * popping moves a mark, it does not shorten the file -- so its length
+         * past the headroom is exactly what the load wrote, and what the load
+         * wrote plus what memory took has to be the whole document. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to load", tb_init(&tb, DOC_KB, "/big.txt") != NULL, 1);
+
+        int tail_len = 0;
+        stub_file_content("/big.txt" STORE_TAIL_SUFFIX, &tail_len);
+        const int written = tail_len - STORE_HEADROOM;
+
+        check("  memory is holding a window of it", tb_used(&tb) > 0, 1);
+        check("  the load wrote the rest of it to the tail, and no more",
+              written + tb_used(&tb), DOC_BYTES);
+        check("  which is less than the whole document", written < DOC_BYTES, 1);
+        tb_destroy(&tb);
+    }
+
+    /* --- the load does not open the tail once per chunk --- */
+    {
+        /* Appending opens and closes around itself, which is right for a
+         * slide and wrong for a load: the loader appends a chunk at a time,
+         * so the opens come out at one per 2 KiB of document. On hardware
+         * that was most of a 12.4 s open on a 419 KiB file.
+         *
+         * What makes it a bug is that it scales, so that is what is measured:
+         * open a document, then open one twice as long, and the number of
+         * files opened for writing has to be the same both times. Counting
+         * against a fixed number would pass just as well with the holding
+         * taken out, as long as the document were small enough. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES / 2);
+        check("a paged document opens", tb_init(&tb, DOC_KB, "/half.txt") != NULL, 1);
+        const int half_opens = stub_file_opens_for_write();
+        tb_destroy(&tb);
+
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("  and one twice as long", tb_init(&tb, DOC_KB, "/big.txt") != NULL, 1);
+        const int full_opens = stub_file_opens_for_write();
+        tb_destroy(&tb);
+
+        check("  which pages, so the loader really did chunk",
+              DOC_BYTES > DOC_KB * 1024, 1);
+        check("  opening the tail the same number of times either way",
+              full_opens, half_opens);
+    }
+
+    /* --- down to the end, back to the top, and then saved --- */
+    {
+        /* What the hardware harness does to slow.asm, which is the only thing
+         * that has ever found a paging bug first. Saving from the middle, as
+         * the test below does, leaves the store holding roughly what the load
+         * put there. Walking to the bottom empties the tail into the head and
+         * walking back fills it again from the other side -- every byte of the
+         * document goes through both files and through memory, and the save
+         * afterwards is the only thing that says whether it all came back in
+         * the right order.
+         *
+         * Bare line feeds, because that is what slow.asm has, and the
+         * conversion is one more thing for a slide to get wrong. */
+        #define TRIP_LINES 5000
+        #define TRIP_LEN   20
+        static char TRIP[TRIP_LINES * TRIP_LEN + 1];
+        for (int i = 0; i < TRIP_LINES; i++) {
+            for (int k = 0; k < TRIP_LEN - 1; k++) {
+                TRIP[i * TRIP_LEN + k] = (char) ('a' + ((i + k) % 26));
+            }
+            TRIP[i * TRIP_LEN + TRIP_LEN - 1] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(TRIP, TRIP_LINES * TRIP_LEN);
+        check("a document to walk end to end", tb_init(&tb, DOC_KB, "/trip.txt") != NULL, 1);
+
+        tb_pos bottom = { TRIP_LINES, 0 };
+        tb_seek(&tb, bottom);
+        check("  reaches its last line", tb_ypos(&tb), TRIP_LINES);
+        check("    with the head holding the rest", store_head_bytes(tb.store_) > 0, 1);
+
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        check("  and comes back to the first", tb_ypos(&tb), 1);
+        check("    with the tail holding the rest", store_tail_bytes(tb.store_) > 0, 1);
+
+        check("  saving after the round trip works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        const char* saved = stub_file_content("/trip.txt", &saved_len);
+        check("  and gives back every byte", saved_len, TRIP_LINES * TRIP_LEN);
+        int at = -1;
+        if (saved != NULL) {
+            for (int i = 0; i < saved_len && i < TRIP_LINES * TRIP_LEN; i++) {
+                if (saved[i] != TRIP[i]) { at = i; break; }
+            }
+        }
+        check("    in the order they went in", at, -1);
+        tb_destroy(&tb);
+    }
+
+    /* --- a document that runs out while memory is still filling --- */
+    {
+        /* Memory takes whole lines and holds the half line at the end of a
+         * chunk over for the next one. When the buffer is small enough that
+         * the whole document arrives in a single chunk, there is no next one:
+         * the read ends with that half line held and nothing has been written
+         * anywhere. Dropping it loses the end of the document silently --
+         * the lines are all counted, because counting happens on the way in,
+         * and the text simply stops.
+         *
+         * 1,100 bytes into a 1 KiB buffer is the shape: over the buffer, so
+         * it pages, and under a chunk, so the loader reads it all at once. */
+        #define TINY_LINES 110
+        static char TINY[TINY_LINES * 10 + 1];
+        for (int i = 0; i < TINY_LINES; i++) {
+            for (int k = 0; k < 8; k++) {
+                TINY[i * 10 + k] = (char) ('a' + ((i + k) % 26));
+            }
+            TINY[i * 10 + 8] = '\r';
+            TINY[i * 10 + 9] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(TINY, TINY_LINES * 10);
+        check("a document barely over a small buffer opens",
+              tb_init(&tb, 1, "/tiny.txt") != NULL, 1);
+        check("  with all of its lines", tb_ymax(&tb), TINY_LINES + 1);
+
+        int wrong = 0;
+        for (int n = 1; n <= TINY_LINES && wrong == 0; n++) {
+            tb_pos p = { n, 0 };
+            tb_seek(&tb, p);
+            const split_line ln = tb_curr_line(&tb);
+            if (tb_ypos(&tb) != n || ln.ssz_ != 8
+                    || memcmp(ln.suffix_, TINY + (n - 1) * 10, 8) != 0) {
+                wrong = n;
+            }
+        }
+        check("  and every one of them reads as itself", wrong, 0);
+
+        /* And it is all still there to save: the half line the loader was
+         * holding is part of the document like any other. */
+        check("  saving it works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        const char* saved = stub_file_content("/tiny.txt", &saved_len);
+        check("  and gives back every byte", saved_len, TINY_LINES * 10);
+        check("    unchanged",
+              saved != NULL && memcmp(saved, TINY, (size_t) (TINY_LINES * 10)) == 0, 1);
+        tb_destroy(&tb);
+    }
+
+    /* --- a line longer than the loader holds over --- */
+    {
+        /* The half line held between chunks lives at the front of the
+         * loader's conversion buffer, in front of the chunk being converted,
+         * so it has a ceiling: a line longer than one chunk cannot be held
+         * over without running the buffer off its end. Past that the loader
+         * gives up on filling memory and sends the rest to the tail, which is
+         * slower and entirely correct.
+         *
+         * A 3 KiB line is over the ceiling, and over what a slide can move as
+         * well, so the line itself cannot be brought into memory -- that is
+         * the older limit the filling comment in tb_page_prime describes, and
+         * it is not this one's to fix. What is this one's is that the loader
+         * neither overruns its buffer getting there nor loses any of the
+         * document: it opens, it counts its lines, and it saves byte for
+         * byte. Under a sanitiser the overrun is what this catches. */
+        #define LONG_N   6000
+        #define LONG_LEN 3000
+        static char LONG[LONG_N + LONG_LEN + 2 + 1];
+        int long_at = 0;
+        for (int i = 0; i < LONG_N / 10; i++) {
+            for (int k = 0; k < 8; k++) {
+                LONG[long_at++] = (char) ('a' + ((i + k) % 26));
+            }
+            LONG[long_at++] = '\r';
+            LONG[long_at++] = '\n';
+        }
+        for (int k = 0; k < LONG_LEN; k++) {
+            LONG[long_at++] = (char) ('A' + (k % 26));
+        }
+        LONG[long_at++] = '\r';
+        LONG[long_at++] = '\n';
+
+        stub_file_reset();
+        stub_file_set_content(LONG, long_at);
+        check("a document with a line longer than a chunk opens",
+              tb_init(&tb, 4, "/long.txt") != NULL, 1);
+        check("  with all of its lines", tb_ymax(&tb), LONG_N / 10 + 2);
+
+        /* Every line up to the long one, which is all of them the loader had
+         * a half of at some point. */
+        int wrong = 0;
+        for (int n = 1; n <= LONG_N / 10 && wrong == 0; n++) {
+            tb_pos p = { n, 0 };
+            tb_seek(&tb, p);
+            const split_line ln = tb_curr_line(&tb);
+            if (tb_ypos(&tb) != n || ln.ssz_ != 8
+                    || memcmp(ln.suffix_, LONG + (n - 1) * 10, 8) != 0) {
+                wrong = n;
+            }
+        }
+        check("  and the lines before it read as themselves", wrong, 0);
+
+        check("  saving it works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        const char* saved = stub_file_content("/long.txt", &saved_len);
+        check("  and gives back every byte", saved_len, long_at);
+        check("    unchanged",
+              saved != NULL && memcmp(saved, LONG, (size_t) long_at) == 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- an edit that has to travel through the tail --- */
     {
         /* Sliding up writes memory's back into TAIL, below where the live

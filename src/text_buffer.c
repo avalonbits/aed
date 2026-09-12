@@ -692,30 +692,75 @@ static int fit_lines(const int* lens, int lines, int room, int* bytes) {
     return lines;
 }
 
+// Room kept back when memory is filled at open, so the first slide has
+// somewhere to put what it brings in, and so the margins have something to be
+// margins of. A share of the buffer rather than a fixed amount: two chunks is
+// right for the 248 KiB the editor runs with and larger than the whole of a
+// small one, and a reserve bigger than the buffer fills nothing at all.
+static int prime_spare(text_buffer* tb) {
+    int spare = cb_size(&tb->cb_) / 4;
+
+    return spare > TB_CHUNK * 2 ? TB_CHUNK * 2 : spare;
+}
+
+// Puts the front of a run of bytes into memory, whole lines only, and says how
+// many bytes it took. Zero means there is no room -- in the buffer or in the
+// index -- or the run does not hold a whole line; either way the rest of it is
+// the caller's to put somewhere else.
+static int mem_give_back(text_buffer* tb, const char* buf, int n, int spare,
+                         int* took_lines) {
+    *took_lines = 0;
+    const int room = cb_available(&tb->cb_) - spare;
+    if (n <= 0 || room <= 0) {
+        return 0;
+    }
+    if (n > room) {
+        n = room;
+    }
+    int bytes = 0;
+    // One slot held back for the trailing entry the fill puts on at the end.
+    int lines = run_lines(buf, n, slide_lens,
+                          (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                          &bytes);
+    lines = fit_lines(slide_lens, lines, lb_room(&tb->lb_) - 1, &bytes);
+    if (lines == 0) {
+        return 0;
+    }
+    // Checked before either is touched. Doing one and finding the other will
+    // not go leaves bytes in memory with no entry describing them, which is a
+    // document that reads as gibberish from there on.
+    if (!cb_give_back(&tb->cb_, buf, bytes)) {
+        return 0;
+    }
+    lb_give_back(&tb->lb_, slide_lens, lines);
+    *took_lines = lines;
+
+    return bytes;
+}
+
+// An empty buffer is not nothing: it is one line, of no length, and that line
+// belongs at the *end* of what gets filled in -- it is the line the document's
+// last break opens, or the one that carries on into the tail. Entries given at
+// the back arrive after it, which leaves it in front of the first real line and
+// every line number one out.
+//
+// So it is moved to the back once the filling is done: one empty entry is
+// appended and lb_del pulls the first real line into the slot the cursor is on.
+// The count comes out the same, which is the point -- dropping the empty line
+// instead loses a line from the document.
+static void mem_close_empty(text_buffer* tb) {
+    static const int trailing = 0;
+    if (lb_give_back(&tb->lb_, &trailing, 1)) {
+        lb_del(&tb->lb_);   // the first real line becomes the cursor's
+    }
+}
+
 bool tb_page_prime(text_buffer* tb) {
     if (tb == NULL || !tb->paged_ || tb->walker_) {
         return false;
     }
-    // Room kept back so the first slide has somewhere to put what it brings in,
-    // and so the margins have something to be margins of. A share of the buffer
-    // rather than a fixed amount: two chunks is right for the 248 KiB the
-    // editor runs with and larger than the whole of a small one, and a reserve
-    // bigger than the buffer fills nothing at all.
-    int spare = cb_size(&tb->cb_) / 4;
-    if (spare > TB_CHUNK * 2) {
-        spare = TB_CHUNK * 2;
-    }
+    const int spare = prime_spare(tb);
 
-    // An empty buffer is not nothing: it is one line, of no length, and that
-    // line belongs at the *end* of what gets filled in -- it is the line the
-    // document's last break opens, or the one that carries on into the tail.
-    // Entries given at the back arrive after it, which leaves it in front of
-    // the first real line and every line number one out.
-    //
-    // So it is moved to the back afterwards: one empty entry is appended and
-    // lb_del pulls the first real line into the slot the cursor is on. The
-    // count comes out the same, which is the point -- dropping the empty line
-    // instead loses a line from the document.
     const bool was_empty = cb_used(&tb->cb_) == 0;
     bool gave = false;
 
@@ -731,13 +776,9 @@ bool tb_page_prime(text_buffer* tb) {
         if (got <= 0) {
             break;
         }
-        int bytes = 0;
-        int lines = run_lines(slide_bytes, got, slide_lens,
-                              (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
-                              &bytes);
-        // One slot held back for the trailing entry this puts on at the end.
-        lines = fit_lines(slide_lens, lines, lb_room(&tb->lb_) - 1, &bytes);
-        if (lines == 0) {
+        int lines = 0;
+        const int bytes = mem_give_back(tb, slide_bytes, got, spare, &lines);
+        if (bytes == 0) {
             // Either a line longer than a chunk, which nothing can hold a
             // chunk at a time, or the index is full. Both stop the filling
             // rather than fail it: what is in memory is sound either way.
@@ -747,22 +788,11 @@ bool tb_page_prime(text_buffer* tb) {
         if (got > bytes) {
             store_tail_rewind(tb->store_, got - bytes);
         }
-        // Checked before either is touched. Doing one and finding the other
-        // will not go leaves bytes in memory with no entry describing them,
-        // which is a document that reads as gibberish from there on.
-        if (!cb_give_back(&tb->cb_, slide_bytes, bytes)) {
-            store_tail_rewind(tb->store_, bytes);
-            break;
-        }
-        lb_give_back(&tb->lb_, slide_lens, lines);
         tb->tail_lines_ -= lines;
         gave = true;
     }
     if (was_empty && gave) {
-        static const int trailing = 0;
-        if (lb_give_back(&tb->lb_, &trailing, 1)) {
-            lb_del(&tb->lb_);   // the first real line becomes the cursor's
-        }
+        mem_close_empty(tb);
     }
 
     return true;
@@ -1518,7 +1548,9 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
 // which is why there are two buffers rather than one.
 static bool tb_load_paged(text_buffer* tb, char fh, int size) {
     static char in[TB_CHUNK];
-    static char out[TB_CHUNK * 2];
+    // A chunk, doubled because every bare line feed gains a carriage return,
+    // and a chunk again for the half line held over from the round before.
+    static char out[TB_CHUNK * 3];
 
     if (!tb_page_open(tb, tb->fname_)) {
         return false;
@@ -1526,8 +1558,22 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
 
     // Held open for the whole read. Appending opens and closes the file
     // otherwise, which is fine for a slide and is once per 2 KiB of document
-    // here -- 214 opens for a 419 KiB file, and most of what its open cost.
+    // here -- 214 opens for a 419 KiB file, and a quarter of what its open
+    // cost.
     const bool held = store_tail_hold(tb->store_);
+
+    // Memory is filled from the read itself, not from the tail afterwards.
+    // Writing the whole document out and reading the window straight back in
+    // is a buffer's worth of each -- half a megabyte of pointless card traffic
+    // on a 419 KiB file, and the largest single piece of what was left of the
+    // open cost after the handle was held. Once memory is full the rest goes
+    // to the tail, and it stays that way for the remainder of the read: going
+    // back would put later text in front of earlier.
+    const int spare = prime_spare(tb);
+    const bool was_empty = cb_used(&tb->cb_) == 0;
+    bool filling = true;
+    bool gave = false;
+    int carry = 0;
 
     int left = size;
     bool pending_cr = false;
@@ -1544,7 +1590,8 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
 
             return false;
         }
-        int n = 0;
+        int n = carry;      // the converted bytes land after what was held over
+        carry = 0;
         for (int i = 0; i < got; i++) {
             const char c = in[i];
             if (c == '\n') {
@@ -1560,7 +1607,38 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
             }
             out[n++] = c;
         }
-        if (!tb_page_fill(tb, out, n)) {
+        int at = 0;
+        if (filling) {
+            int lines = 0;
+            at = mem_give_back(tb, out, n, spare, &lines);
+            gave = gave || at > 0;
+            const int rest = n - at;
+            if (at > 0 && rest <= (int) sizeof(out) - TB_CHUNK * 2) {
+                // Memory takes whole lines, and a chunk ends in the middle of
+                // one as often as not. The half line is held over for the next
+                // round rather than given to the tail: giving it away would
+                // put later text in front of earlier, so the filling would
+                // have to stop, and it would stop after the very first chunk.
+                //
+                // What is held over has no break in it, by construction, so
+                // the last break in `out` is always inside the chunk just
+                // converted and the half line is at most a chunk less one --
+                // which is what `out` is sized for and why this test cannot
+                // actually fail. It is written against the buffer rather than
+                // against a constant so that the size and the bound cannot
+                // drift apart.
+                memmove(out, out + at, (size_t) rest);
+                carry = rest;
+                at = n;         // nothing for the tail this time round
+            } else {
+                // No room, or a single line longer than two chunks. Either way
+                // memory is done and everything from here goes to the tail,
+                // starting with what is held over -- which is still at the
+                // front of `out`, in front of the chunk just converted.
+                filling = false;
+            }
+        }
+        if (at < n && !tb_page_fill(tb, out + at, n - at)) {
             if (held) {
                 store_tail_release(tb->store_);
             }
@@ -1569,11 +1647,25 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         }
         left -= got;
     }
+    // The last half line, if the read ended while memory was still filling.
+    if (carry > 0 && !tb_page_fill(tb, out, carry)) {
+        if (held) {
+            store_tail_release(tb->store_);
+        }
+
+        return false;
+    }
     if (held) {
         store_tail_release(tb->store_);   // priming reads it back
     }
 
+    // Whatever memory did not take off the read, in case it has room left --
+    // a buffer bigger than the document's first chunks, or an index that ran
+    // out and freed slots. Nothing to do in the ordinary case.
     tb_page_prime(tb);
+    if (was_empty && gave) {
+        mem_close_empty(tb);
+    }
 
     // A file whose breaks were all bare line feeds goes back out the same way,
     // so opening and saving it leaves it byte for byte as it was -- which is
