@@ -89,6 +89,85 @@ bool cb_write(char_buffer* cb, const char* buf, int sz) {
     return true;
 }
 
+int cb_take_front(char_buffer* cb, char* out, int n) {
+    if (cb == NULL || out == NULL || n <= 0) {
+        return 0;
+    }
+    const int have = (int) (cb->curr_ - cb->buf_);
+    if (n > have) {
+        n = have;
+    }
+    if (n == 0) {
+        return 0;
+    }
+    memcpy(out, cb->buf_, (size_t) n);
+    // What is left of the prefix closes up against the start of the buffer. The
+    // space it gives up joins the gap, which is where the arriving bytes at the
+    // other end will come out of.
+    memmove(cb->buf_, cb->buf_ + n, (size_t) (have - n));
+    cb->curr_ -= n;
+
+    return n;
+}
+
+bool cb_give_front(char_buffer* cb, const char* in, int n) {
+    if (cb == NULL || in == NULL || n < 0) {
+        return false;
+    }
+    if (n == 0) {
+        return true;
+    }
+    if (n > (int) (cb->cend_ - cb->curr_)) {
+        return false;       // the gap cannot cover it
+    }
+    const int have = (int) (cb->curr_ - cb->buf_);
+    memmove(cb->buf_ + n, cb->buf_, (size_t) have);
+    memcpy(cb->buf_, in, (size_t) n);
+    cb->curr_ += n;
+
+    return true;
+}
+
+int cb_take_back(char_buffer* cb, char* out, int n) {
+    if (cb == NULL || out == NULL || n <= 0) {
+        return 0;
+    }
+    char* const top = cb->buf_ + cb->size_;
+    const int have = (int) (top - cb->cend_);
+    if (n > have) {
+        n = have;
+    }
+    if (n == 0) {
+        return 0;
+    }
+    memcpy(out, top - n, (size_t) n);
+    // The rest of the suffix stays packed against the top of the buffer, so it
+    // moves up by what was taken off its end.
+    memmove(cb->cend_ + n, cb->cend_, (size_t) (have - n));
+    cb->cend_ += n;
+
+    return n;
+}
+
+bool cb_give_back(char_buffer* cb, const char* in, int n) {
+    if (cb == NULL || in == NULL || n < 0) {
+        return false;
+    }
+    if (n == 0) {
+        return true;
+    }
+    if (n > (int) (cb->cend_ - cb->curr_)) {
+        return false;       // the gap cannot cover it
+    }
+    char* const top = cb->buf_ + cb->size_;
+    const int have = (int) (top - cb->cend_);
+    memmove(cb->cend_ - n, cb->cend_, (size_t) have);
+    cb->cend_ -= n;
+    memcpy(top - n, in, (size_t) n);
+
+    return true;
+}
+
 bool cb_del(char_buffer* cb) {
     const char* end = cb->buf_+cb->size_;
     const bool ok = cb->cend_ < end;

@@ -15,7 +15,7 @@ Currently it is limited to reading and writing files up to 248KB long with up to
 The editor can work in any Agon supported resolution and will use whatever color scheme you've configured
 your Agon.
 
-`NOTE: VDP 1.04 or above is required (since v0.13.0), and MOS 2.2.3 or above.`
+`NOTE: VDP 1.04 or above is required (since v0.13.0), and MOS 2.3.3 or above.`
 
 # Installation
 
@@ -42,9 +42,10 @@ run from `0x040000`. It cannot be built as a moslet either: the moslet area is 6
 about 272KB for its buffers. `/bin` is loaded at `0x040000`, which is why the editor lives there
 now.
 
-MOS has searched `/bin` since version 2.2.0, so 2.2 is the lowest usable minor release.
-The supported floor is the **last point release** of that line, 2.2.3 — if you are on
-2.2.x, be on 2.2.3.
+MOS has searched `/bin` since version 2.2.0, which used to set the floor. It is now
+2.3, because `ffs_ftruncate` arrived in 2.3.0 and saving a document that got shorter
+needs it. The supported floor is the **last point release** of that line, 2.3.3 — if
+you are on 2.3.x, be on 2.3.3.
 
 # Configuration
 

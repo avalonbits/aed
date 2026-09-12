@@ -70,6 +70,126 @@ bool lb_can_new(line_buffer* lb) {
     return lb->curr_ + 1 < lb->cend_;
 }
 
+int lb_room(const line_buffer* lb) {
+    const int n = (int) (lb->cend_ - lb->curr_) - 1;
+
+    return n > 0 ? n : 0;
+}
+
+int lb_front_fit(const line_buffer* lb, int max_bytes, int* lines) {
+    int bytes = 0;
+    int n = 0;
+    const int have = (int) (lb->curr_ - lb->buf_);
+    for (; n < have; n++) {
+        const int len = lb->buf_[n];
+        if (bytes + len > max_bytes) {
+            break;
+        }
+        bytes += len;
+    }
+    if (lines != NULL) {
+        *lines = n;
+    }
+
+    return bytes;
+}
+
+int lb_back_fit(const line_buffer* lb, int max_bytes, int* lines) {
+    int bytes = 0;
+    int n = 0;
+    const int* const top = lb->buf_ + lb->size_;
+    const int have = (int) (top - lb->cend_);
+    for (; n < have; n++) {
+        const int len = top[-(n + 1)];
+        if (bytes + len > max_bytes) {
+            break;
+        }
+        bytes += len;
+    }
+    if (lines != NULL) {
+        *lines = n;
+    }
+
+    return bytes;
+}
+
+int lb_take_front(line_buffer* lb, int* out, int n) {
+    if (lb == NULL || out == NULL || n <= 0) {
+        return 0;
+    }
+    // Strictly before the cursor: the line it is on goes nowhere.
+    const int have = (int) (lb->curr_ - lb->buf_);
+    if (n > have) {
+        n = have;
+    }
+    if (n == 0) {
+        return 0;
+    }
+    memcpy(out, lb->buf_, (size_t) n * sizeof(int));
+    // Everything up to and including the current line closes up, which is one
+    // more entry than were before it.
+    memmove(lb->buf_, lb->buf_ + n, (size_t) (have - n + 1) * sizeof(int));
+    lb->curr_ -= n;
+
+    return n;
+}
+
+bool lb_give_front(line_buffer* lb, const int* in, int n) {
+    if (lb == NULL || in == NULL || n < 0) {
+        return false;
+    }
+    if (n == 0) {
+        return true;
+    }
+    if (n > lb_room(lb)) {
+        return false;
+    }
+    const int have = (int) (lb->curr_ - lb->buf_) + 1;
+    memmove(lb->buf_ + n, lb->buf_, (size_t) have * sizeof(int));
+    memcpy(lb->buf_, in, (size_t) n * sizeof(int));
+    lb->curr_ += n;
+
+    return true;
+}
+
+int lb_take_back(line_buffer* lb, int* out, int n) {
+    if (lb == NULL || out == NULL || n <= 0) {
+        return 0;
+    }
+    int* const top = lb->buf_ + lb->size_;
+    const int have = (int) (top - lb->cend_);
+    if (n > have) {
+        n = have;
+    }
+    if (n == 0) {
+        return 0;
+    }
+    memcpy(out, top - n, (size_t) n * sizeof(int));
+    memmove(lb->cend_ + n, lb->cend_, (size_t) (have - n) * sizeof(int));
+    lb->cend_ += n;
+
+    return n;
+}
+
+bool lb_give_back(line_buffer* lb, const int* in, int n) {
+    if (lb == NULL || in == NULL || n < 0) {
+        return false;
+    }
+    if (n == 0) {
+        return true;
+    }
+    if (n > lb_room(lb)) {
+        return false;
+    }
+    int* const top = lb->buf_ + lb->size_;
+    const int have = (int) (top - lb->cend_);
+    memmove(lb->cend_ - n, lb->cend_, (size_t) have * sizeof(int));
+    lb->cend_ -= n;
+    memcpy(top - n, in, (size_t) n * sizeof(int));
+
+    return true;
+}
+
 bool lb_new(line_buffer* lb, int size) {
     if (!lb_can_new(lb)) {
         return false;

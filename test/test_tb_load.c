@@ -85,8 +85,10 @@ int main(void) {
     }
     tb_destroy(&tb);
 
-    /* A file larger than the buffer must be refused, not read past the end of
-     * the allocation. Under ASan the unfixed code dies here. */
+    /* A file larger than the buffer opens anyway now: it goes to the store and
+     * memory holds a window on it. It used to be refused, and the refusal is
+     * what this checked -- along with not reading past the end of the
+     * allocation, which ASan still watches. */
     stub_file_reset();
     text_buffer probe;
     if (!tb_init(&probe, 1, NULL)) {
@@ -104,9 +106,18 @@ int main(void) {
 
         return 2;
     }
-    memset(big, 'a', toobig);
+    /* Lines, so there is something for the index to hold. A single line longer
+     * than a chunk is the one shape paging cannot take, and it has its own
+     * test in test_paging.c. */
+    for (int i = 0; i < toobig; i++) {
+        big[i] = ((i % 20) == 19) ? '\n' : 'a';
+    }
     stub_file_set_content(big, toobig);
-    check("oversized file is refused", tb_init(&tb, 1, "big.txt") == NULL, 1);
+    check("an oversized file opens", tb_init(&tb, 1, "big.txt") != NULL, 1);
+    check("  paged, rather than all in memory", tb_used(&tb) < toobig, 1);
+    check("  with the first line readable",
+          tb_curr_line(&tb).ssz_, 19);
+    tb_destroy(&tb);
     free(big);
 
     /* Exactly at capacity is still fine -- the refusal must not be off by one. */

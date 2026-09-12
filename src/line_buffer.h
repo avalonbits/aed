@@ -67,6 +67,12 @@ static inline bool lb_cinc(line_buffer* lb) {
     return true;
 }
 
+// Adds `n` bytes to the current line at once. What lb_cinc does a byte at a
+// time, for when a whole line's worth arrives together.
+static inline void lb_cadd(line_buffer* lb, int n) {
+    (*lb->curr_) += n;
+}
+
 static inline int lb_csize(line_buffer* lb) {
     return *lb->curr_;
 }
@@ -98,6 +104,45 @@ bool lb_cdec(line_buffer* lb);
 // one -- see lb_new -- so asking it directly is the only way a caller can know
 // whether a split will go through without duplicating that arithmetic.
 bool lb_can_new(line_buffer* lb);
+
+/*
+ * The four ends of the index, matching the character buffer's, for paging.
+ *
+ * Whole lines leave one end of memory and arrive at the other, and the index
+ * has to move with the text it describes: a line whose bytes have gone to the
+ * head has no business still being counted here.
+ *
+ * The asymmetry to know about is that `curr_` points *at* the current line
+ * rather than past it. So take_front can take at most the lines strictly before
+ * the cursor -- the line the cursor is on cannot leave memory while the cursor
+ * is on it -- and the free slots between the two sides are one fewer than
+ * lb_avai reports.
+ *
+ * take_ returns how many entries it gave, fewer than asked when that end holds
+ * less. give_ is all or nothing. See .internal/docs/PAGING.md.
+ */
+int  lb_take_front(line_buffer* lb, int* out, int n);
+bool lb_give_front(line_buffer* lb, const int* in, int n);
+int  lb_take_back(line_buffer* lb, int* out, int n);
+bool lb_give_back(line_buffer* lb, const int* in, int n);
+
+// Free slots between the two sides, which is what give_ has to fit into. One
+// fewer than lb_avai, which counts the current line's own slot as available.
+int  lb_room(const line_buffer* lb);
+
+/*
+ * How many whole lines at each end fit in `max_bytes`, and how many bytes that
+ * actually is. A slide moves whole lines and nothing else: memory then always
+ * holds complete lines, and neither the index nor anything reading it needs a
+ * case for a line that straddles the edge.
+ *
+ * Returns the byte total and sets *lines. Both are zero when even the first
+ * line at that end is longer than `max_bytes` -- a line longer than a chunk
+ * cannot be slid, which is the documented limit that a single line longer than
+ * memory cannot be represented at all.
+ */
+int lb_front_fit(const line_buffer* lb, int max_bytes, int* lines);
+int lb_back_fit(const line_buffer* lb, int max_bytes, int* lines);
 
 bool lb_new(line_buffer* lb, int size);
 bool lb_del(line_buffer* lb);
