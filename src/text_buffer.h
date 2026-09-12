@@ -20,6 +20,7 @@
 #define _TEXT_BUFFER_H_
 
 #include "char_buffer.h"
+#include "doc_store.h"
 #include "line_buffer.h"
 
 // Line ending the document came in with, and the one it goes back out as. The
@@ -39,6 +40,24 @@ typedef struct _undo undo;
 // The longest document name, including the terminator. clipboard.c sizes its
 // scratch path against this.
 #define TB_FNAME_MAX 256
+
+/*
+ * Paging, from .internal/docs/PAGING.md.
+ *
+ * TB_CHUNK is how much a slide moves. The rule was "about a frame to read and
+ * write", which at the 182 KiB/s the card was measured at lands between 1 and
+ * 2 KiB; 2 KiB is 22 ms of disk and about half of what a page-down already
+ * spends repainting sixty rows over the VDP link. The shifting inside memory
+ * puts a slide nearer 31 ms all told.
+ *
+ * TB_MARGIN is how close to either end of memory the cursor is allowed before a
+ * slide happens. It has to cover a repaint, which spans about a screenful
+ * around the cursor: 128 x 96 is the widest mode, so a dense screenful is
+ * 12 KiB, and 16 KiB covers one with room over. That is what makes painting
+ * free of disk by construction rather than by hope.
+ */
+#define TB_CHUNK  (2 * 1024)
+#define TB_MARGIN (16 * 1024)
 
 typedef struct _text_buffer {
     char_buffer cb_;
@@ -79,6 +98,17 @@ typedef struct _text_buffer {
     // entirely in memory can still prove it.
     int head_lines_;    // complete lines before the character buffer
     int tail_lines_;    // complete lines after it
+
+    // Where those lines are. Only a document too big for memory has one; for
+    // everything else this is NULL and the two counters above stay at zero.
+    //
+    // Allocated, not inlined, for the same reason fname_ is: a doc_store
+    // carries two paths and is nearly 600 bytes, and a text_buffer goes on the
+    // stack every time the view walks the document. Inlined, it put every
+    // walker's frame past the 128 bytes an ix displacement reaches -- 235 frame
+    // escapes, against two before. test/frames.sh caught it on the first build.
+    doc_store* store_;
+    bool paged_;
 
     // A walker: a copy made by tb_copy, for reading the document without
     // disturbing the cursor that owns it.
@@ -216,6 +246,38 @@ tb_pos tb_tell(text_buffer* tb);
 // Moves the cursor to `p`, clamping to the document: past the last line lands
 // on the last line, past the end of a line lands at its end.
 void tb_seek(text_buffer* tb, tb_pos p);
+
+// Starts paging this document: opens the scratch store beside `base`, which is
+// the document's own path. Everything read in after this goes to the tail.
+bool tb_page_open(text_buffer* tb, const char* base);
+
+// Adds document text to the tail, counting the lines in it, as the loader
+// streams a file through. In order: what goes in first is earliest.
+bool tb_page_fill(text_buffer* tb, const char* buf, int n);
+
+// Fills memory from the tail, once the whole document has been put there. The
+// last thing a load does.
+//
+// Not a slide: a slide is symmetric, sending as much out of one end as it takes
+// in at the other, and at this point memory is empty and has nothing to send.
+// Filling stops with a chunk or two of room to spare, so that the first slide
+// in either direction has somewhere to put what it brings.
+bool tb_page_prime(text_buffer* tb);
+
+/*
+ * Moves the window the document is seen through, by one chunk.
+ *
+ * Down takes whole lines off the front of memory into the head and brings as
+ * many back from the tail; up is the exact reverse. Memory holds the same
+ * amount afterwards and the cursor is on the same line of the document -- what
+ * changes is which part of the document memory is holding.
+ *
+ * Returns false when there was nothing to do: an unpaged document, a walker
+ * (which must not move the window out from under the cursor that owns it), an
+ * end with nothing left on it, or a line too long to move.
+ */
+bool tb_slide_down(text_buffer* tb);
+bool tb_slide_up(text_buffer* tb);
 
 // For tests, which are the only way to see the paging arithmetic before there is
 // any paging: pretend some of the document is elsewhere. Everything derived from

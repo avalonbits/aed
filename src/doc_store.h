@@ -101,6 +101,13 @@ int  store_tail_pop(doc_store* st, char* buf, int n);
 int  store_head_pop(doc_store* st, char* buf, int n);
 bool store_tail_push(doc_store* st, const char* buf, int n);
 
+// Puts bytes back without writing them: they are still in the file, and only
+// the count of what belongs to the document has to move. A pop that came back
+// with half a line on the end of it gives that half back this way, which costs
+// nothing.
+void store_head_rewind(doc_store* st, int n);
+void store_tail_rewind(doc_store* st, int n);
+
 // Whether TAIL still has room in front of it for `n` more bytes to be pushed
 // back. False means the headroom is spent and TAIL has to be rebuilt before
 // another push -- a slow path, and the caller's problem rather than this one's.

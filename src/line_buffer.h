@@ -124,6 +124,20 @@ bool lb_give_back(line_buffer* lb, const int* in, int n);
 // fewer than lb_avai, which counts the current line's own slot as available.
 int  lb_room(const line_buffer* lb);
 
+/*
+ * How many whole lines at each end fit in `max_bytes`, and how many bytes that
+ * actually is. A slide moves whole lines and nothing else: memory then always
+ * holds complete lines, and neither the index nor anything reading it needs a
+ * case for a line that straddles the edge.
+ *
+ * Returns the byte total and sets *lines. Both are zero when even the first
+ * line at that end is longer than `max_bytes` -- a line longer than a chunk
+ * cannot be slid, which is the documented limit that a single line longer than
+ * memory cannot be represented at all.
+ */
+int lb_front_fit(const line_buffer* lb, int max_bytes, int* lines);
+int lb_back_fit(const line_buffer* lb, int max_bytes, int* lines);
+
 bool lb_new(line_buffer* lb, int size);
 bool lb_del(line_buffer* lb);
 bool lb_merge_next(line_buffer* lb);

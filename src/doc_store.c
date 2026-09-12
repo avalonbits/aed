@@ -216,6 +216,23 @@ int store_tail_pop(doc_store* st, char* buf, int n) {
     return got;
 }
 
+void store_head_rewind(doc_store* st, int n) {
+    if (st == NULL || !st->open_ || n <= 0) {
+        return;
+    }
+    st->head_len_ += n;
+}
+
+void store_tail_rewind(doc_store* st, int n) {
+    if (st == NULL || !st->open_ || n <= 0) {
+        return;
+    }
+    if (n > st->tail_start_) {
+        n = st->tail_start_;
+    }
+    st->tail_start_ -= n;
+}
+
 bool store_tail_push(doc_store* st, const char* buf, int n) {
     if (st == NULL || !st->open_ || buf == NULL || n < 0) {
         return false;
