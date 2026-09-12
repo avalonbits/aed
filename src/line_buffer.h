@@ -67,6 +67,12 @@ static inline bool lb_cinc(line_buffer* lb) {
     return true;
 }
 
+// Adds `n` bytes to the current line at once. What lb_cinc does a byte at a
+// time, for when a whole line's worth arrives together.
+static inline void lb_cadd(line_buffer* lb, int n) {
+    (*lb->curr_) += n;
+}
+
 static inline int lb_csize(line_buffer* lb) {
     return *lb->curr_;
 }

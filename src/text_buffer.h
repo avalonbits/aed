@@ -279,6 +279,21 @@ bool tb_page_prime(text_buffer* tb);
 bool tb_slide_down(text_buffer* tb);
 bool tb_slide_up(text_buffer* tb);
 
+/*
+ * Slides until the cursor is clear of both margins, and reports whether
+ * anything moved.
+ *
+ * The margins are what make repainting free of disk. A repaint reads about a
+ * screenful either side of the cursor, and it reads it through walkers, which
+ * may not slide -- so the text it wants has to be in memory already. Keeping
+ * TB_MARGIN clear on each side is what guarantees that, rather than hoping.
+ *
+ * Called once after each command rather than from inside every movement: a
+ * command is the unit after which the screen gets repainted, and that is what
+ * the margins are protecting.
+ */
+bool tb_settle(text_buffer* tb);
+
 // For tests, which are the only way to see the paging arithmetic before there is
 // any paging: pretend some of the document is elsewhere. Everything derived from
 // a line number must move with these, and nothing else may.

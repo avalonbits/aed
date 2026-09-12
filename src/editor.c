@@ -416,6 +416,13 @@ void ed_run(editor* ed) {
             kc.cmd(ed);
         }
 
+        // Once the command is done and before anything is repainted. A repaint
+        // reads about a screenful either side of the cursor through walkers,
+        // and a walker may not slide -- so whatever it is going to want has to
+        // be in memory by now. On an unpaged document this is two comparisons
+        // and a return.
+        tb_settle(buf);
+
         // A replace leaves no selection and has moved the text below it, so it
         // repaints like a drop: the whole area.
         ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,

@@ -638,6 +638,60 @@ static bool may_slide(text_buffer* tb) {
     return tb != NULL && tb->paged_ && !tb->walker_;
 }
 
+bool tb_settle(text_buffer* tb) {
+    if (!may_slide(tb)) {
+        return false;
+    }
+    bool moved = false;
+
+    // Bounded because each slide moves a chunk and a margin is several of them,
+    // so a cursor dropped into the middle of a document needs a handful. The
+    // bound is what stops a slide that keeps failing from spinning here.
+    int guard = TB_MARGIN / TB_CHUNK + 2;
+    while (guard-- > 0) {
+        int psz = 0;
+        int ssz = 0;
+        cb_prefix(&tb->cb_, &psz);
+        cb_suffix(&tb->cb_, &ssz);
+
+        if (ssz < TB_MARGIN && store_tail_bytes(tb->store_) > 0) {
+            if (!tb_slide_down(tb)) {
+                break;
+            }
+            moved = true;
+            continue;
+        }
+        if (psz < TB_MARGIN && store_head_bytes(tb->store_) > 0) {
+            if (!tb_slide_up(tb)) {
+                break;
+            }
+            moved = true;
+            continue;
+        }
+        break;
+    }
+
+    return moved;
+}
+
+// Keeps at most `room` of the lines a run was split into, and says how many
+// bytes those are. The index can run out before the buffer does -- it has one
+// slot per 32 bytes of buffer, so a document of short lines fills it first --
+// and a slide that took in more lines than there are slots for would put bytes
+// in memory with nothing describing them.
+static int fit_lines(const int* lens, int lines, int room, int* bytes) {
+    if (lines > room) {
+        lines = room > 0 ? room : 0;
+    }
+    int n = 0;
+    for (int i = 0; i < lines; i++) {
+        n += lens[i];
+    }
+    *bytes = n;
+
+    return lines;
+}
+
 bool tb_page_prime(text_buffer* tb) {
     if (tb == NULL || !tb->paged_ || tb->walker_) {
         return false;
@@ -665,23 +719,29 @@ bool tb_page_prime(text_buffer* tb) {
             break;
         }
         int bytes = 0;
-        const int lines = run_lines(slide_bytes, got, slide_lens,
-                                    (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
-                                    &bytes);
+        int lines = run_lines(slide_bytes, got, slide_lens,
+                              (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                              &bytes);
+        // One slot held back for the trailing entry this puts on at the end.
+        lines = fit_lines(slide_lens, lines, lb_room(&tb->lb_) - 1, &bytes);
         if (lines == 0) {
-            // A line longer than a chunk. Nothing can hold it a chunk at a
-            // time, which is the documented limit rather than a failure here.
+            // Either a line longer than a chunk, which nothing can hold a
+            // chunk at a time, or the index is full. Both stop the filling
+            // rather than fail it: what is in memory is sound either way.
             store_tail_rewind(tb->store_, got);
             break;
         }
         if (got > bytes) {
             store_tail_rewind(tb->store_, got - bytes);
         }
-        if (!cb_give_back(&tb->cb_, slide_bytes, bytes)
-                || !lb_give_back(&tb->lb_, slide_lens, lines)) {
+        // Checked before either is touched. Doing one and finding the other
+        // will not go leaves bytes in memory with no entry describing them,
+        // which is a document that reads as gibberish from there on.
+        if (!cb_give_back(&tb->cb_, slide_bytes, bytes)) {
             store_tail_rewind(tb->store_, bytes);
             break;
         }
+        lb_give_back(&tb->lb_, slide_lens, lines);
         tb->tail_lines_ -= lines;
         gave = true;
     }
@@ -711,50 +771,77 @@ bool tb_slide_down(text_buffer* tb) {
         return false;       // the first line is longer than a chunk
     }
 
-    // In from the tail, rounded back to the last whole line. What is left over
-    // is still in the file and is simply not claimed.
-    // No more comes in than went out, so memory holds what it held. Without
-    // that a slide near the top of a document -- where there is barely anything
-    // in front of the cursor to send -- would take in a whole chunk against a
-    // line or two going out, and memory would grow until it burst.
-    const int got = store_tail_pop(tb->store_, slide_bytes, out_bytes);
-    if (got <= 0) {
-        return false;
-    }
-    int in_bytes = 0;
-    const int in_lines = run_lines(slide_bytes, got, slide_lens,
-                                   (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
-                                   &in_bytes);
-    if (in_lines == 0) {
-        store_tail_rewind(tb->store_, got);
-
-        return false;       // a line longer than a chunk; nothing can be done
-    }
-    if (got > in_bytes) {
-        store_tail_rewind(tb->store_, got - in_bytes);
-    }
-
-    // The order matters: memory has to give up its front before it has room to
-    // take the arriving bytes at the back.
+    // Sent before anything is brought in, so that the room it frees -- in the
+    // index as much as in the buffer -- is there to bring into.
     static int out_lens[TB_CHUNK / 2 + 1];
     static char out_buf[TB_CHUNK];
     lb_take_front(&tb->lb_, out_lens, out_lines);
     cb_take_front(&tb->cb_, out_buf, out_bytes);
 
     if (!store_head_push(tb->store_, out_buf, out_bytes)) {
-        // Put it back rather than lose it. Nothing has been told about the
-        // move yet, so this is the whole of the undoing.
         cb_give_front(&tb->cb_, out_buf, out_bytes);
         lb_give_front(&tb->lb_, out_lens, out_lines);
-        store_tail_rewind(tb->store_, in_bytes);
 
         return false;
     }
-
-    cb_give_back(&tb->cb_, slide_bytes, in_bytes);
-    lb_give_back(&tb->lb_, slide_lens, in_lines);
-
     tb->head_lines_ += out_lines;
+
+    // No more comes in than went out, so memory holds what it held. Without
+    // that a slide near the top of a document -- where there is barely anything
+    // in front of the cursor to send -- would take in a whole chunk against a
+    // line or two going out, and memory would grow until it burst.
+    const int got = store_tail_pop(tb->store_, slide_bytes, out_bytes);
+    if (got <= 0) {
+        return true;        // the front went out; there was nothing to replace it
+    }
+    int in_bytes = 0;
+    int in_lines = run_lines(slide_bytes, got, slide_lens,
+                             (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                             &in_bytes);
+    // The index's last entry is the line that carries on past memory, and it
+    // stays last -- so it comes off here and goes back on at the end. Lines
+    // appended after it instead would leave an empty line in the middle of the
+    // document, and every line number past it one further out with every slide.
+    int trailing = 0;
+    const bool had_trailing = lb_take_back(&tb->lb_, &trailing, 1) == 1;
+
+    // One slot short of the room: an entry for whatever carries on past
+    // memory goes back after these -- either the one just taken off, or a
+    // fresh one when the line being completed is the cursor's own.
+    in_lines = fit_lines(slide_lens, in_lines, lb_room(&tb->lb_) - 1, &in_bytes);
+    if (in_lines == 0 || !cb_give_back(&tb->cb_, slide_bytes, in_bytes)) {
+        store_tail_rewind(tb->store_, got);
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return true;        // still a slide: the front is in the head
+    }
+    if (got > in_bytes) {
+        store_tail_rewind(tb->store_, got - in_bytes);
+    }
+
+    // The first line to arrive completes the line that was carrying on past
+    // memory -- that is what it *is*, the rest of it. The others follow, and a
+    // fresh empty entry goes last for whatever carries on now.
+    //
+    // When the cursor is on that line there was nothing after it to take off,
+    // so it is still the cursor's own entry and has to be grown in place.
+    // Appending after it instead leaves it stranded in the middle of the
+    // document, with no bytes, and a later slide ships it to the head as a line
+    // that is not there -- which is a head counting one more line than it holds
+    // and every line number past it wrong.
+    static const int fresh = 0;
+    if (had_trailing) {
+        lb_give_back(&tb->lb_, slide_lens, in_lines);
+        lb_give_back(&tb->lb_, &trailing, 1);
+    } else {
+        lb_cadd(&tb->lb_, slide_lens[0]);
+        if (in_lines > 1) {
+            lb_give_back(&tb->lb_, slide_lens + 1, in_lines - 1);
+        }
+        lb_give_back(&tb->lb_, &fresh, 1);
+    }
     tb->tail_lines_ -= in_lines;
 
     return true;
@@ -768,18 +855,42 @@ bool tb_slide_up(text_buffer* tb) {
         return false;       // nothing above to bring in
     }
 
+    // Off with the trailing entry first, for the same reason as sliding down:
+    // it is the line that carries on past memory and it stays last. Measuring
+    // without taking it off would count it as a line of no length and send out
+    // a line that is not there.
+    int trailing = 0;
+    const bool had_trailing = lb_take_back(&tb->lb_, &trailing, 1) == 1;
+
     int out_lines = 0;
     const int out_bytes = lb_back_fit(&tb->lb_, TB_CHUNK, &out_lines);
-    if (out_lines == 0) {
-        return false;
-    }
-    if (!store_tail_has_room(tb->store_, out_bytes)) {
-        return false;       // the headroom is spent; the tail needs rebuilding
+    if (out_lines == 0 || !store_tail_has_room(tb->store_, out_bytes)) {
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return false;       // nothing to send, or the headroom is spent
     }
 
-    // Off the head's end. It ends on a line boundary, so a chunk taken from
-    // there starts part way through one -- the bytes before the first line feed
-    // belong to a line whose start is still in the head, and go back.
+    static int out_lens[TB_CHUNK / 2 + 1];
+    static char out_buf[TB_CHUNK];
+    lb_take_back(&tb->lb_, out_lens, out_lines);
+    cb_take_back(&tb->cb_, out_buf, out_bytes);
+
+    if (!store_tail_push(tb->store_, out_buf, out_bytes)) {
+        cb_give_back(&tb->cb_, out_buf, out_bytes);
+        lb_give_back(&tb->lb_, out_lens, out_lines);
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return false;
+    }
+    if (had_trailing) {
+        lb_give_back(&tb->lb_, &trailing, 1);
+    }
+    tb->tail_lines_ += out_lines;
+
     // Bounded by what goes out, as sliding down is, plus one byte of lookbehind.
     //
     // A chunk taken off the head's end starts wherever the arithmetic puts it,
@@ -789,13 +900,11 @@ bool tb_slide_up(text_buffer* tb) {
     //
     // The two cannot be told apart from the chunk alone: a run starting mid
     // line and a run starting at one look identical. The extra byte is what
-    // distinguishes them. If it is a line feed the run starts on a boundary and
-    // only that byte goes back; otherwise the scan finds where the next line
-    // begins. Without it, a chunk that landed on a boundary lost its first
-    // line every time -- eight bytes a slide, stranded in the head for good.
+    // distinguishes them. Without it, a chunk that landed on a boundary lost
+    // its first line every time -- stranded in the head for good.
     const int got = store_head_pop(tb->store_, slide_bytes, out_bytes + 1);
     if (got <= 0) {
-        return false;
+        return true;
     }
     int keep_at = 0;
     if (store_head_bytes(tb->store_) > 0) {
@@ -807,41 +916,25 @@ bool tb_slide_up(text_buffer* tb) {
             if (keep_at >= got) {
                 store_head_rewind(tb->store_, got);
 
-                return false;           // no break in the whole chunk
+                return true;            // no break in the whole chunk
             }
             keep_at++;      // the line feed closes the line before, not after
         }
         store_head_rewind(tb->store_, keep_at);
     }
     int in_bytes = 0;
-    const int in_lines = run_lines(slide_bytes + keep_at, got - keep_at,
-                                   slide_lens,
-                                   (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
-                                   &in_bytes);
-    if (in_lines == 0 || in_bytes != got - keep_at) {
+    int in_lines = run_lines(slide_bytes + keep_at, got - keep_at, slide_lens,
+                             (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                             &in_bytes);
+    in_lines = fit_lines(slide_lens, in_lines, lb_room(&tb->lb_), &in_bytes);
+    if (in_lines == 0 || in_bytes != got - keep_at
+            || !cb_give_front(&tb->cb_, slide_bytes + keep_at, in_bytes)) {
         store_head_rewind(tb->store_, got - keep_at);
 
-        return false;
+        return true;        // still a slide: the back is in the tail
     }
-
-    static int out_lens[TB_CHUNK / 2 + 1];
-    static char out_buf[TB_CHUNK];
-    lb_take_back(&tb->lb_, out_lens, out_lines);
-    cb_take_back(&tb->cb_, out_buf, out_bytes);
-
-    if (!store_tail_push(tb->store_, out_buf, out_bytes)) {
-        cb_give_back(&tb->cb_, out_buf, out_bytes);
-        lb_give_back(&tb->lb_, out_lens, out_lines);
-        store_head_rewind(tb->store_, in_bytes);
-
-        return false;
-    }
-
-    cb_give_front(&tb->cb_, slide_bytes + keep_at, in_bytes);
     lb_give_front(&tb->lb_, slide_lens, in_lines);
-
     tb->head_lines_ -= in_lines;
-    tb->tail_lines_ += out_lines;
 
     return true;
 }
@@ -892,23 +985,51 @@ void tb_seek(text_buffer* tb, tb_pos p) {
     // lb_curr inside it is another, and the loop asked for it twice in the
     // condition on top of the copy kept to notice standing still. A seek across
     // a document was paying six calls a line to answer the same question.
+    // Running out of memory is not running out of document. When the step
+    // stops making progress and the line wanted is further on, the rest of the
+    // document is on disk -- so slide and carry on. A seek is the one movement
+    // that has to be able to reach anywhere.
     int y = tb_ypos(tb);
     while (y < p.line) {
         tb_down(tb);
-        const int now = tb_ypos(tb);
+        int now = tb_ypos(tb);
         if (now == y) {
-            break;              // the end of the document; nothing below it
+            if (!tb_slide_down(tb)) {
+                break;          // the end of the document; nothing below it
+            }
+            tb_down(tb);
+            now = tb_ypos(tb);
+            if (now == y) {
+                break;
+            }
         }
         y = now;
     }
     while (y > p.line) {
         tb_up(tb);
-        const int now = tb_ypos(tb);
+        int now = tb_ypos(tb);
         if (now == y) {
-            break;
+            if (!tb_slide_up(tb)) {
+                break;
+            }
+            tb_up(tb);
+            now = tb_ypos(tb);
+            if (now == y) {
+                break;
+            }
         }
         y = now;
     }
+
+    // A seek lands somewhere usable. Without this the cursor can come to rest
+    // on the index's last entry -- the line that carries on past memory --
+    // and read it as empty, because its text is still in the tail. Callers
+    // should not have to know that: find and the range walkers all seek.
+    //
+    // On a walker this is a no-op, which is right. A walker sees what is in
+    // memory and may not move the window; reaching past it is what the
+    // streaming range operations are for.
+    tb_settle(tb);
 
     const int len = line_len(tb);
     int x = p.x;
