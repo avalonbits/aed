@@ -85,7 +85,24 @@ bool store_init(doc_store* st, const char* base) {
 
         return false;
     }
+    // The headroom, actually written. See the note on STORE_HEADROOM: a seek
+    // past the end does not make a file longer, it just lands the write at the
+    // end -- which puts the document a headroom too early and loses that much
+    // off its far end.
+    static char zeros[512];
+    memset(zeros, 0, sizeof(zeros));
+    bool ok = true;
+    for (int at = 0; ok && at < STORE_HEADROOM; at += (int) sizeof(zeros)) {
+        ok = mos_fwrite(t, zeros, (unsigned) sizeof(zeros))
+             == (unsigned) sizeof(zeros);
+    }
     mos_fclose(t);
+    if (!ok) {
+        mos_del(st->head_);
+        mos_del(st->tail_);
+
+        return false;
+    }
 
     st->open_ = true;
 

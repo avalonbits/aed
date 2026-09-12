@@ -804,6 +804,39 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- a bare-LF document goes back out as bare LF --- */
+    {
+        /* The document is held as CRLF whatever the file had, so one that came
+         * in with bare line feeds has to be converted back on the way out.
+         * Without it, opening and saving adds a byte to every line -- which on
+         * a 419 KiB file is exactly its line count, and how this was found. */
+        #define SV_LINES 5000
+        static char SV[SV_LINES * 20 + 1];
+        int sv_at = 0;
+        for (int i = 0; i < SV_LINES; i++) {
+            for (int k = 0; k < 19; k++) {
+                SV[sv_at++] = (char) ('a' + ((i + k) % 26));
+            }
+            SV[sv_at++] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(SV, sv_at);
+        check("a bare-LF document opens paged",
+              tb_init(&tb, DOC_KB, "/lf2.txt") != NULL, 1);
+        check("  larger than memory", store_tail_bytes(tb.store_) > 0, 1);
+
+        tb_pos mid = { SV_LINES / 2, 0 };
+        tb_seek(&tb, mid);
+        check("saving it", tb_save(&tb) ? 1 : 0, 1);
+
+        int saved_len = 0;
+        const char* saved = stub_file_content("/lf2.txt", &saved_len);
+        check("  writes what it read, not a byte more", saved_len, sv_at);
+        check("  byte for byte",
+              saved != NULL && memcmp(saved, SV, (size_t) sv_at) == 0 ? 1 : 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- an unpaged document never slides --- */
     {
         check("an ordinary document", load_five(&tb), 1);

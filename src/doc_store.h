@@ -51,10 +51,17 @@
  * text and then scroll up over it and more goes back than came out, so it walks
  * towards zero.
  *
- * It costs nothing at open, which is the part worth knowing: the file is seeked
- * past rather than written over, so no headroom is ever transferred. What it
- * may cost on real hardware is FatFS allocating the clusters to seek across,
- * which is the sort of thing to measure rather than assume.
+ * It is written, not seeked past. Seeking past the end of a file and writing
+ * there looked free -- no headroom transferred -- and the host stubs modelled
+ * the gap as zeroes, so it passed everything. On real FatFS `f_lseek` does not
+ * extend a file: the seek clips to the end and the write lands at offset zero
+ * instead. The document then sits a headroom too early in the file, and the
+ * last 64 KiB of it is read off the end as nothing. Found on hardware, where
+ * the last thousand lines of a 419 KiB file were simply unreachable.
+ *
+ * So it costs a headroom-sized write at open: 0.35 s of the card at 182 KiB/s.
+ * Smaller would be cheaper and would run out sooner; this is the number the
+ * design picked and there is no measurement yet to move it.
  */
 #define STORE_HEADROOM (64 * 1024)
 

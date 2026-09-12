@@ -1791,6 +1791,68 @@ static void tb_write_lf(char fh, const char* pre, int psz,
 //
 // The scratch files are left as they are. The document is still open when this
 // returns, the window has not moved, and the cursor is where it was.
+// Writes a run out, turning CRLF back into a bare line feed when that is what
+// the file came in with. A carriage return at the very end of a run is held
+// back rather than written, because whether it is dropped depends on the byte
+// after it -- which is in the next run.
+typedef struct _lf_out {
+    char fh;
+    bool lf;            // the document wants bare line feeds
+    bool held_cr;       // a carriage return waiting to see what follows
+    bool ok;
+} lf_out;
+
+static void lf_put(lf_out* o, const char* buf, int n) {
+    static char out[TB_CHUNK + 1];
+
+    if (!o->ok || n <= 0) {
+        return;
+    }
+    if (!o->lf) {
+        o->ok = mos_fwrite(o->fh, (char*) buf, (unsigned) n) == (unsigned) n;
+
+        return;
+    }
+    // In slices, because this is handed memory's prefix and suffix whole and
+    // those are the size of the buffer -- a hundred times a chunk. The
+    // conversion can add a byte for a held carriage return, so a slice is one
+    // short of what `out` holds.
+    int at = 0;
+    while (o->ok && at < n) {
+        int take = n - at;
+        if (take > TB_CHUNK - 1) {
+            take = TB_CHUNK - 1;
+        }
+        int k = 0;
+        for (int i = 0; i < take; i++) {
+            const char c = buf[at + i];
+            if (o->held_cr) {
+                o->held_cr = false;
+                if (c != '\n') {
+                    out[k++] = '\r';   // a lone carriage return is text
+                }
+            }
+            if (c == '\r') {
+                o->held_cr = true;      // decided when the next byte arrives
+                continue;
+            }
+            out[k++] = c;
+        }
+        if (k > 0) {
+            o->ok = mos_fwrite(o->fh, out, (unsigned) k) == (unsigned) k;
+        }
+        at += take;
+    }
+}
+
+static void lf_end(lf_out* o) {
+    if (o->ok && o->held_cr) {
+        char cr = '\r';
+        o->ok = mos_fwrite(o->fh, &cr, 1) == 1;
+        o->held_cr = false;
+    }
+}
+
 static bool tb_save_paged(text_buffer* tb) {
     static char buf[TB_CHUNK];
     static const char TMP_SUFFIX[] = ".aeds";
@@ -1808,32 +1870,41 @@ static bool tb_save_paged(text_buffer* tb) {
         return false;
     }
 
-    bool ok = true;
+    // Line endings go back out the way they came in. The document is held in
+    // memory and in the store as CRLF whatever the file had, so one that came
+    // in with bare line feeds has to be converted on the way out -- otherwise
+    // opening and saving it adds a byte to every line, which is what a 419 KiB
+    // file growing by exactly its line count looks like.
+    lf_out o;
+    o.fh = fh;
+    o.lf = tb->eol_ == TB_EOL_LF;
+    o.held_cr = false;
+    o.ok = true;
 
     // The head, front to back.
-    for (int at = 0; ok && at < store_head_bytes(tb->store_); ) {
+    for (int at = 0; o.ok && at < store_head_bytes(tb->store_); ) {
         const int got = store_head_read(tb->store_, at, buf, TB_CHUNK);
         if (got <= 0) {
-            ok = false;
+            o.ok = false;
             break;
         }
-        ok = mos_fwrite(fh, buf, (unsigned) got) == (unsigned) got;
+        lf_put(&o, buf, got);
         at += got;
     }
 
     // Memory: the prefix and the suffix, in order. The gap between them holds
     // no live text.
-    if (ok) {
+    if (o.ok) {
         char* prefix = NULL;
         char* suffix = NULL;
         int psz = 0;
         int ssz = 0;
         tb_content(tb, &prefix, &psz, &suffix, &ssz);
         if (prefix != NULL && psz > 0) {
-            ok = mos_fwrite(fh, prefix, (unsigned) psz) == (unsigned) psz;
+            lf_put(&o, prefix, psz);
         }
-        if (ok && suffix != NULL && ssz > 0) {
-            ok = mos_fwrite(fh, suffix, (unsigned) ssz) == (unsigned) ssz;
+        if (suffix != NULL && ssz > 0) {
+            lf_put(&o, suffix, ssz);
         }
     }
 
@@ -1841,16 +1912,18 @@ static bool tb_save_paged(text_buffer* tb) {
     {
         int at = store_tail_from(tb->store_);
         const int end = at + store_tail_bytes(tb->store_);
-        while (ok && at < end) {
+        while (o.ok && at < end) {
             const int got = store_tail_read(tb->store_, at, buf, TB_CHUNK);
             if (got <= 0) {
-                ok = false;
+                o.ok = false;
                 break;
             }
-            ok = mos_fwrite(fh, buf, (unsigned) got) == (unsigned) got;
+            lf_put(&o, buf, got);
             at += got;
         }
     }
+    lf_end(&o);
+    const bool ok = o.ok;
     mos_fclose(fh);
 
     if (!ok) {
