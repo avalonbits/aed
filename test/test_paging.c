@@ -1203,6 +1203,67 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- deleting a range that reaches outside the window --- */
+    {
+        /* Cut is copy and then delete. With copy streaming, a cut that its
+         * delete cannot finish is worse than one that never worked: the
+         * clipboard holds the whole selection and the document keeps most of
+         * it. tb_range_del deletes a character at a time through the same
+         * primitives the DELETE key uses, and nothing refills memory while it
+         * runs, so it stops at the bottom of the window. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to cut from",
+              tb_init(&tb, DOC_KB, "/cut.txt") != NULL, 1);
+
+        const tb_pos first = { 1, 0 };
+        const tb_pos last = { DOC_LINES + 1, 0 };
+        check("  select-all measures as the whole document",
+              tb_range_size(&tb, first, last), DOC_BYTES);
+        check("  deleting it works", tb_range_del(&tb, first, last) ? 1 : 0, 1);
+        check("    and leaves one empty line", tb_ymax(&tb), 1);
+        check("    with nothing in memory", tb_used(&tb), 0);
+        check("    nothing in the head", store_head_bytes(tb.store_), 0);
+        check("    and nothing in the tail", store_tail_bytes(tb.store_), 0);
+
+        check("  saving the empty document works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        stub_file_content("/cut.txt", &saved_len);
+        check("    and it is empty", saved_len, 0);
+        tb_destroy(&tb);
+
+        /* And a range out of the middle, which is the harder one: text stays
+         * on both sides of it, the head is not empty while it runs, and what
+         * comes back has to be the two halves joined with nothing between. */
+        #define CUT_FROM 100
+        #define CUT_TO   3000
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to cut the middle out of",
+              tb_init(&tb, DOC_KB, "/mid.txt") != NULL, 1);
+
+        const tb_pos from = { CUT_FROM, 0 };
+        const tb_pos to = { CUT_TO, 0 };
+        const int cut = (CUT_TO - CUT_FROM) * DOC_LEN;
+        check("  the range measures as its lines",
+              tb_range_size(&tb, from, to), cut);
+        check("  deleting it works", tb_range_del(&tb, from, to) ? 1 : 0, 1);
+        check("    and the document is that many lines shorter",
+              tb_ymax(&tb), DOC_LINES + 1 - (CUT_TO - CUT_FROM));
+
+        check("  saving works", tb_save(&tb) ? 1 : 0, 1);
+        const char* left = stub_file_content("/mid.txt", &saved_len);
+        check("    and it is the two halves", saved_len, DOC_BYTES - cut);
+        check("      the first of them unchanged",
+              left != NULL && memcmp(left, DOC,
+                                     (size_t) ((CUT_FROM - 1) * DOC_LEN)) == 0, 1);
+        check("      the second following straight on",
+              left != NULL && memcmp(left + (CUT_FROM - 1) * DOC_LEN,
+                                     DOC + (CUT_TO - 1) * DOC_LEN,
+                                     (size_t) (DOC_BYTES - (CUT_TO - 1) * DOC_LEN)) == 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- an edit that has to travel through the tail --- */
     {
         /* Sliding up writes memory's back into TAIL, below where the live

@@ -998,9 +998,19 @@ bool tb_slide_down(text_buffer* tb) {
     // cursor is on -- lb_front_fit only counts the ones before it.
     int out_lines = 0;
     const int out_bytes = lb_front_fit(&tb->lb_, TB_CHUNK, &out_lines);
-    if (out_lines == 0) {
+    if (out_lines == 0 && cb_used(&tb->cb_) > 0) {
         return false;       // the first line is longer than a chunk
     }
+    // Nothing in front of the cursor and nothing behind it either: the window
+    // has been emptied. Deleting a range larger than memory does that, and
+    // used to leave the rest of the document sitting in the store with no way
+    // back -- a select-all cut on a 160,000 byte document copied all of it and
+    // left 2,516 lines behind.
+    //
+    // Bringing text in without sending any out is safe exactly here. What
+    // bounds memory is the room in it, and an empty buffer is all room; the
+    // cap below stands in for that everywhere else, where there is something
+    // to send and sending it is what makes the room.
 
     // Sent before anything is brought in, so that the room it frees -- in the
     // index as much as in the buffer -- is there to bring into.
@@ -1021,7 +1031,8 @@ bool tb_slide_down(text_buffer* tb) {
     // that a slide near the top of a document -- where there is barely anything
     // in front of the cursor to send -- would take in a whole chunk against a
     // line or two going out, and memory would grow until it burst.
-    const int got = store_tail_pop(tb->store_, slide_bytes, out_bytes);
+    const int got = store_tail_pop(tb->store_, slide_bytes,
+                                   out_bytes > 0 ? out_bytes : TB_CHUNK);
     if (got <= 0) {
         return true;        // the front went out; there was nothing to replace it
     }
@@ -1547,20 +1558,41 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     // Deleted one character at a time through the same primitives the DELETE
     // key uses, so the line index is maintained by code that already gets it
     // right rather than by a second implementation that has to agree with it.
+    // A paged document runs out of memory part way through: the deleting
+    // empties the window and the rest of the range is still in the store.
+    // Settling pulls the next chunk in, so the loop only has to notice that a
+    // delete failed and try once more.
+    //
+    // Only on failure, because a settle on every character would be a pair of
+    // buffer measurements per byte deleted -- and on a document that is not
+    // paged it can never do anything at all.
     bool any = false;
+    int stalls = 0;
     while (left > 0) {
-        if (tb_eol(tb)) {
-            if (!tb_del_merge(tb)) {
-                break;   // last line: nothing left to join to
-            }
-            left -= 2;
-        } else {
-            if (!tb_del(tb)) {
-                break;
-            }
-            left -= 1;
+        const bool eol = tb_eol(tb);
+        if (eol ? tb_del_merge(tb) : tb_del(tb)) {
+            left -= eol ? 2 : 1;
+            stalls = 0;
+            any = true;
+            continue;
         }
-        any = true;
+
+        // A paged document runs out of memory part way through: the deleting
+        // empties the window and the rest of the range is still in the store.
+        // Settling brings the next chunk in, and then the loop starts over
+        // rather than retrying what just failed -- the window has moved, so
+        // the cursor that was at the end of the last line in memory is now in
+        // the middle of one and wants tb_del rather than tb_del_merge.
+        //
+        // Bounded, because settling says whether it moved anything and not
+        // whether that helped. Each move consumes the store, so this ends
+        // either way; a handful of passes with nothing deleted is enough to
+        // know the rest of the range is not coming.
+        if (stalls++ < 4 && tb_settle(tb)) {
+            continue;
+        }
+
+        break;
     }
 
     return any;
