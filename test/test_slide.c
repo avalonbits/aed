@@ -20,6 +20,7 @@
 #include <agon/mos.h>
 
 #include "char_buffer.h"
+#include "line_buffer.h"
 
 static int failures = 0;
 
@@ -224,6 +225,113 @@ int main(void) {
                     "xyabcdefghij", 12);
         check("  filling the buffer", cb_available(&cb), 0);
         cb_destroy(&cb);
+    }
+
+    /* ---------------------------------------------------------------- *
+     *  The line index's four ends, which have to move with the text.
+     * ---------------------------------------------------------------- */
+
+    /* Six lines of the lengths given, with the cursor on line `at`. */
+    line_buffer lb;
+    static const int LENS[6] = { 11, 22, 33, 44, 55, 66 };
+
+    {
+        /* Built the way the loader builds it: count the bytes of a line with
+         * lb_cinc, then close it with lb_new(size) -- which keeps `size` on
+         * this line and gives the remainder, none, to the next. */
+        check("an index of six lines", lb_init(&lb, 32) != NULL, 1);
+        for (int i = 0; i < 6; i++) {
+            for (int k = 0; k < LENS[i]; k++) {
+                lb_cinc(&lb);
+            }
+            if (i < 5) {
+                lb_new(&lb, lb_csize(&lb));
+            }
+        }
+        check("  the cursor is on the last of them", lb_curr(&lb), 5);
+        check("  which is as long as it was made", lb_csize(&lb), 66);
+
+        /* Back to the middle, so there is something on each side. */
+        lb_up(&lb);
+        lb_up(&lb);
+        check("moving up two puts the cursor on the fourth", lb_curr(&lb), 3);
+        check("  with the fourth line's length", lb_csize(&lb), 44);
+    }
+
+    /* --- taking from the front takes the earliest lines --- */
+    {
+        int out[8];
+        check("two lines come off the front", lb_take_front(&lb, out, 2), 2);
+        check("  the first", out[0], 11);
+        check("  and the second", out[1], 22);
+        check("the cursor is now the second line in memory", lb_curr(&lb), 1);
+        check("  still the same line, still that long", lb_csize(&lb), 44);
+    }
+
+    /* --- and giving them back undoes it exactly --- */
+    {
+        int back[2] = { 11, 22 };
+        check("giving them back", lb_give_front(&lb, back, 2) ? 1 : 0, 1);
+        check("  puts the cursor back", lb_curr(&lb), 3);
+        check("  on the same line", lb_csize(&lb), 44);
+        lb_up(&lb);
+        check("  with the one before it intact", lb_csize(&lb), 33);
+        lb_down(&lb);
+        check("  and the one after", (lb_down(&lb), lb_csize(&lb)), 55);
+        lb_up(&lb);
+    }
+
+    /* --- taking from the back takes the latest --- */
+    {
+        int out[8];
+        check("one line comes off the back", lb_take_back(&lb, out, 1), 1);
+        check("  the last one", out[0], 66);
+        check("the cursor has not moved", lb_curr(&lb), 3);
+        check("  nor has its line", lb_csize(&lb), 44);
+        check("giving it back", lb_give_back(&lb, out, 1) ? 1 : 0, 1);
+        check("  leaves the cursor alone too", lb_curr(&lb), 3);
+    }
+
+    /* --- the line the cursor is on cannot leave --- */
+    {
+        int out[8];
+        line_buffer top;
+        check("an index with the cursor on the first line",
+              lb_init(&top, 16) != NULL, 1);
+        lb_new(&top, 0);
+        lb_up(&top);
+        check("  which is where it is", lb_curr(&top), 0);
+        check("nothing in front of it to take", lb_take_front(&top, out, 1), 0);
+        check("  and the cursor is untouched", lb_curr(&top), 0);
+        lb_destroy(&top);
+    }
+
+    /* --- giving more than there are slots for is refused --- */
+    {
+        /* Sized to the room there actually is: an array too small to cover it
+         * is a read past the end of the test's own stack, which is a bug in
+         * the test rather than in what it is testing. */
+        int in[64];
+        for (int i = 0; i < (int)(sizeof(in) / sizeof(in[0])); i++) {
+            in[i] = i + 1;
+        }
+        const int room = lb_room(&lb);
+        check("  there is room to give into", room > 0 && room < 64, 1);
+        check("giving one more than there is room for",
+              lb_give_front(&lb, in, room + 1) ? 1 : 0, 0);
+        check("  changes nothing", lb_room(&lb), room);
+        check("giving exactly the room works",
+              lb_give_front(&lb, in, room) ? 1 : 0, 1);
+        check("  and fills it", lb_room(&lb), 0);
+
+        /* And the lines after the cursor are still there. One entry too many
+         * lands on the first of them, which is inside the allocation and so
+         * invisible to the sanitiser -- the only way to see it is to look at
+         * what it would have overwritten. */
+        check("  with the line after the cursor untouched",
+              (lb_down(&lb), lb_csize(&lb)), 55);
+        check("  and the one after that", (lb_down(&lb), lb_csize(&lb)), 66);
+        lb_destroy(&lb);
     }
 
     if (failures > 0) {
