@@ -1083,6 +1083,126 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- finding something that is not in the window --- */
+    {
+        /* tb_find walks a line at a time on a tb_copy, and a walker cannot
+         * slide, so it searched the window and stopped. A match a hundred
+         * lines from the end of a paged document reported "not found", in the
+         * same words a real absence uses.
+         *
+         * A needle planted in three places -- near the top, in the middle and
+         * near the end -- so that forwards, backwards and both wraps have
+         * somewhere to land. */
+        #define NEEDLE "wombat"
+        #define N_LO   10
+        #define N_MID  (DOC_LINES / 2)
+        #define N_HI   (DOC_LINES - 100)
+        static char FIND[DOC_BYTES + 1];
+        memcpy(FIND, DOC, DOC_BYTES);
+        const int NAT = 4;      /* the column the needle sits at */
+        memcpy(FIND + (N_LO - 1) * DOC_LEN + NAT, NEEDLE, sizeof(NEEDLE) - 1);
+        memcpy(FIND + (N_MID - 1) * DOC_LEN + NAT, NEEDLE, sizeof(NEEDLE) - 1);
+        memcpy(FIND + (N_HI - 1) * DOC_LEN + NAT, NEEDLE, sizeof(NEEDLE) - 1);
+
+        stub_file_reset();
+        stub_file_set_content(FIND, DOC_BYTES);
+        check("a paged document to search", tb_init(&tb, DOC_KB, "/find.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&tb) < DOC_BYTES, 1);
+
+        const int nsz = (int) sizeof(NEEDLE) - 1;
+        tb_pos hit = { 0, 0 };
+        const tb_pos top = { 1, 0 };
+
+        check("forwards from the top finds the first",
+              tb_find(&tb, NEEDLE, nsz, top, true, &hit) ? 1 : 0, 1);
+        check("  on the line it was put on", hit.line, N_LO);
+        check("  at the column it was put at", hit.x, NAT);
+
+        /* The next one along is outside the window, which is the whole point. */
+        tb_pos after = { N_LO, NAT + 1 };
+        check("forwards again finds the middle one",
+              tb_find(&tb, NEEDLE, nsz, after, true, &hit) ? 1 : 0, 1);
+        check("  which is in the middle of the document", hit.line, N_MID);
+
+        after.line = N_MID;
+        after.x = NAT + 1;
+        check("and again finds the last",
+              tb_find(&tb, NEEDLE, nsz, after, true, &hit) ? 1 : 0, 1);
+        check("  near the end of the document", hit.line, N_HI);
+
+        after.line = N_HI;
+        after.x = NAT + 1;
+        check("and again wraps round to the first",
+              tb_find(&tb, NEEDLE, nsz, after, true, &hit) ? 1 : 0, 1);
+        check("  back at the top", hit.line, N_LO);
+
+        /* Backwards, which keeps the last match at or before `from`. */
+        tb_pos before = { N_HI, NAT - 1 };
+        check("backwards from the last finds the middle one",
+              tb_find(&tb, NEEDLE, nsz, before, false, &hit) ? 1 : 0, 1);
+        check("  in the middle", hit.line, N_MID);
+
+        before.line = N_LO;
+        before.x = -1;      /* column 0: nothing on this line is behind it */
+        check("backwards from the first wraps to the last",
+              tb_find(&tb, NEEDLE, nsz, before, false, &hit) ? 1 : 0, 1);
+        check("  near the end", hit.line, N_HI);
+
+        /* Case folding, and a needle that is not there at all. */
+        check("the search folds case",
+              tb_find(&tb, "WOMBAT", nsz, top, true, &hit) ? 1 : 0, 1);
+        check("  landing on the same line", hit.line, N_LO);
+        check("something absent is absent",
+              tb_find(&tb, "aardvark", 8, top, true, &hit) ? 1 : 0, 0);
+
+        /* A needle that would only match across a break must not. The
+         * document's lines end "...\r\n" and the next begins "l", so the two
+         * bytes either side of a break spell something that is never a line. */
+        /* A needle that would only match across a break must not, and the
+         * needle has to be one the stream could actually run into: a break's
+         * own bytes are consumed as a break and never offered to the matcher,
+         * so "\r\n" in a needle proves nothing. Every line here ends in a dot
+         * and the next begins with an l, so ".l" exists only across one -- and
+         * a partial match left standing at a break is what finds it. */
+        check("a match may not span a line break",
+              tb_find(&tb, ".l", 2, top, true, &hit) ? 1 : 0, 0);
+
+        /* Overlapping matches, which is where a search that restarts from
+         * nothing after a hit loses one, and where the needle's own repetition
+         * has to be accounted for to find either. "aabaa" sits at both ends of
+         * "aabaabaa". */
+        #define N_OV 20
+        memcpy(FIND + (N_OV - 1) * DOC_LEN + NAT, "aabaabaa", 8);
+
+        /* And a decoy on the next line: "aababaa" does not contain "aabaa",
+         * but a matcher that backtracks to the wrong place after the mismatch
+         * at "aabab" thinks it does. Nothing else here mismatches part way
+         * through a match, so without this the needle's own repetition is
+         * never actually needed to get the right answer. */
+        #define N_DECOY (N_OV + 1)
+        memcpy(FIND + (N_DECOY - 1) * DOC_LEN + NAT, "aababaa", 7);
+        stub_file_reset();
+        stub_file_set_content(FIND, DOC_BYTES);
+        tb_destroy(&tb);
+        check("a document with a repetitive line",
+              tb_init(&tb, DOC_KB, "/ov.txt") != NULL, 1);
+        check("  the first of two overlapping matches",
+              tb_find(&tb, "aabaa", 5, top, true, &hit) ? 1 : 0, 1);
+        check("    on its line", hit.line, N_OV);
+        check("    at its column", hit.x, NAT);
+        tb_pos over = { N_OV, NAT + 1 };
+        check("  and the second, which overlaps it",
+              tb_find(&tb, "aabaa", 5, over, true, &hit) ? 1 : 0, 1);
+        check("    three along from the first", hit.x, NAT + 3);
+
+        over.x = NAT + 4;
+        check("  and there is no third",
+              tb_find(&tb, "aabaa", 5, over, true, &hit) ? 1 : 0, 1);
+        check("    so it wraps back to the first", hit.line, N_OV);
+        check("      at its column", hit.x, NAT);
+        tb_destroy(&tb);
+    }
+
     /* --- an edit that has to travel through the tail --- */
     {
         /* Sliding up writes memory's back into TAIL, below where the live

@@ -324,6 +324,11 @@ static bool isstop(char ch) {
     return false;
 }
 
+// The whole document to a sink, in order: head, memory, tail. Defined down with
+// the paged save, which was the first thing that needed it; find and the range
+// operations are the rest.
+static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx);
+
 // ASCII case folding. The Agon's character set beyond 127 is not a case-mapped
 // alphabet, so anything else is left alone rather than guessed at.
 static char fold(char ch) {
@@ -379,10 +384,193 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
     return -1;
 }
 
+/*
+ * Finding in a paged document.
+ *
+ * The in-memory search walks a line at a time on a tb_copy, and a walker cannot
+ * slide, so it searches the window and stops. On a 160,000 byte document paged
+ * into 64 KiB, a match planted a hundred lines from the end reported "not
+ * found" -- and reported it the same way a real absence does.
+ *
+ * So a paged document is searched by streaming it, once, from the beginning.
+ * One pass answers all four questions a search can ask, because forwards and
+ * backwards differ only in which match is kept:
+ *
+ *   forward  -- the first match at or after `from`, else the first anywhere
+ *   backward -- the last match at or before `from`, else the last anywhere
+ *
+ * which is what "wrapping once around the document" means. Collecting all four
+ * costs nothing over collecting one, and saves the second pass a wrap would
+ * otherwise need.
+ *
+ * Knuth-Morris-Pratt rather than the in-memory scan, because there is no line
+ * to back up over: the bytes arrive once, in order, and a partial match has to
+ * survive between chunks. The failure table is built from the needle each time
+ * -- 64 bytes of work against a document's worth of reading.
+ */
+#define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
+
+typedef struct _find_pass {
+    const char* needle;
+    int nsz;
+    int fail[TB_FIND_MAX];
+
+    tb_pos from;
+    int m;              // needle characters matched so far
+    int line;           // the line the next byte belongs to
+    int x;              // its column
+    bool held_cr;
+
+    tb_pos at_from;     // first match at or after `from`
+    bool has_at_from;
+    tb_pos first;       // first match anywhere
+    bool has_first;
+    tb_pos to_from;     // last match at or before `from`
+    bool has_to_from;
+    tb_pos last;        // last match anywhere
+    bool has_last;
+} find_pass;
+
+static void fp_build(find_pass* fp) {
+    fp->fail[0] = 0;
+    for (int i = 1; i < fp->nsz; i++) {
+        int k = fp->fail[i - 1];
+        while (k > 0 && fold(fp->needle[i]) != fold(fp->needle[k])) {
+            k = fp->fail[k - 1];
+        }
+        if (fold(fp->needle[i]) == fold(fp->needle[k])) {
+            k++;
+        }
+        fp->fail[i] = k;
+    }
+}
+
+static void fp_hit(find_pass* fp, tb_pos p) {
+    if (!fp->has_first) {
+        fp->first = p;
+        fp->has_first = true;
+    }
+    fp->last = p;
+    fp->has_last = true;
+
+    // At or after `from`, for a forward search. Only the first one counts.
+    if (!fp->has_at_from
+            && (p.line > fp->from.line
+                || (p.line == fp->from.line && p.x >= fp->from.x))) {
+        fp->at_from = p;
+        fp->has_at_from = true;
+    }
+    // At or before it, for a backward one. The last such is the answer, so
+    // this keeps overwriting until the positions run past `from`.
+    if (p.line < fp->from.line
+            || (p.line == fp->from.line && p.x <= fp->from.x)) {
+        fp->to_from = p;
+        fp->has_to_from = true;
+    }
+}
+
+static void fp_char(find_pass* fp, char c) {
+    const char f = fold(c);
+    while (fp->m > 0 && f != fold(fp->needle[fp->m])) {
+        fp->m = fp->fail[fp->m - 1];
+    }
+    if (f == fold(fp->needle[fp->m])) {
+        fp->m++;
+    }
+    if (fp->m == fp->nsz) {
+        const tb_pos p = { fp->line, fp->x - fp->nsz + 1 };
+        fp_hit(fp, p);
+        fp->m = fp->fail[fp->m - 1];
+    }
+    fp->x++;
+}
+
+static bool find_sink(void* ctx, const char* buf, int sz) {
+    find_pass* fp = (find_pass*) ctx;
+
+    for (int i = 0; i < sz; i++) {
+        const char c = buf[i];
+        if (c == '\r' && !fp->held_cr) {
+            fp->held_cr = true;
+            continue;
+        }
+        if (c == '\n') {
+            // A match never spans a break, so nothing carries across one.
+            fp->held_cr = false;
+            fp->m = 0;
+            fp->line++;
+            fp->x = 0;
+            continue;
+        }
+        if (fp->held_cr) {
+            fp->held_cr = false;    // a stray carriage return is a character
+            fp_char(fp, '\r');
+        }
+        fp_char(fp, c);
+    }
+
+    return true;
+}
+
+static bool find_paged(text_buffer* tb, const char* needle, int nsz,
+                       tb_pos from, bool forward, tb_pos* at) {
+    if (nsz > TB_FIND_MAX) {
+        return false;
+    }
+    static find_pass fp;    // 64 ints of failure table: too big for a frame
+    fp.needle = needle;
+    fp.nsz = nsz;
+    fp.from = from;
+    fp.m = 0;
+    fp.line = 1;
+    fp.x = 0;
+    fp.held_cr = false;
+    fp.has_at_from = false;
+    fp.has_first = false;
+    fp.has_to_from = false;
+    fp.has_last = false;
+    fp_build(&fp);
+
+    if (!doc_stream(tb, find_sink, &fp)) {
+        return false;
+    }
+    if (forward) {
+        if (fp.has_at_from) {
+            *at = fp.at_from;
+
+            return true;
+        }
+        if (fp.has_first) {
+            *at = fp.first;     // wrapped
+
+            return true;
+        }
+
+        return false;
+    }
+    if (fp.has_to_from) {
+        *at = fp.to_from;
+
+        return true;
+    }
+    if (fp.has_last) {
+        *at = fp.last;          // wrapped
+
+        return true;
+    }
+
+    return false;
+}
+
 bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
              bool forward, tb_pos* at) {
     if (needle == NULL || nsz <= 0 || at == NULL) {
         return false;
+    }
+    if (tb->paged_) {
+        // Always, not only when `from` is outside memory: a match can be
+        // anywhere in the document wherever the search starts from.
+        return find_paged(tb, needle, nsz, from, forward, at);
     }
 
     // On a copy, which is safe because moving a gap duplicates rather than
@@ -1112,9 +1300,6 @@ static void order(tb_pos* a, tb_pos* b) {
  * A break counts as two whatever it is stored as, because the contract says a
  * range carries CRLF. Nothing else has to agree with the store's bytes.
  */
-// Defined with the save, which was its first caller.
-static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx);
-
 typedef struct _range_pass {
     tb_pos a;
     tb_pos b;
