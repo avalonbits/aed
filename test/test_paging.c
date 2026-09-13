@@ -609,6 +609,91 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- a file that fits, with more lines than the index holds --- */
+    {
+        /* The index has one slot per 32 bytes of buffer, so 8,192 of them at
+         * the size the editor runs with. A file with more lines than that,
+         * which still fits in memory, is nothing out of the ordinary: 10,000
+         * lines of twenty bytes is 200 KB.
+         *
+         * It used to open with ymax saying 8,192 and the last 1,809 lines
+         * merged into one 36,180 byte line, with no message. The bytes were all
+         * there -- it saved byte for byte -- so nothing but navigation showed
+         * it. Loading pages instead now, which is what has somewhere to put the
+         * lines that will not fit.
+         *
+         * 3,000 lines of ten bytes into a 64 KiB buffer is the same shape: over
+         * the 2,048 slots that buffer has, well under the bytes it holds. */
+        #define IDX_LINES 3000
+        #define IDX_LEN   10
+        static char IDX[IDX_LINES * IDX_LEN + 1];
+        for (int i = 0; i < IDX_LINES; i++) {
+            for (int k = 0; k < IDX_LEN - 2; k++) {
+                IDX[i * IDX_LEN + k] = (char) ('a' + ((i + k) % 26));
+            }
+            IDX[i * IDX_LEN + IDX_LEN - 2] = '\r';
+            IDX[i * IDX_LEN + IDX_LEN - 1] = '\n';
+        }
+        const int idx_sz = IDX_LINES * IDX_LEN;
+
+        stub_file_reset();
+        stub_file_set_content(IDX, idx_sz);
+        check("a document with more lines than index slots",
+              tb_init(&tb, 64, "/idx.txt") != NULL, 1);
+        check("  fits in memory by size", idx_sz < 64 * 1024, 1);
+        check("  but has more lines than the index holds",
+              IDX_LINES > (64 * 1024) / 32, 1);
+        check("  so it pages rather than losing them",
+              store_tail_bytes(tb.store_) > 0 || store_head_bytes(tb.store_) > 0, 1);
+        check("  and counts every one of its lines", tb_ymax(&tb), IDX_LINES + 1);
+
+        int wrong = 0;
+        for (int n = 1; n <= IDX_LINES && wrong == 0; n++) {
+            tb_pos p = { n, 0 };
+            tb_seek(&tb, p);
+            const split_line ln = tb_curr_line(&tb);
+            if (tb_ypos(&tb) != n || ln.ssz_ != IDX_LEN - 2
+                    || memcmp(ln.suffix_, IDX + (n - 1) * IDX_LEN,
+                              (size_t) (IDX_LEN - 2)) != 0) {
+                wrong = n;
+            }
+        }
+        check("    every one of which reads as itself", wrong, 0);
+
+        check("  saving it works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        const char* saved = stub_file_content("/idx.txt", &saved_len);
+        check("    giving back every byte", saved_len, idx_sz);
+        check("      unchanged",
+              saved != NULL && memcmp(saved, IDX, (size_t) idx_sz) == 0, 1);
+
+        /* And the same through tb_open, which is what CTRL+O uses -- on the
+         * buffer that is already holding a paged document, because that is
+         * what opening a second file means.
+         *
+         * Which needs the first document's store letting go of. tb_page_open
+         * refuses on a buffer that is already paged, so without that the second
+         * file quietly failed to page; and the first one's two scratch files
+         * stayed on the card for the rest of the session. */
+        stub_file_reset();
+        stub_file_set_content(IDX, idx_sz);
+        check("  opening such a file into a running editor",
+              tb_open(&tb, "/idx.txt", 8) == TB_OK ? 1 : 0, 1);
+        check("    counts every line too", tb_ymax(&tb), IDX_LINES + 1);
+        check("    and pages, as the first one did",
+              store_tail_bytes(tb.store_) > 0 || store_head_bytes(tb.store_) > 0, 1);
+
+        /* Opening an ordinary file over it gives the store back. */
+        stub_file_reset();
+        stub_file_set_content("one\r\ntwo\r\n", 10);
+        check("  and opening a small file over that",
+              tb_open(&tb, "/small.txt", 10) == TB_OK ? 1 : 0, 1);
+        check("    does not page", tb.paged_ ? 1 : 0, 0);
+        check("    and leaves no scratch files behind",
+              stub_file_exists("/idx.txt.aedh") + stub_file_exists("/idx.txt.aedt"), 0);
+        tb_destroy(&tb);
+    }
+
     /* --- loading a file too big for memory --- */
     {
         /* The point of all of it. A document larger than the buffer used to be

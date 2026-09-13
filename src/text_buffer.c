@@ -27,6 +27,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Lets go of the store, if there is one. Defined with tb_clear, which is the
+// other place a document stops needing it.
+static void tb_drop_store(text_buffer* tb);
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
@@ -66,12 +70,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
 }
 
 void tb_destroy(text_buffer* tb) {
-    if (tb != NULL && tb->paged_ && !tb->walker_) {
-        store_destroy(tb->store_);
-        free(tb->store_);
-        tb->store_ = NULL;
-        tb->paged_ = false;
-    }
+    tb_drop_store(tb);
     cb_destroy(&tb->cb_);
     lb_destroy(&tb->lb_);
     free(tb->fname_);
@@ -1811,12 +1810,22 @@ static int ensure_newline(char_buffer* cb, line_buffer* lb) {
         added++;
     }
 
-    lb_new(lb, lb_csize(lb));
+    if (!lb_new(lb, lb_csize(lb))) {
+        // The index is full. Every line from here on would be merged into the
+        // one the cursor is on -- silently, because the bytes are all still
+        // there and only the structure describing them is missing. A 200 KB
+        // file of 10,000 short lines opened saying it had 8,192 and put the
+        // last 1,809 into a single 36,180 byte line.
+        return -1;
+    }
 
     return added;
 }
 
-static bool tb_read(char fh, text_buffer* tb, int sz) {
+// `full` is set when the load stopped because the line index ran out rather
+// than because anything went wrong with the file. The caller starts again with
+// the paged loader, which has somewhere to put the lines that will not fit.
+static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
     char_buffer* cb = &tb->cb_;
@@ -1881,6 +1890,11 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
         cb->cend_ = cend;
         *lcur = llen;
         const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n < 0) {
+            *full = true;
+
+            return false;
+        }
         if (n == 0) {
             crlf++;
         }
@@ -1899,6 +1913,11 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
 
     if (cb_peek(cb) == '\n') {
         const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n < 0) {
+            *full = true;
+
+            return false;
+        }
         if (n == 0) {
             crlf++;
         }
@@ -2119,15 +2138,58 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
         return TB_OK;
     }
     const int sz = (int) fil->obj.objsize;
+    bool full = false;
     if (sz > 0) {
-       ok = tb_read(fh, tb, sz);
+       ok = tb_read(fh, tb, sz, &full);
+    }
+    if (full) {
+        // It fits in memory and its lines do not fit in the index. The index
+        // has one slot per 32 bytes of buffer, so 8,192 of them at the size the
+        // editor runs with, and a 200 KB file of short lines has more lines
+        // than that while being nothing out of the ordinary.
+        //
+        // Paging is what has somewhere to put them: it holds a window on the
+        // document and the rest in the store, and the index only ever has to
+        // describe the window. So the load starts again, from the top of the
+        // file, down the path a file too big for memory takes.
+        tb_clear(tb);
+        if (mos_flseek(fh, 0) != 0) {
+            mos_fclose(fh);
+            tb->fname_[0] = 0;
+
+            return TB_NO_FILE;
+        }
+        const bool paged = tb_load_paged(tb, fh, sz);
+        mos_fclose(fh);
+        if (!paged) {
+            tb->fname_[0] = 0;
+
+            return TB_TOO_LARGE;
+        }
+
+        return TB_OK;
     }
     mos_fclose(fh);
 
     return ok ? TB_OK : TB_NO_FILE;
 }
 
+// Lets go of the store, if there is one. A document that is being replaced or
+// emptied has no use for it, and its two scratch files should not outlive it --
+// nor should paged_ stay set, because tb_page_open refuses on a buffer that is
+// already paged and the next document would silently fail to page.
+static void tb_drop_store(text_buffer* tb) {
+    if (tb == NULL || !tb->paged_ || tb->walker_) {
+        return;
+    }
+    store_destroy(tb->store_);
+    free(tb->store_);
+    tb->store_ = NULL;
+    tb->paged_ = false;
+}
+
 void tb_clear(text_buffer* tb) {
+    tb_drop_store(tb);
     cb_clear(&tb->cb_);
     lb_clear(&tb->lb_);
     tb->x_ = 0;
@@ -2196,10 +2258,25 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     // unpick the file's own CRLFs.
     const bool was = undo_hold(tb->undo_);
     bool ok = true;
+    bool full = false;
     if (fsz > 0) {
-        ok = tb_read(fh, tb, fsz);
+        ok = tb_read(fh, tb, fsz, &full);
     }
     undo_release(tb->undo_, was);
+    if (full) {
+        // More lines than the index has slots, as in tb_load. Start again down
+        // the paged path, which only has to describe the window.
+        tb_clear(tb);
+        if (mos_flseek(fh, 0) != 0) {
+            mos_fclose(fh);
+
+            return TB_NO_FILE;
+        }
+        const bool paged = tb_load_paged(tb, fh, fsz);
+        mos_fclose(fh);
+
+        return paged ? TB_OK : TB_TOO_LARGE;
+    }
     mos_fclose(fh);
 
     return ok ? TB_OK : TB_NO_FILE;
