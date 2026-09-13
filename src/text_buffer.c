@@ -324,6 +324,23 @@ static bool isstop(char ch) {
     return false;
 }
 
+// How many line feeds are in a run. The same CPIR, for the counters that do not
+// want the lengths.
+static int count_lines(const char* buf, int n) {
+    int lines = 0;
+    while (n > 0) {
+        const char* nl = (const char*) memchr(buf, '\n', (size_t) n);
+        if (nl == NULL) {
+            break;
+        }
+        lines++;
+        n -= (int) (nl - buf) + 1;
+        buf = nl + 1;
+    }
+
+    return lines;
+}
+
 // The whole document to a sink, in order: head, memory, tail. Defined down with
 // the paged save, which was the first thing that needed it; find and the range
 // operations are the rest.
@@ -772,11 +789,7 @@ bool tb_page_fill(text_buffer* tb, const char* buf, int n) {
     }
     // Complete lines, each ending in the break that closes it, which is what
     // both counters hold -- see head_lines_ in text_buffer.h.
-    for (int i = 0; i < n; i++) {
-        if (buf[i] == '\n') {
-            tb->tail_lines_++;
-        }
-    }
+    tb->tail_lines_ += count_lines(buf, n);
 
     return true;
 }
@@ -803,15 +816,22 @@ static int  slide_lens[TB_CHUNK / 2 + 1];   // the shortest possible line is "\r
 // Splits a run of bytes into the lengths of the whole lines in it, each ending
 // in the line feed that closes it. Returns how many, and how many bytes they
 // account for -- which is less than `n` when the run ends mid-line.
+// memchr rather than a loop over the bytes: it reaches CPIR, which the eZ80 does
+// in a handful of cycles a byte against the twenty-odd a C comparison costs, and
+// every byte of a document passes through here on the way in and again on every
+// slide. See .internal/docs/PAGING.md for what that was worth.
 static int run_lines(const char* buf, int n, int* lens, int max, int* bytes) {
     int lines = 0;
-    int at = 0;
     int used = 0;
-    for (; at < n && lines < max; at++) {
-        if (buf[at] == '\n') {
-            lens[lines++] = at - used + 1;
-            used = at + 1;
+    while (lines < max && used < n) {
+        const char* nl = (const char*) memchr(buf + used, '\n',
+                                              (size_t) (n - used));
+        if (nl == NULL) {
+            break;
         }
+        const int at = (int) (nl - buf);
+        lens[lines++] = at - used + 1;
+        used = at + 1;
     }
     *bytes = used;
 
@@ -1355,6 +1375,66 @@ static bool rp_char(range_pass* rp, char c) {
 static bool range_sink(void* ctx, const char* buf, int sz) {
     static const char crlf[2] = { '\r', '\n' };
     range_pass* rp = (range_pass*) ctx;
+
+    // A whole chunk inside the range, which is most of them on a select-all:
+    // every byte of it is taken, so the only thing the walk really does is
+    // count line feeds, and memchr does that in CPIR. Per byte the slow path
+    // below is a call to rp_char, two position comparisons and a call to
+    // rp_take.
+    //
+    // Only when the chunk cannot straddle either end of the range. The first
+    // line of it and the last need the column arithmetic, and a break lands in
+    // the middle of a chunk as often as not, so the test is on lines: every
+    // line this chunk touches has to be strictly inside.
+    if (!rp->held_cr && rp->line > rp->a.line && sz > 0) {
+        // One pass for how many breaks there are and where the last one is.
+        //
+        // This sends the store's own bytes where the slow path sends a CRLF of
+        // its own for each break, so the two agree only because every break in
+        // the document is a CRLF: the loader converts on the way in, and every
+        // other way a break is made goes through tb_newline, which writes the
+        // pair. There was a check here that each break really was one, and it
+        // could not fire -- but it was catching the chunk whose first byte is
+        // the line feed of a break split across the boundary, and so hiding
+        // the held_cr test above, which is the thing that actually handles it.
+        int lines = 0;
+        const char* last = NULL;
+        for (const char* p = buf; p < buf + sz; ) {
+            const char* nl = (const char*) memchr(p, '\n',
+                                                  (size_t) (buf + sz - p));
+            if (nl == NULL) {
+                break;
+            }
+            lines++;
+            last = nl;
+            p = nl + 1;
+        }
+        if (rp->line + lines < rp->b.line) {
+            // A break split across the chunk boundary -- its carriage return
+            // the last byte here, its line feed the first byte of the next --
+            // leaves the return for the next chunk, which is what the slow
+            // path does: a return is not emitted until a feed says it was a
+            // break. Emitting it here and the pair there would send three
+            // bytes for a two byte break.
+            const int take = buf[sz - 1] == '\r' ? sz - 1 : sz;
+            if (take > 0 && !rp_take(rp, buf, take)) {
+                return false;
+            }
+            rp->held_cr = take < sz;
+            rp->line += lines;
+            // Whatever follows the last break is the start of a line, and the
+            // column is how far into it the taken bytes reach. `take`, not
+            // `sz`, so a deferred carriage return is not counted as a column.
+            //
+            // Nothing can currently see the difference: a deferred return is
+            // always followed by the line feed that completes it, and handling
+            // that break sets the column back to zero before anything reads
+            // it. This is the value being right rather than merely unused.
+            rp->x = last != NULL ? (int) (buf + take - last - 1) : rp->x + take;
+
+            return true;
+        }
+    }
 
     for (int i = 0; i < sz; i++) {
         const char c = buf[i];

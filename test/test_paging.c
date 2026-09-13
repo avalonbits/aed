@@ -986,6 +986,249 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- the streamed answer against the arithmetic --- */
+    {
+        /* The streaming pass has a fast path for a chunk lying wholly inside
+         * the range and a slow one for a chunk straddling either end, and which
+         * runs depends on where a 2 KiB boundary fell relative to a line break.
+         * Hand-picked boundary cases missed most of it: five separate mutants of
+         * the guards survived, and one guard was masking another.
+         *
+         * So this checks a grid of ranges against what the document says they
+         * are, worked out by prefix sums. The obvious alternative -- load the
+         * same document small enough to fit in memory and compare -- was tried
+         * first and does not work, because the in-memory tb_range_size is
+         * itself wrong for some ranges near the end of a document: on this
+         * document it reports 32,966 for lines 1 to 5,997 where the bytes come
+         * to 32,970. An oracle has to be something other than a second
+         * implementation.
+         *
+         * Lines of varying length, including empty ones, so that boundaries
+         * land before, on and after breaks rather than all in one place. */
+        #define DIF_LINES 6000
+        static char DIF[DIF_LINES * 9 + 1];
+        static int pre[DIF_LINES + 2];      /* bytes before line n, 1-based */
+        int dsz = 0;
+        for (int i = 0; i < DIF_LINES; i++) {
+            pre[i + 1] = dsz;
+            for (int k = 0; k < i % 8; k++) {
+                DIF[dsz++] = (char) ('a' + ((i + k) % 26));
+            }
+            DIF[dsz++] = '\r';
+            DIF[dsz++] = '\n';
+        }
+        pre[DIF_LINES + 1] = dsz;
+
+        /* A column is clamped to its line: a cursor cannot be past the end of
+         * one, so a range never asks for that. */
+        #define DIF_LEN(ln) ((ln) > DIF_LINES ? 0 : ((ln) - 1) % 8)
+        #define DIF_X(ln, x) ((x) < DIF_LEN(ln) ? (x) : DIF_LEN(ln))
+
+        static const int A_LN[6] = { 1, 2, 683, 684, 1000, 2000 };
+        static const int B_LN[6] = { 3, 685, 1001, 2001, 4000, DIF_LINES + 1 };
+
+        stub_file_reset();
+        stub_file_set_content(DIF, dsz);
+        check("a paged document to measure ranges in",
+              tb_init(&tb, 16, "/dif.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&tb) < dsz, 1);
+        check("  with every one of its lines counted", tb_ymax(&tb), DIF_LINES + 1);
+
+        /* The window at the far end, so a range from the top has to come out of
+         * the head rather than out of memory. */
+        const tb_pos bottom = { DIF_LINES, 0 };
+        tb_seek(&tb, bottom);
+        check("  and the window at the far end", store_head_bytes(tb.store_) > 0, 1);
+
+        int bad = 0;
+        int bad_got = 0;
+        int bad_want = 0;
+        for (int i = 0; i < 6; i++) {
+            for (int ax = 0; ax < 3; ax++) {
+                for (int j = 0; j < 6; j++) {
+                    for (int bx = 0; bx < 3; bx++) {
+                        const tb_pos a = { A_LN[i], DIF_X(A_LN[i], ax) };
+                        const tb_pos b = { B_LN[j], DIF_X(B_LN[j], bx) };
+                        int want = (pre[b.line] + b.x) - (pre[a.line] + a.x);
+                        if (want < 0) {
+                            want = -want;       // either order is allowed
+                        }
+                        const int got = tb_range_size(&tb, a, b);
+                        if (got != want && bad == 0) {
+                            bad = a.line * 10000 + b.line;
+                            bad_got = got;
+                            bad_want = want;
+                        }
+                    }
+                }
+            }
+        }
+        check("  all 324 ranges measure what the bytes say", bad, 0);
+        check("    and what the first wrong one gave", bad_got,
+              bad == 0 ? bad_got : bad_want);
+
+        /* And what a range measures is what copying it gives. Select-all
+         * reported 59,324 bytes and produced 59,324 of a 160,000 byte
+         * document; the two agreeing is what made that silent, so it is
+         * necessary and the check above is the other half. */
+        static char_buffer dout;
+        check("  somewhere to copy into", cb_init(&dout, dsz + 16) != NULL, 1);
+
+        int mismatch = 0;
+        for (int i = 0; i < 6 && mismatch == 0; i++) {
+            for (int j = 0; j < 6 && mismatch == 0; j++) {
+                for (int bx = 0; bx < 3 && mismatch == 0; bx++) {
+                    const tb_pos a = { A_LN[i], 0 };
+                    const tb_pos b = { B_LN[j], DIF_X(B_LN[j], bx) };
+                    if (tb_range_copy(&tb, a, b, &dout) != tb_range_size(&tb, a, b)) {
+                        mismatch = a.line * 10000 + b.line;
+                    }
+                }
+            }
+        }
+        check("  what every range measures is what copying it gives", mismatch, 0);
+
+        /* And the bytes themselves, for a range with both ends outside the
+         * window and neither at the start of a line. */
+        const tb_pos ca = { 684, DIF_X(684, 2) };
+        const tb_pos cb2 = { 2001, DIF_X(2001, 1) };
+        const int csz = (pre[2001] + cb2.x) - (pre[684] + ca.x);
+        check("  copying such a range gives its size",
+              tb_range_copy(&tb, ca, cb2, &dout), csz);
+        int cgot = 0;
+        const char* ctxt = cb_prefix(&dout, &cgot);
+        check("    and the document's own bytes",
+              ctxt != NULL && cgot == csz
+              && memcmp(ctxt, DIF + pre[684] + ca.x, (size_t) csz) == 0, 1);
+        cb_destroy(&dout);
+        tb_destroy(&tb);
+    }
+
+    /* --- ranges whose ends sit exactly on a chunk boundary --- */
+    {
+        /* The streaming pass hands a chunk to the fast path only when every
+         * line it touches is strictly inside the range. Both halves of that
+         * test -- the first line and the last -- only do anything when a chunk
+         * begins or ends exactly at the range's end, and with lines of mixed
+         * length averaging five bytes a chunk spans three hundred and fifty of
+         * them, so the grid above hits the case about once in three hundred
+         * tries. Three mutants of those guards survived it.
+         *
+         * Uniform line lengths make it hit every time. Three bytes a line puts
+         * a chunk boundary between a carriage return and its line feed, four
+         * puts it exactly on a break: 2048 is 682 lines and two bytes of the
+         * 683rd, or 512 lines exactly. */
+        static const int LENS[2] = { 3, 4 };
+        for (int li = 0; li < 2; li++) {
+            const int L = LENS[li];
+            const int UNI_LINES = 40960 / L;        /* 40 KiB of document */
+            static char UNI[40960 + 1];
+            int usz = 0;
+            for (int i = 0; i < UNI_LINES; i++) {
+                for (int k = 0; k < L - 2; k++) {
+                    UNI[usz++] = (char) ('a' + ((i + k) % 26));
+                }
+                UNI[usz++] = '\r';
+                UNI[usz++] = '\n';
+            }
+
+            stub_file_reset();
+            stub_file_set_content(UNI, usz);
+            check(L == 3 ? "a paged document of three byte lines"
+                         : "a paged document of four byte lines",
+                  tb_init(&tb, 8, "/uni.txt") != NULL, 1);
+            check("  which really is paged", tb_used(&tb) < usz, 1);
+
+            /* The window at the far end, so the ranges stream from the head. */
+            const tb_pos far = { UNI_LINES, 0 };
+            tb_seek(&tb, far);
+
+            int bad = 0;
+            int bad_got = 0;
+            int bad_want = 0;
+            /* Every line within three of the first four chunk boundaries, at
+             * every column a line of this length has. */
+            for (int m = 1; m <= 4 && bad == 0; m++) {
+                const int at = (TB_CHUNK * m) / L + 1;   /* the line it lands in */
+                for (int d = -3; d <= 3 && bad == 0; d++) {
+                    for (int ax = 0; ax <= L - 2 && bad == 0; ax++) {
+                        for (int bx = 0; bx <= L - 2 && bad == 0; bx++) {
+                            const tb_pos a = { 1, ax };
+                            const tb_pos b = { at + d, bx };
+                            if (b.line < 1 || b.line > UNI_LINES) {
+                                continue;
+                            }
+                            const int want = (b.line - 1) * L + bx - ax;
+                            const int got = tb_range_size(&tb, a, b);
+                            if (got != want) {
+                                bad = b.line;
+                                bad_got = got;
+                                bad_want = want;
+                            }
+                            /* And starting on the boundary as well as ending
+                             * there, which is the other half of the test. */
+                            const tb_pos a2 = { at + d, ax };
+                            const tb_pos b2 = { UNI_LINES, bx };
+                            const int want2 = (UNI_LINES - 1) * L + bx
+                                              - ((at + d - 1) * L + ax);
+                            const int got2 = tb_range_size(&tb, a2, b2);
+                            if (got2 != want2 && bad == 0) {
+                                bad = at + d;
+                                bad_got = got2;
+                                bad_want = want2;
+                            }
+                        }
+                    }
+                }
+            }
+            check("  every range around a chunk boundary measures right", bad, 0);
+            check("    and what the first wrong one gave", bad_got,
+                  bad == 0 ? bad_got : bad_want);
+            tb_destroy(&tb);
+        }
+    }
+
+    /* --- a chunk boundary that splits a line break --- */
+    {
+        /* Lines of three bytes, "a\r\n", so 2048 lands between a carriage
+         * return and its line feed. The streaming pass has to leave that
+         * return for the next chunk rather than send it: sending it there and
+         * the pair here would be three bytes for a two byte break, and the
+         * range would measure longer than the document it came from.
+         *
+         * This is the same boundary the loader has a test for higher up, for
+         * the same reason and in a different piece of code. */
+        #define SPL_LINES 12000
+        static char SPL[SPL_LINES * 3 + 1];
+        for (int i = 0; i < SPL_LINES; i++) {
+            SPL[i * 3 + 0] = (char) ('a' + (i % 26));
+            SPL[i * 3 + 1] = '\r';
+            SPL[i * 3 + 2] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(SPL, SPL_LINES * 3);
+        check("a paged document whose breaks straddle chunks",
+              tb_init(&tb, 32, "/spl.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&tb) < SPL_LINES * 3, 1);
+
+        const tb_pos spl_a = { 1, 0 };
+        const tb_pos spl_b = { SPL_LINES + 1, 0 };
+        check("  all of it measures as all of it",
+              tb_range_size(&tb, spl_a, spl_b), SPL_LINES * 3);
+
+        static char_buffer spl_out;
+        check("  somewhere to copy it", cb_init(&spl_out, SPL_LINES * 3 + 16) != NULL, 1);
+        check("  and copying gives every byte",
+              tb_range_copy(&tb, spl_a, spl_b, &spl_out), SPL_LINES * 3);
+        int spl_got = 0;
+        const char* spl_txt = cb_prefix(&spl_out, &spl_got);
+        check("    the document's own bytes, in order",
+              spl_txt != NULL && spl_got == SPL_LINES * 3
+              && memcmp(spl_txt, SPL, (size_t) (SPL_LINES * 3)) == 0, 1);
+        cb_destroy(&spl_out);
+        tb_destroy(&tb);
+    }
+
     /* --- a range that reaches outside the window --- */
     {
         /* Select-all copy on a paged document used to come back with the
@@ -1075,6 +1318,26 @@ int main(void) {
         check("      and still measures right", tb_range_size(&tb, first, early),
               2 * DOC_LEN);
         tb_seek(&tb, first);
+
+        /* A sweep of ends, because the streaming pass has a fast path for a
+         * chunk that lies wholly inside the range and the slow one for a chunk
+         * that straddles either end -- and which runs depends on where a 2 KiB
+         * boundary fell. They have to agree, and the arithmetic says what the
+         * answer is: whole lines to b.line, then b.x of it.
+         *
+         * 2048 / 40 puts a boundary part way through every 52nd line, so ends
+         * either side of lines 52, 103 and 154 are ends either side of one. */
+        int wrong_at = 0;
+        for (int ln = 45; ln <= 160 && wrong_at == 0; ln++) {
+            for (int x = 0; x <= 3 && wrong_at == 0; x++) {
+                const tb_pos end = { ln, x };
+                if (tb_range_size(&tb, first, end) != (ln - 1) * DOC_LEN + x) {
+                    wrong_at = ln;
+                }
+            }
+        }
+        check("  every end across three chunk boundaries measures right",
+              wrong_at, 0);
 
         /* One entirely inside the window still goes the short way and still
          * gives the same answer. */
