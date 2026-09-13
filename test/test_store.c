@@ -219,6 +219,57 @@ int main(void) {
         check("  and destroying it is harmless", (store_destroy(&dead), 1), 1);
     }
 
+    /* --- the files are opened once, not once per operation --- */
+    {
+        /* Opening cost 1.12 cs a time on MOS 3.0.2, and a slide does two of
+         * them against under a millisecond for the 2 KiB it moves -- so the
+         * opens were not part of a slide's cost, they were nearly all of it.
+         * Both files are held open from store_init to store_destroy now.
+         *
+         * Counted rather than checked against some fixed number: what matters
+         * is that the count does not grow with the work, and a fixed number
+         * would pass with the holding taken out as long as the loop were
+         * short. */
+        stub_file_reset();
+        doc_store st;
+        check("a store to hold its files open", store_init(&st, "/held.txt") ? 1 : 0, 1);
+
+        stub_file_reset_counts();
+        static char blk[64];
+        memset(blk, 'a', sizeof(blk));
+        for (int i = 0; i < 20; i++) {
+            store_tail_append(&st, blk, (int) sizeof(blk));
+        }
+        check("  twenty appends open nothing", stub_file_opens(), 0);
+
+        for (int i = 0; i < 10; i++) {
+            store_head_push(&st, blk, (int) sizeof(blk));
+        }
+        check("  ten pushes to the head open nothing", stub_file_opens(), 0);
+
+        static char out[64];
+        for (int i = 0; i < 10; i++) {
+            store_tail_pop(&st, out, (int) sizeof(out));
+            store_head_pop(&st, out, (int) sizeof(out));
+        }
+        check("  and twenty pops open nothing", stub_file_opens(), 0);
+
+        /* The pops emptied the head, so there is nothing to read until
+         * something is put back: store_head_read never reads past what the
+         * document owns. */
+        store_head_push(&st, blk, (int) sizeof(blk));
+        check("  reading still works", store_head_read(&st, 0, out, 4), 4);
+        check("    and opens nothing either", stub_file_opens(), 0);
+
+        /* And the handles go when the store does, or the scratch files cannot
+         * be removed and outlive the session that made them. */
+        stub_file_reset_counts();
+        store_destroy(&st);
+        check("  destroying closes both handles", stub_file_closes(), 2);
+        check("    and removes the head", stub_file_exists("/held.txt.aedh"), 0);
+        check("    and the tail", stub_file_exists("/held.txt.aedt"), 0);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

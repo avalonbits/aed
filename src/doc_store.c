@@ -22,28 +22,57 @@
 #include <stddef.h>
 #include <string.h>
 
-// A file is opened for the length of one push or pop and closed again.
-//
-// Holding both open for the session would save two MOS calls per slide, and
-// cost a pair of handles for as long as a document is open -- MOS has few, the
-// clipboard wants one, and a second document would want two more. A slide is
-// already a read and a write of a couple of kilobytes; two opens on top of that
-// are not what makes it slow.
-// Both scratch files are made by store_init, so neither wants creating here --
-// and asking for it would break every write that is not an append.
-// FA_OPEN_ALWAYS on MOS 3.0.2 puts writes at the end of the file whatever the
-// position says: a seek to 100 in a 1000 byte file reports success, moves fptr
-// to 100, and then writes at 1000. Sliding up seeks backwards to write, so
-// under that flag it wrote nothing where it meant to and appended instead.
-//
-// It went unseen because the load used to write the whole document to TAIL,
-// so the bytes a push "wrote" were already sitting at the offset it meant to
-// write them to, and the appended copies were past tail_end_ where nothing
-// reads. Filling memory off the read instead left real gaps, and the save
-// read them back as the zeroes store_init had put there.
-static char open_rw(const char* path) {
-    return mos_fopen(path, FA_READ | FA_WRITE);
+/*
+ * Both scratch files are opened once, at store_init, and stay open until
+ * store_destroy. Every operation seeks on the handle it wants and reads or
+ * writes there.
+ *
+ * They used to be opened and closed around each push and pop, on the reasoning
+ * that "a slide is already a read and a write of a couple of kilobytes; two
+ * opens on top of that are not what makes it slow". Measured on MOS 3.0.2, a
+ * slide's two opens are 22 ms and its read and write of 2 KiB are under one --
+ * mos_fopen costs 1.12 cs there against 0.01 cs on the console8 firmware, which
+ * is the entire difference between the two in every paging measurement taken.
+ * The opens were not most of a slide's cost, they were essentially all of it.
+ *
+ * The objection was handles: MOS has few, the clipboard wants one, and a second
+ * document would want two more. Measured, MOS gives out seven at once on both
+ * firmwares, so two for the open document leaves four spare.
+ *
+ * FA_READ | FA_WRITE and nothing else. FA_OPEN_ALWAYS on MOS 3.0.2 puts writes
+ * at the end of the file whatever the position says: a seek to 100 in a 1,000
+ * byte file reports success, moves fptr to 100, and then writes at 1,000.
+ * Sliding up seeks backwards to write, so under that flag it wrote nothing
+ * where it meant to and appended instead -- see the history of this file.
+ *
+ * Reading and writing the same held handle at scattered offsets is safe: FatFS
+ * flushes its one sector window when the position moves out of it. Verified on
+ * both firmwares before this was written, because it is exactly what a slide
+ * does and a wrong answer would be silent.
+ */
+static int read_fh(char fh, int at, char* buf, int n) {
+    if (fh == 0 || buf == NULL || n <= 0 || at < 0) {
+        return 0;
+    }
+    if (mos_flseek(fh, (uint32_t) at) != 0) {
+        return 0;
+    }
+
+    return (int) mos_fread(fh, buf, (unsigned) n);
 }
+
+static bool write_fh(char fh, int at, const char* buf, int n) {
+    if (fh == 0 || buf == NULL || n < 0 || at < 0) {
+        return false;
+    }
+    if (n == 0) {
+        return true;
+    }
+
+    return mos_flseek(fh, (uint32_t) at) == 0
+           && mos_fwrite(fh, (char*) buf, (unsigned) n) == (unsigned) n;
+}
+
 
 static bool name_with(char* out, const char* base, const char* suffix) {
     const int blen = (base == NULL) ? 0 : (int) strlen(base);
@@ -74,6 +103,7 @@ bool store_init(doc_store* st, const char* base) {
         return false;
     }
     st->open_ = false;
+    st->head_fh_ = 0;
     st->tail_fh_ = 0;
     st->head_len_ = 0;
     st->tail_start_ = STORE_HEADROOM;
@@ -117,6 +147,26 @@ bool store_init(doc_store* st, const char* base) {
         return false;
     }
 
+    // And now the handles the store keeps. Created and filled above with their
+    // own, because creating is the one thing FA_CREATE_ALWAYS is for and these
+    // want FA_READ | FA_WRITE and nothing else -- see the note on the helpers.
+    st->head_fh_ = mos_fopen(st->head_, FA_READ | FA_WRITE);
+    st->tail_fh_ = mos_fopen(st->tail_, FA_READ | FA_WRITE);
+    if (st->head_fh_ == 0 || st->tail_fh_ == 0) {
+        if (st->head_fh_ != 0) {
+            mos_fclose(st->head_fh_);
+        }
+        if (st->tail_fh_ != 0) {
+            mos_fclose(st->tail_fh_);
+        }
+        st->head_fh_ = 0;
+        st->tail_fh_ = 0;
+        mos_del(st->head_);
+        mos_del(st->tail_);
+
+        return false;
+    }
+
     st->open_ = true;
 
     return true;
@@ -126,7 +176,17 @@ void store_destroy(doc_store* st) {
     if (st == NULL || !st->open_) {
         return;
     }
-    store_tail_release(st);
+    // Closed before deleting: a file with an open handle is not a file MOS
+    // will remove, and a scratch file left on the card outlives the session
+    // that made it.
+    if (st->head_fh_ != 0) {
+        mos_fclose(st->head_fh_);
+        st->head_fh_ = 0;
+    }
+    if (st->tail_fh_ != 0) {
+        mos_fclose(st->tail_fh_);
+        st->tail_fh_ = 0;
+    }
     mos_del(st->head_);
     mos_del(st->tail_);
     st->open_ = false;
@@ -147,23 +207,6 @@ bool store_tail_has_room(const doc_store* st, int n) {
     return st != NULL && st->open_ && n >= 0 && st->tail_start_ >= n;
 }
 
-bool store_tail_hold(doc_store* st) {
-    if (st == NULL || !st->open_ || st->tail_fh_ != 0) {
-        return false;
-    }
-    st->tail_fh_ = open_rw(st->tail_);
-
-    return st->tail_fh_ != 0;
-}
-
-void store_tail_release(doc_store* st) {
-    if (st == NULL || st->tail_fh_ == 0) {
-        return;
-    }
-    mos_fclose(st->tail_fh_);
-    st->tail_fh_ = 0;
-}
-
 bool store_tail_append(doc_store* st, const char* buf, int n) {
     if (st == NULL || !st->open_ || buf == NULL || n < 0) {
         return false;
@@ -171,24 +214,12 @@ bool store_tail_append(doc_store* st, const char* buf, int n) {
     if (n == 0) {
         return true;
     }
-    // The held handle when a load is running, its own otherwise.
-    const bool held = st->tail_fh_ != 0;
-    const char fh = held ? st->tail_fh_ : open_rw(st->tail_);
-    if (fh == 0) {
+    if (!write_fh(st->tail_fh_, st->tail_end_, buf, n)) {
         return false;
     }
-    // Seeking past the end rather than writing the headroom is what makes the
-    // dead space free: nothing is transferred to create it.
-    const bool ok = mos_flseek(fh, (uint32_t) st->tail_end_) == 0
-                    && mos_fwrite(fh, (char*) buf, (unsigned) n) == (unsigned) n;
-    if (!held) {
-        mos_fclose(fh);
-    }
-    if (ok) {
-        st->tail_end_ += n;
-    }
+    st->tail_end_ += n;
 
-    return ok;
+    return true;
 }
 
 bool store_head_push(doc_store* st, const char* buf, int n) {
@@ -198,21 +229,15 @@ bool store_head_push(doc_store* st, const char* buf, int n) {
     if (n == 0) {
         return true;
     }
-    const char fh = open_rw(st->head_);
-    if (fh == 0) {
-        return false;
-    }
     // At head_len_, not at the end of the file. A pop leaves the bytes where
     // they are and stops counting them, so the file is often longer than the
     // document's head -- and the next push has to write over them.
-    const bool ok = mos_flseek(fh, (uint32_t) st->head_len_) == 0
-                    && mos_fwrite(fh, (char*) buf, (unsigned) n) == (unsigned) n;
-    mos_fclose(fh);
-    if (ok) {
-        st->head_len_ += n;
+    if (!write_fh(st->head_fh_, st->head_len_, buf, n)) {
+        return false;
     }
+    st->head_len_ += n;
 
-    return ok;
+    return true;
 }
 
 int store_head_pop(doc_store* st, char* buf, int n) {
@@ -225,16 +250,7 @@ int store_head_pop(doc_store* st, char* buf, int n) {
     if (n == 0) {
         return 0;
     }
-    const char fh = mos_fopen(st->head_, FA_READ);
-    if (fh == 0) {
-        return 0;
-    }
-    const int at = st->head_len_ - n;
-    int got = 0;
-    if (mos_flseek(fh, (uint32_t) at) == 0) {
-        got = (int) mos_fread(fh, buf, (unsigned) n);
-    }
-    mos_fclose(fh);
+    const int got = read_fh(st->head_fh_, st->head_len_ - n, buf, n);
 
     // Only what actually came back stops being the head's. A short read leaves
     // the rest where it is rather than losing it.
@@ -254,33 +270,8 @@ int store_tail_pop(doc_store* st, char* buf, int n) {
     if (n <= 0) {
         return 0;
     }
-    const char fh = mos_fopen(st->tail_, FA_READ);
-    if (fh == 0) {
-        return 0;
-    }
-    int got = 0;
-    if (mos_flseek(fh, (uint32_t) st->tail_start_) == 0) {
-        got = (int) mos_fread(fh, buf, (unsigned) n);
-    }
-    mos_fclose(fh);
+    const int got = read_fh(st->tail_fh_, st->tail_start_, buf, n);
     st->tail_start_ += got;
-
-    return got;
-}
-
-static int read_at(const char* path, int at, char* buf, int n) {
-    if (path == NULL || buf == NULL || n <= 0 || at < 0) {
-        return 0;
-    }
-    const char fh = mos_fopen(path, FA_READ);
-    if (fh == 0) {
-        return 0;
-    }
-    int got = 0;
-    if (mos_flseek(fh, (uint32_t) at) == 0) {
-        got = (int) mos_fread(fh, buf, (unsigned) n);
-    }
-    mos_fclose(fh);
 
     return got;
 }
@@ -293,7 +284,7 @@ int store_head_read(doc_store* st, int at, char* buf, int n) {
         n = st->head_len_ - at;     // never past what the document owns
     }
 
-    return read_at(st->head_, at, buf, n);
+    return read_fh(st->head_fh_, at, buf, n);
 }
 
 int store_tail_read(doc_store* st, int at, char* buf, int n) {
@@ -304,7 +295,7 @@ int store_tail_read(doc_store* st, int at, char* buf, int n) {
         n = st->tail_end_ - at;
     }
 
-    return read_at(st->tail_, at, buf, n);
+    return read_fh(st->tail_fh_, at, buf, n);
 }
 
 int store_tail_from(const doc_store* st) {
@@ -338,17 +329,11 @@ bool store_tail_push(doc_store* st, const char* buf, int n) {
     if (!store_tail_has_room(st, n)) {
         return false;   // the headroom is spent; TAIL has to be rebuilt
     }
-    const char fh = open_rw(st->tail_);
-    if (fh == 0) {
+    const int at = st->tail_start_ - n;
+    if (!write_fh(st->tail_fh_, at, buf, n)) {
         return false;
     }
-    const int at = st->tail_start_ - n;
-    const bool ok = mos_flseek(fh, (uint32_t) at) == 0
-                    && mos_fwrite(fh, (char*) buf, (unsigned) n) == (unsigned) n;
-    mos_fclose(fh);
-    if (ok) {
-        st->tail_start_ = at;
-    }
+    st->tail_start_ = at;
 
-    return ok;
+    return true;
 }

@@ -173,6 +173,7 @@ void        stub_file_set_objsize(uint32_t n);
 void        stub_file_reset_counts(void); /* the counters only, files kept */
 int         stub_file_opens(void);   /* mos_fopen calls */
 int         stub_file_opens_for_write(void); /* those asking to write */
+int         stub_file_reads(void);   /* mos_fread calls */
 int         stub_file_closes(void);  /* mos_fclose calls */
 void        stub_file_fail_open(int fail);  /* make the next mos_fopen return 0 */
 

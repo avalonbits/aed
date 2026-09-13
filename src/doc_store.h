@@ -82,11 +82,12 @@ typedef struct _doc_store {
 
     bool open_;
 
-    // A handle held across a run of appends, or 0. Every other operation opens
-    // and closes around itself, which costs two MOS calls and is nothing
-    // beside the read and write a slide does. A load is different: it appends
-    // a chunk at a time, so the opens are per 2 KiB of document rather than
-    // per slide, and on a 419 KiB file that was most of a twelve second open.
+    // Both files, held open from store_init to store_destroy. Opening cost
+    // 1.12 cs a time on MOS 3.0.2 and a slide does two of them, against under
+    // a millisecond for the 2 KiB it actually moves -- so the opens were not
+    // part of a slide's cost, they were nearly all of it. MOS gives out seven
+    // handles; two for the open document leaves four.
+    char head_fh_;
     char tail_fh_;
 } doc_store;
 
@@ -97,11 +98,6 @@ bool store_init(doc_store* st, const char* base);
 
 // Closes and removes both files. Safe on a store that never opened.
 void store_destroy(doc_store* st);
-
-// Holds TAIL open across a run of appends, and lets it go. Optional: appending
-// works either way, and this only saves the opening and closing.
-bool store_tail_hold(doc_store* st);
-void store_tail_release(doc_store* st);
 
 // Builds TAIL, front to back, as the document is read in at open. Appends after
 // the headroom and after whatever has already been appended.

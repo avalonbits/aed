@@ -381,6 +381,7 @@ static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
 static int  stub_write_opens;
+static int  stub_reads;
 static int  stub_short_read = -1;
 static uint32_t stub_objsize;
 static int  stub_objsize_set;
@@ -510,6 +511,7 @@ void stub_file_reset(void) {
     stub_closes = 0;
     stub_fail_open = 0;
     stub_write_opens = 0;
+    stub_reads = 0;
     stub_short_read = -1;
     stub_objsize = 0;
     stub_objsize_set = 0;
@@ -529,12 +531,14 @@ void stub_file_reset_counts(void) {
     stub_opens = 0;
     stub_closes = 0;
     stub_write_opens = 0;
+    stub_reads = 0;
 }
 
 const char* stub_file_bytes(void)  { return stub_buf; }
 int         stub_file_size(void)   { return stub_len; }
 int         stub_file_opens(void)  { return stub_opens; }
 int         stub_file_opens_for_write(void) { return stub_write_opens; }
+int         stub_file_reads(void)  { return stub_reads; }
 int         stub_file_closes(void) { return stub_closes; }
 void        stub_file_fail_open(int fail) { stub_fail_open = fail; }
 
@@ -686,6 +690,7 @@ uint8_t mos_flseek(uint8_t fh, uint32_t offset) {
 }
 
 unsigned mos_fread(uint8_t fh, char* buffer, unsigned numbytes) {
+    stub_reads++;
     stub_handle* h = stub_handle_of(fh);
     const char* src;
     int len;

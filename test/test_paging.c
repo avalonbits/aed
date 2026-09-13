@@ -1049,9 +1049,13 @@ int main(void) {
               txt != NULL && memcmp(txt, DOC, (size_t) part_want) == 0, 1);
 
         /* Stopping early is worth testing and is not free to test: the stream
-         * reads a chunk at a time and opens the file for each, so a range that
-         * ends near the top of the document must cost fewer opens than one
-         * that runs to the bottom. Without the early exit both read all of it.
+         * reads a chunk at a time, so a range that ends near the top of the
+         * document must cost fewer reads than one that runs to the bottom.
+         * Without the early exit both read all of it.
+         *
+         * Reads rather than opens, because the store holds its files open for
+         * the session now -- when it opened them per chunk the opens counted
+         * the same thing, and they no longer happen.
          *
          * The window has to be somewhere else for either range to stream at
          * all -- with it at the top, a range over the first few lines is
@@ -1062,12 +1066,12 @@ int main(void) {
         const tb_pos early = { 3, 0 };
         stub_file_reset_counts();
         tb_range_size(&tb, first, early);
-        const int short_opens = stub_file_opens();
+        const int short_reads = stub_file_reads();
         stub_file_reset_counts();
         tb_range_size(&tb, first, last);
-        const int long_opens = stub_file_opens();
+        const int long_reads = stub_file_reads();
         check("    a range near the top reads less than one to the bottom",
-              short_opens < long_opens, 1);
+              short_reads < long_reads, 1);
         check("      and still measures right", tb_range_size(&tb, first, early),
               2 * DOC_LEN);
         tb_seek(&tb, first);

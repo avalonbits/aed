@@ -1929,12 +1929,6 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         return false;
     }
 
-    // Held open for the whole read. Appending opens and closes the file
-    // otherwise, which is fine for a slide and is once per 2 KiB of document
-    // here -- 214 opens for a 419 KiB file, and a quarter of what its open
-    // cost.
-    const bool held = store_tail_hold(tb->store_);
-
     // Memory is filled from the read itself, not from the tail afterwards.
     // Writing the whole document out and reading the window straight back in
     // is a buffer's worth of each -- half a megabyte of pointless card traffic
@@ -1957,10 +1951,6 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         const int want = left < TB_CHUNK ? left : TB_CHUNK;
         const int got = (int) mos_fread(fh, in, (unsigned) want);
         if (got <= 0) {
-            if (held) {
-                store_tail_release(tb->store_);
-            }
-
             return false;
         }
         int n = carry;      // the converted bytes land after what was held over
@@ -2012,24 +2002,13 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
             }
         }
         if (at < n && !tb_page_fill(tb, out + at, n - at)) {
-            if (held) {
-                store_tail_release(tb->store_);
-            }
-
             return false;
         }
         left -= got;
     }
     // The last half line, if the read ended while memory was still filling.
     if (carry > 0 && !tb_page_fill(tb, out, carry)) {
-        if (held) {
-            store_tail_release(tb->store_);
-        }
-
         return false;
-    }
-    if (held) {
-        store_tail_release(tb->store_);   // priming reads it back
     }
 
     // Whatever memory did not take off the read, in case it has room left --
