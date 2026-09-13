@@ -609,6 +609,37 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- a document that is one line from end to end --- */
+    {
+        /* A slide moves whole lines, so a line longer than the window cannot be
+         * brought in at all. Such a file used to open: an empty-looking buffer
+         * holding a document that could not be seen or reached, which saved all
+         * of itself back and so looked as though it had worked.
+         *
+         * tb_open catches it before discarding what is on screen, by reading the
+         * front of the file. This is the other way in -- the command line -- so
+         * it is caught after the load instead, which is all that is needed
+         * because there is no document to lose yet. */
+        #define SOLID (40 * 1024)
+        static char solid[SOLID];
+        memset(solid, 'z', sizeof(solid));
+        stub_file_reset();
+        stub_file_set_content(solid, SOLID);
+        check("a document of one enormous line is refused",
+              tb_init(&tb, 8, "/solid.txt") == NULL, 1);
+        check("  leaving no scratch files behind",
+              stub_file_exists("/solid.txt.aedh")
+              + stub_file_exists("/solid.txt.aedt"), 0);
+
+        /* One break in it, at the end, is enough to make it a document. */
+        solid[SOLID - 2] = '\r';
+        solid[SOLID - 1] = '\n';
+        stub_file_reset();
+        stub_file_set_content(solid, SOLID);
+        check("and one whose single line is still too long for a chunk",
+              tb_init(&tb, 8, "/solid.txt") == NULL, 1);
+    }
+
     /* --- a file that fits, with more lines than the index holds --- */
     {
         /* The index has one slot per 32 bytes of buffer, so 8,192 of them at

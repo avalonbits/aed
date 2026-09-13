@@ -1993,6 +1993,8 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         const int want = left < TB_CHUNK ? left : TB_CHUNK;
         const int got = (int) mos_fread(fh, in, (unsigned) want);
         if (got <= 0) {
+            tb_drop_store(tb);
+
             return false;
         }
         int n = carry;      // the converted bytes land after what was held over
@@ -2044,12 +2046,16 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
             }
         }
         if (at < n && !tb_page_fill(tb, out + at, n - at)) {
+            tb_drop_store(tb);
+
             return false;
         }
         left -= got;
     }
     // The last half line, if the read ended while memory was still filling.
     if (carry > 0 && !tb_page_fill(tb, out, carry)) {
+        tb_drop_store(tb);
+
         return false;
     }
 
@@ -2059,6 +2065,22 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
     tb_page_prime(tb);
     if (was_empty && gave) {
         mem_close_empty(tb);
+    }
+
+    // Nothing in memory and a document in the store is not an open document,
+    // it is an unreachable one: a single line longer than memory can hold
+    // cannot be brought in, because a slide moves whole lines and there is no
+    // whole line to move. It looked like success -- a 200 KB file of one line
+    // opened as an empty buffer, said it had one line of no length, and saved
+    // all 204,800 bytes back. So the file is there, invisible, and one
+    // keystroke away from being edited at the wrong end.
+    //
+    // Refused instead, which is what it said before large files were openable
+    // at all. The limit is a line longer than the window, not a file.
+    if (cb_used(&tb->cb_) == 0 && store_tail_bytes(tb->store_) > 0) {
+        tb_drop_store(tb);
+
+        return false;
     }
 
     // A file whose breaks were all bare line feeds goes back out the same way,
@@ -2242,12 +2264,47 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     // 32 bits wide and the eZ80's int is 24, so a file over 8MB narrows to a
     // small or negative number and sails past a signed comparison -- taking the
     // document with it, since the clear happens next.
-    if (fil->obj.objsize > (uint32_t) cb_size(&tb->cb_)) {
+    if (fil->obj.objsize > (uint32_t) 0x7FFFFF) {
         mos_fclose(fh);
 
         return TB_TOO_LARGE;
     }
+    // Bigger than the buffer is no longer a refusal, here as in tb_load: it
+    // pages. CTRL+O used to be the one way into the editor that could not open
+    // a large file, so `aed big.asm` worked and opening the same file from
+    // inside did not.
+    //
+    // Measured against the whole buffer rather than what is free in it: the
+    // document on screen is about to be discarded, so its bytes are not in the
+    // way of the one replacing them.
+    const bool big = fil->obj.objsize > (uint32_t) cb_size(&tb->cb_);
     const int fsz = (int) fil->obj.objsize;
+
+    // A line longer than the window cannot be paged: a slide moves whole lines
+    // and there is no whole line to move. Checked here, on the front of the
+    // file, because everything below this discards the document on screen and
+    // a file that cannot be opened has to leave the editor as it was.
+    //
+    // One chunk of lookahead. A first line longer than that but still shorter
+    // than memory gets past this and is caught after the load instead, by
+    // which time the old document is gone -- but that is a line of thousands
+    // of characters, where this catches the file that is one line from end to
+    // end, which is what a minified anything looks like.
+    if (big) {
+        static char probe[TB_CHUNK];
+        const int want = fsz < TB_CHUNK ? fsz : TB_CHUNK;
+        const int got = (int) mos_fread(fh, probe, (unsigned) want);
+        if (got <= 0 || memchr(probe, '\n', (size_t) got) == NULL) {
+            mos_fclose(fh);
+
+            return TB_TOO_LARGE;
+        }
+        if (mos_flseek(fh, 0) != 0) {
+            mos_fclose(fh);
+
+            return TB_NO_FILE;
+        }
+    }
 
     tb_clear(tb);
     memcpy(tb->fname_, name, (size_t) sz + 1);
@@ -2259,27 +2316,38 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     const bool was = undo_hold(tb->undo_);
     bool ok = true;
     bool full = false;
-    if (fsz > 0) {
+    if (big) {
+        // Nothing to roll back to if this fails: the document it would have
+        // been rolled back to has already been cleared, because the store's
+        // scratch files are named after the one being opened and there is no
+        // way to find out whether they can be made without trying. A failure
+        // here leaves an empty buffer, which is what the caller reports.
+        ok = tb_load_paged(tb, fh, fsz);
+    } else if (fsz > 0) {
         ok = tb_read(fh, tb, fsz, &full);
     }
     undo_release(tb->undo_, was);
     if (full) {
-        // More lines than the index has slots, as in tb_load. Start again down
-        // the paged path, which only has to describe the window.
+        // It fits by size and its lines do not fit the index, as in tb_load.
+        // Start again down the paged path, which only has to describe the
+        // window.
         tb_clear(tb);
         if (mos_flseek(fh, 0) != 0) {
             mos_fclose(fh);
 
             return TB_NO_FILE;
         }
-        const bool paged = tb_load_paged(tb, fh, fsz);
+        ok = tb_load_paged(tb, fh, fsz);
         mos_fclose(fh);
 
-        return paged ? TB_OK : TB_TOO_LARGE;
+        return ok ? TB_OK : TB_TOO_LARGE;
     }
     mos_fclose(fh);
+    if (!ok) {
+        return big ? TB_TOO_LARGE : TB_NO_FILE;
+    }
 
-    return ok ? TB_OK : TB_NO_FILE;
+    return TB_OK;
 }
 
 // Writes the document with the CR of every CRLF dropped, so a file that came in
