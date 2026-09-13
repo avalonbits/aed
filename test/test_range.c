@@ -383,6 +383,82 @@ int main(void) {
     cb_destroy(&clip);
     tb_destroy(&tb);
 
+    /* --- every range of a long document, against the arithmetic --- */
+    {
+        /* tb_range_size used to walk down from `a` on a tb_copy, and on a
+         * document of any length it went wrong: 3,130 of these 6,000 ranges
+         * came back wrong, every one from line 2,194 on and by a little more
+         * each time. What it gave also depended on where the real cursor was
+         * sitting, because a copy shares the buffers and moving one moves the
+         * other's gap.
+         *
+         * It measures by streaming the document now, the same pass the walk
+         * uses, so the two cannot disagree about what a range is. This is the
+         * document it was found on, and the answers come from prefix sums --
+         * an oracle should not be a second implementation.
+         *
+         * Nothing here is paged: the buffer holds all of it. That is the point,
+         * because the streaming pass used to be reserved for documents that did
+         * not fit and this is the path an ordinary file takes. */
+        #define RS_LINES 6000
+        static char RS[RS_LINES * 9 + 1];
+        static int rs_pre[RS_LINES + 2];
+        int rsz = 0;
+        for (int i = 0; i < RS_LINES; i++) {
+            rs_pre[i + 1] = rsz;
+            for (int k = 0; k < i % 8; k++) {
+                RS[rsz++] = (char) ('a' + ((i + k) % 26));
+            }
+            RS[rsz++] = '\r';
+            RS[rsz++] = '\n';
+        }
+        rs_pre[RS_LINES + 1] = rsz;
+
+        stub_file_reset();
+        stub_file_set_content(RS, rsz);
+        text_buffer big;
+        check("a long document, all of it in memory",
+              tb_init(&big, 256, "/rs.txt") != NULL, 1);
+        check("  which is not paged", tb_used(&big), rsz);
+        check("  with every line counted", tb_ymax(&big), RS_LINES + 1);
+
+        int bad = 0;
+        int bad_got = 0;
+        int bad_want = 0;
+        for (int n = 2; n <= RS_LINES + 1; n++) {
+            const tb_pos a = { 1, 0 };
+            const tb_pos b = { n, 0 };
+            const int got = tb_range_size(&big, a, b);
+            if (got != rs_pre[n] && bad == 0) {
+                bad = n;
+                bad_got = got;
+                bad_want = rs_pre[n];
+            }
+        }
+        check("  all 6,000 ranges from the top measure what the bytes say", bad, 0);
+        check("    and what the first wrong one gave", bad_got,
+              bad == 0 ? bad_got : bad_want);
+
+        /* And the answer does not depend on where the cursor is, which it did:
+         * the same range measured from three different cursor positions. */
+        const tb_pos ra = { 100, 0 };
+        const tb_pos rb = { 3000, 0 };
+        const int want = rs_pre[3000] - rs_pre[100];
+        tb_pos put = { 1, 0 };
+        tb_seek(&big, put);
+        const int from_top = tb_range_size(&big, ra, rb);
+        put.line = 4000;
+        tb_seek(&big, put);
+        const int from_below = tb_range_size(&big, ra, rb);
+        put.line = RS_LINES;
+        tb_seek(&big, put);
+        const int from_end = tb_range_size(&big, ra, rb);
+        check("  a range measures the same from a cursor at the top", from_top, want);
+        check("    from one below it", from_below, want);
+        check("    and from one at the end", from_end, want);
+        tb_destroy(&big);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

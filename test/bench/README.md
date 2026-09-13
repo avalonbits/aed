@@ -55,7 +55,7 @@ lines. Per repeat, in centiseconds:
 | find-miss | 233 | 64 | **-73%** |
 | walk-lines | -- | 32 | |
 | seek-lines | -- | 82 | |
-| range-copy | -- | 31 | |
+| range-copy | -- | 31 -> 1.5 | |
 | type | 0.030 | 0.028 | |
 | undo | 0.013 | 0.012 | |
 
