@@ -51,7 +51,12 @@ import glob, os, re, sys
 # main holds the editor itself, which has to live somewhere and is reached
 # through a pointer everywhere else -- main's own two accesses are all it costs.
 # Anything else on this list needs a reason next to it.
-ALLOW = {'main': 800}
+#
+# 800 to 810 on 2026-09-14: char_buffer gained the two pointers that bound its
+# live region, and the editor holds three of those -- the document, the
+# clipboard and the input line. That is four bytes of frame for a slide that
+# moves a chunk instead of a quarter of a megabyte.
+ALLOW = {'main': 810}
 
 # Frame escapes left in the program. A budget rather than zero because main's
 # are real and there is no point pretending otherwise.
