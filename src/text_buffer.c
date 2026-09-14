@@ -37,6 +37,10 @@ static int eol_len(const text_buffer* tb) {
     return tb->elen_;
 }
 
+int tb_break_len(text_buffer* tb) {
+    return eol_len(tb);
+}
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
@@ -275,6 +279,11 @@ bool tb_del_merge(text_buffer* tb) {
     if (tb->walker_) {
         return false;       // a copy shares the original's buffers
     }
+    // No settling here, deliberately, though tb_bksp_merge does it at the
+    // other end. tb_range_del leans on this failing when the window runs out:
+    // it settles for itself and then starts its loop over, because after a
+    // slide the cursor that was at the end of the last line in memory is in
+    // the middle of one and wants tb_del rather than this.
     if (lb_last(&tb->lb_) || !tb_eol(tb)) {
        return false;
     }
@@ -309,6 +318,19 @@ bool tb_bksp_merge(text_buffer* tb) {
         return false;       // a copy shares the original's buffers
     }
     if (!tb_bol(tb) || tb_ypos(tb) == 1) {
+        return false;
+    }
+    // And there has to be a line above it *in memory* to join onto. The test
+    // above is about the document: on a paged one the cursor can sit on the
+    // first line the window holds with thousands more behind it in the head,
+    // and then this deleted bytes the index had no line to take them off,
+    // and lb_merge_prev refused and left the column at minus one.
+    //
+    // Settling first is what tb_up does in the same position, and brings the
+    // line above in when there is one to bring. tb_del_merge guards the other
+    // end with lb_last, which is the same question asked downwards.
+    if (lb_curr(&tb->lb_) == 0
+            && (!tb_settle(tb) || lb_curr(&tb->lb_) == 0)) {
         return false;
     }
     // Straight to cb_bksp rather than tb_bksp, because the line bookkeeping
@@ -1336,6 +1358,24 @@ bool tb_page_prime(text_buffer* tb) {
     return true;
 }
 
+/*
+ * Whether a slide can bring a chunk in without sending one out.
+ *
+ * A slide normally makes room by pushing the far end of the window into the
+ * store, so memory holds what it held and cannot grow until it bursts. That
+ * reasoning needs something to push. Deleting empties the window -- a range
+ * larger than memory empties it outright -- and then there is nothing to send
+ * and nothing that needs sending, because the room is already there.
+ *
+ * Asked as a question about room rather than about emptiness. Sliding down
+ * used to make the exception only for a buffer holding nothing at all, which
+ * left a window down to its last byte unable to move in either direction: the
+ * head kept the rest of the document and no slide would bring it back.
+ */
+static bool slide_room(text_buffer* tb) {
+    return cb_available(&tb->cb_) >= TB_CHUNK && lb_room(&tb->lb_) > 0;
+}
+
 bool tb_slide_down(text_buffer* tb) {
     if (!may_slide(tb)) {
         return false;
@@ -1348,19 +1388,14 @@ bool tb_slide_down(text_buffer* tb) {
     // cursor is on -- lb_front_fit only counts the ones before it.
     int out_lines = 0;
     const int out_bytes = lb_front_fit(&tb->lb_, TB_CHUNK, &out_lines);
-    if (out_lines == 0 && cb_used(&tb->cb_) > 0) {
+    if (out_lines == 0 && !slide_room(tb)) {
         return false;       // the first line is longer than a chunk
     }
-    // Nothing in front of the cursor and nothing behind it either: the window
-    // has been emptied. Deleting a range larger than memory does that, and
-    // used to leave the rest of the document sitting in the store with no way
-    // back -- a select-all cut on a 160,000 byte document copied all of it and
-    // left 2,516 lines behind.
-    //
-    // Bringing text in without sending any out is safe exactly here. What
-    // bounds memory is the room in it, and an empty buffer is all room; the
-    // cap below stands in for that everywhere else, where there is something
-    // to send and sending it is what makes the room.
+    // Nothing in front of the cursor to send, but room to bring text into all
+    // the same -- see slide_room. Deleting a range larger than memory empties
+    // the window outright, and that used to leave the rest of the document in
+    // the store with no way back: a select-all cut on a 160,000 byte document
+    // copied all of it and left 2,516 lines behind.
 
     // Sent before anything is brought in, so that the room it frees -- in the
     // index as much as in the buffer -- is there to bring into.
@@ -1456,32 +1491,46 @@ bool tb_slide_up(text_buffer* tb) {
 
     int out_lines = 0;
     const int out_bytes = lb_back_fit(&tb->lb_, TB_CHUNK, &out_lines);
-    if (out_lines == 0 || !store_tail_has_room(tb->store_, out_bytes)) {
-        if (had_trailing) {
-            lb_give_back(&tb->lb_, &trailing, 1);
-        }
-
-        return false;       // nothing to send, or the headroom is spent
-    }
-
-    static int out_lens[TB_CHUNK / 2 + 1];
-    static char out_buf[TB_CHUNK];
-    lb_take_back(&tb->lb_, out_lens, out_lines);
-    cb_take_back(&tb->cb_, out_buf, out_bytes);
-
-    if (!store_tail_push(tb->store_, out_buf, out_bytes)) {
-        cb_give_back(&tb->cb_, out_buf, out_bytes);
-        lb_give_back(&tb->lb_, out_lens, out_lines);
+    // Nothing behind the cursor to send is only a reason to stop when there is
+    // also no room to bring anything into -- the same exception sliding down
+    // makes, and for the same reason. Without it a window emptied by deleting
+    // could not move up, so the head held the rest of the document and the
+    // only way back to it was gone.
+    if (out_lines == 0 && !slide_room(tb)) {
         if (had_trailing) {
             lb_give_back(&tb->lb_, &trailing, 1);
         }
 
         return false;
     }
+    if (out_lines > 0 && !store_tail_has_room(tb->store_, out_bytes)) {
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return false;       // the headroom is spent
+    }
+
+    static int out_lens[TB_CHUNK / 2 + 1];
+    static char out_buf[TB_CHUNK];
+    if (out_lines > 0) {
+        lb_take_back(&tb->lb_, out_lens, out_lines);
+        cb_take_back(&tb->cb_, out_buf, out_bytes);
+
+        if (!store_tail_push(tb->store_, out_buf, out_bytes)) {
+            cb_give_back(&tb->cb_, out_buf, out_bytes);
+            lb_give_back(&tb->lb_, out_lens, out_lines);
+            if (had_trailing) {
+                lb_give_back(&tb->lb_, &trailing, 1);
+            }
+
+            return false;
+        }
+        tb->tail_lines_ += out_lines;
+    }
     if (had_trailing) {
         lb_give_back(&tb->lb_, &trailing, 1);
     }
-    tb->tail_lines_ += out_lines;
 
     // Bounded by what goes out, as sliding down is, plus one byte of lookbehind.
     //
@@ -1494,7 +1543,8 @@ bool tb_slide_up(text_buffer* tb) {
     // line and a run starting at one look identical. The extra byte is what
     // distinguishes them. Without it, a chunk that landed on a boundary lost
     // its first line every time -- stranded in the head for good.
-    const int got = store_head_pop(tb->store_, slide_bytes, out_bytes + 1);
+    const int got = store_head_pop(tb->store_, slide_bytes,
+                                   (out_bytes > 0 ? out_bytes : TB_CHUNK) + 1);
     if (got <= 0) {
         return true;
     }

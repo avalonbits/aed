@@ -16,6 +16,14 @@
  *      streaming it counts them again; a disagreement means the index and the
  *      text stopped describing the same document.
  *
+ *   3. The index's lengths add up to the bytes the buffer holds. This is the
+ *      one underneath the other two: when it goes, the next edit lands
+ *      somewhere other than where it was aimed.
+ *
+ * And at the end of each run, undoing everything has to give the document back
+ * exactly as it was loaded. That is what caught a redo leaving a byte behind
+ * on a document of bare line feeds -- see delete_span in undo.c.
+ *
  * Deterministic: the seeds are fixed, so a failure is reproducible and the
  * report says which op number and which seed. Streaming is what both checks
  * read the document through -- tb_range_walk goes through the store rather
@@ -31,6 +39,7 @@
 #include "editor.h"
 #include "cmd_ops.h"
 #include "text_buffer.h"
+#include "line_buffer.h"
 
 static int failures = 0;
 
@@ -51,7 +60,7 @@ static unsigned next_rand(void) {
 }
 
 /* The whole document, streamed. */
-static char doc_buf[8192];
+static char doc_buf[32768];
 static int doc_n = 0;
 static bool doc_sink(void* ctx, const char* buf, int sz) {
     (void) ctx;
@@ -101,6 +110,17 @@ static int line_disagrees(text_buffer* tb) {
     return 0;
 }
 
+/* 0 when the index's lengths add up to the bytes the buffer is holding. */
+static int sum_disagrees(text_buffer* tb) {
+    const int n = lb_lines(&tb->lb_);
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum += lb_at(&tb->lb_, i);
+    }
+
+    return sum == tb_used(tb) ? 0 : 1;
+}
+
 /* 0 when the index and the text agree on how many lines there are. */
 static int count_disagrees(text_buffer* tb) {
     int lines = 1;
@@ -114,7 +134,7 @@ static int count_disagrees(text_buffer* tb) {
 }
 
 static void one_op(editor* ed, unsigned r) {
-    switch (r % 22) {
+    switch (r % 26) {
     case 0:  cmd_down(ed); break;
     case 1:  cmd_up(ed); break;
     case 2:  cmd_left(ed); break;
@@ -140,11 +160,55 @@ static void one_op(editor* ed, unsigned r) {
     case 20: ed->selecting_ = true; cmd_down(ed); cmd_copy(ed);
              ed->selecting_ = false; break;
     case 21: cmd_paste(ed); break;
+    case 22: cmd_undo(ed); break;
+    case 23: cmd_redo(ed); break;
+    case 24: ed->selecting_ = true; cmd_right(ed); cmd_right(ed);
+             cmd_cut(ed); ed->selecting_ = false; break;
+    case 25: cmd_select_all(ed); cmd_copy(ed); ed->selecting_ = false; break;
     }
 }
 
 int main(void) {
     stub_discard_output();
+
+    /*
+     * A document bigger than the buffer it is opened into, so it pages.
+     *
+     * Built but not yet in the list below, and the reason is worth writing
+     * down.
+     *
+     * With it, this finds a state where the window is empty and *both* ends of
+     * the store hold a partial line -- the head ending mid-line, the tail
+     * beginning mid-line, and nothing in memory between them to join the two.
+     * A line of the document is then split across the store with no part of it
+     * anywhere the line index can see, and the counters stop agreeing:
+     *
+     *     used=0  head=5911 tail=2  head_lines=337 mem_lines=1 tail_lines=0
+     *     head ends [uvwxyzbcdefghijklmno]   tail begins [cd]   -- one line
+     *     tb_ymax says 338, streaming the document counts 337
+     *
+     * and tail_lines_ has been seen at -1, which no count of lines should be.
+     *
+     * It is a different thing from anything this file has caught so far, which
+     * were all one buffer disagreeing with the other about a line. These are
+     * the two counters for the part of the document that is *not* in memory,
+     * and they want their own pass. Put `paged` in DOCS when they have had
+     * one; a 6,000 byte document in a 4 KiB buffer reaches it inside 400
+     * commands on most seeds.
+     */
+    static char paged[6000];
+    {
+        int at = 0;
+        for (int i = 0; at < (int) sizeof(paged) - 40; i++) {
+            const int len = 1 + (i * 13) % 30;
+            for (int k = 0; k < len; k++) {
+                paged[at++] = (char) ('a' + ((i + k) % 26));
+            }
+            paged[at++] = '\r';
+            paged[at++] = '\n';
+        }
+        paged[at] = 0;
+    }
 
     static const char* DOCS[] = {
         "alpha\r\nbeta\r\ngamma\r\ndelta\r\nepsilon\r\n",
@@ -161,6 +225,8 @@ int main(void) {
 
     int line_bad = 0;
     int count_bad = 0;
+    int sum_bad = 0;
+    int undo_bad = 0;
     int ran = 0;
     for (int d = 0; d < ndocs; d++) {
         for (int s = 1; s <= seeds; s++) {
@@ -168,8 +234,9 @@ int main(void) {
             stub_file_reset();
             stub_file_set_content(DOCS[d], (int) strlen(DOCS[d]));
 
+            const int kb = DOCS[d] == paged ? 4 : 8;   /* paged is held out for now */
             static editor ed;
-            if (ed_init(&ed, 8, "/fuzz.txt") == NULL) {
+            if (ed_init(&ed, kb, "/fuzz.txt") == NULL) {
                 fprintf(stderr, "FAIL  editor would not start\n");
 
                 return 1;
@@ -179,6 +246,11 @@ int main(void) {
 
             for (int i = 0; i < ops; i++) {
                 one_op(&ed, next_rand());
+                // What ed_run does after every command and before anything is
+                // repainted. Without it the fuzz reaches states the editor
+                // never has -- a window emptied down to one byte with the rest
+                // of the document still in the store -- and reports them.
+                tb_settle(&ed.buf_);
                 ran++;
                 read_doc(&ed.buf_);     // once, for both checks below
                 if (line_disagrees(&ed.buf_) && line_bad == 0) {
@@ -199,6 +271,42 @@ int main(void) {
                             "      doc %d seed %d op %d: tb_ymax says %d\n",
                             d, s, i, tb_ymax(&ed.buf_));
                 }
+                if (sum_disagrees(&ed.buf_) && sum_bad == 0) {
+                    sum_bad = 1;
+                    fprintf(stderr,
+                            "      doc %d seed %d op %d: the buffer holds %d "
+                            "bytes and the index adds to something else\n",
+                            d, s, i, tb_used(&ed.buf_));
+                }
+            }
+
+            /* Undo the lot. Whatever the run did, the document has to come
+             * back the way it was loaded -- the log either describes the edits
+             * exactly or it does not. */
+            for (int u = 0; u < ops * 4; u++) {
+                cmd_undo(&ed);
+            }
+            read_doc(&ed.buf_);
+
+            /* Against the original as it streams, not as it was handed in: a
+             * range gives back CRLF whatever the document keeps, so a bare
+             * feed in the source is two bytes here. */
+            static char want[16384];
+            int want_n = 0;
+            for (const char* p = DOCS[d]; *p != 0; p++) {
+                if (*p == '\n' && (p == DOCS[d] || p[-1] != '\r')) {
+                    want[want_n++] = '\r';
+                }
+                want[want_n++] = *p;
+            }
+            if ((doc_n != want_n
+                 || memcmp(doc_buf, want, (size_t) want_n) != 0)
+                    && undo_bad == 0) {
+                undo_bad = 1;
+                fprintf(stderr,
+                        "      doc %d seed %d: undoing everything gave %d "
+                        "bytes where the document is %d\n",
+                        d, s, doc_n, want_n);
             }
             ed_destroy(&ed);
         }
@@ -206,6 +314,8 @@ int main(void) {
 
     check("commands leave the cursor on the line it claims", line_bad, 0);
     check("  and the index counting the lines the text has", count_bad, 0);
+    check("  and its lengths adding up to the bytes there are", sum_bad, 0);
+    check("  and undoing everything giving the document back", undo_bad, 0);
     check("  over every command, all the way through", ran, ndocs * seeds * ops);
 
     if (failures > 0) {
