@@ -8,9 +8,10 @@
 #   config/aed/unscii16.bin
 #   README.md                so the thing is readable without the repo
 #
-# Not config/aed.cfg: AED writes that itself on first run, from the colours the
-# machine is already using, and shipping one would overwrite whatever the user
-# had. The fonts are inert until a settings file names one.
+# There is deliberately no config/aed.cfg in here. AED writes that itself on
+# first run, from the colours the machine is already using, and shipping one
+# would overwrite whatever the user had. The fonts stay inert until a settings
+# file names one.
 #
 # Usage: ./mkrelease.sh [version]   (default: the version AED reports)
 set -euo pipefail
