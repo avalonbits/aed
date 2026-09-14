@@ -98,11 +98,20 @@ static void drop_oldest(undo* u) {
     if (u->top_ == 0) {
         return;
     }
+    // Whatever the record is. `record` appends a record's bytes to the ring
+    // for every op -- an insert's as much as a delete's -- so dropping one has
+    // to give that space back whatever it was.
+    //
+    // This used to reclaim only for UNDO_DELETE, which cost two things. The
+    // ring's head lagged behind the records still in it, so their offsets
+    // pointed at somebody else's bytes and undo put the wrong text back. And
+    // text_used_ only ever grew, so make_room below could be asked for room
+    // that dropping every record would not free -- and it dropped them until
+    // there were none left and then went round for ever. A paste large enough
+    // to fill the ring hung the editor.
     const undo_rec* r = rec_at(u, 0);
-    if (r->op == UNDO_DELETE) {
-        u->text_head_ = (u->text_head_ + r->len) % u->text_size_;
-        u->text_used_ -= r->len;
-    }
+    u->text_head_ = (u->text_head_ + r->len) % u->text_size_;
+    u->text_used_ -= r->len;
     u->head_ = (u->head_ + 1) % u->rec_size_;
     u->top_--;
     if (u->cur_ > u->top_) {
@@ -129,10 +138,18 @@ static bool make_room(undo* u, int text_len) {
     if (text_len > u->text_size_) {
         return false;   // will never fit, whatever is dropped
     }
-    while (u->text_size_ - u->text_used_ < text_len) {
+    // Bounded by there being something left to drop, as well as by the room
+    // reaching what was asked for. The two are the same question while the
+    // accounting is right, and if it ever is not, a log that refuses is a
+    // great deal better than an editor that stops responding -- `record`
+    // clears the log on a refusal and carries on.
+    while (u->text_size_ - u->text_used_ < text_len && u->top_ > 0) {
         drop_oldest(u);
     }
-    while (u->top_ >= u->rec_size_) {
+    if (u->text_size_ - u->text_used_ < text_len) {
+        return false;
+    }
+    while (u->top_ >= u->rec_size_ && u->top_ > 0) {
         drop_oldest(u);
     }
 

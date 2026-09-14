@@ -200,7 +200,13 @@ int main(void) {
         check("four records fit", undo_count(&u), 4);
         undo_insert(&u, p, "z", 1);
         check("the fifth drops the oldest", undo_count(&u), 4);
-        check("  and gives back its text", undo_text_used(&u), 6);
+        /* Four records holding 1 + 2 + 1 + 1 = 5 bytes; the fifth drops the
+         * first, so its byte comes back and the new one takes the space. This
+         * asked for 6 -- the ring keeping the dropped record's byte for ever.
+         * Only deletes were being reclaimed, though every record stores its
+         * text, so the ring's head fell behind the records still in it and
+         * their offsets pointed at somebody else's bytes. */
+        check("  and gives back its text", undo_text_used(&u), 5);
 
         /* An edit larger than the whole ring cannot be undone at all. Keeping
          * the records either side would leave a history that silently skips

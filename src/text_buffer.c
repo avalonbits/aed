@@ -1458,10 +1458,27 @@ bool tb_slide_down(text_buffer* tb) {
     // document, with no bytes, and a later slide ships it to the head as a line
     // that is not there -- which is a head counting one more line than it holds
     // and every line number past it wrong.
+    //
+    // Both branches are the same shape: grow the line that was carrying on,
+    // append the rest, and end with a fresh empty entry for whatever carries
+    // on now. They differ only in where that first line lives -- the cursor's
+    // own entry, or the one taken off above.
+    //
+    // The taken-off branch used to append the arrivals and then put the
+    // trailing entry back after them. That put the rest of a line in front of
+    // its own beginning and left the boundary between them in the middle of
+    // the text, so the index said a line ended where there was no break. The
+    // next slide then shipped that miscounted line to the head, which is how a
+    // head came to end part way through a line and to count one more line than
+    // it held.
     static const int fresh = 0;
     if (had_trailing) {
-        lb_give_back(&tb->lb_, slide_lens, in_lines);
+        trailing += slide_lens[0];
         lb_give_back(&tb->lb_, &trailing, 1);
+        if (in_lines > 1) {
+            lb_give_back(&tb->lb_, slide_lens + 1, in_lines - 1);
+        }
+        lb_give_back(&tb->lb_, &fresh, 1);
     } else {
         lb_cadd(&tb->lb_, slide_lens[0]);
         if (in_lines > 1) {
@@ -1489,8 +1506,21 @@ bool tb_slide_up(text_buffer* tb) {
     int trailing = 0;
     const bool had_trailing = lb_take_back(&tb->lb_, &trailing, 1) == 1;
 
+    // Only an empty trailing entry can be stepped over like that. Taking an
+    // index entry off does not take the bytes it describes with it, so when
+    // that last line has text on it -- the document's own last line, with
+    // nothing left in the tail -- cb_take_back below would take *its* bytes
+    // instead of the whole lines in front of them, and push a run with no
+    // break in it to the tail as though it were a line. tail_lines_ then
+    // counted a line the tail did not have.
+    //
+    // Nothing goes out in that case. Text can still come in, if there is room
+    // for it -- see slide_room.
     int out_lines = 0;
-    const int out_bytes = lb_back_fit(&tb->lb_, TB_CHUNK, &out_lines);
+    int out_bytes = 0;
+    if (trailing == 0) {
+        out_bytes = lb_back_fit(&tb->lb_, TB_CHUNK, &out_lines);
+    }
     // Nothing behind the cursor to send is only a reason to stop when there is
     // also no room to bring anything into -- the same exception sliding down
     // makes, and for the same reason. Without it a window emptied by deleting
