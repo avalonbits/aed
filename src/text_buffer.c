@@ -968,9 +968,9 @@ static int fit_lines(const int* lens, int lines, int room, int* bytes) {
 
 // Room kept back when memory is filled at open, so the first slide has
 // somewhere to put what it brings in, and so the margins have something to be
-// margins of. A share of the buffer rather than a fixed amount: two chunks is
-// right for the 248 KiB the editor runs with and larger than the whole of a
-// small one, and a reserve bigger than the buffer fills nothing at all.
+// margins of. A share of the buffer rather than a fixed amount, so it scales
+// with whatever the editor was given: a fixed reserve is most of a small
+// buffer and a rounding error in a large one.
 static int prime_spare(text_buffer* tb) {
     // A quarter of the buffer, and no cap. It used to be capped at two chunks,
     // which filled memory to within 4 KB of full -- and a buffer with no free
@@ -979,7 +979,7 @@ static int prime_spare(text_buffer* tb) {
     // of what walking a large document cost.
     //
     // A third of what this reserves ends up at the cursor, where it also has to
-    // outlast a paint walking the screen; see cb_gap_want.
+    // outlast a paint walking the screen; see cb_rebalance in char_buffer.c.
     //
     // The trade is fewer lines in memory, so a long scroll crosses more
     // chunks. Each one is cheap enough now that it is worth it.
