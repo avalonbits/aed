@@ -37,8 +37,89 @@ void cb_destroy(char_buffer* cb) {
 }
 
 void cb_clear(char_buffer* cb) {
+    cb->lo_ = cb->buf_;
     cb->curr_ = cb->buf_;
     cb->cend_ = cb->buf_ + cb->size_;
+    cb->hi_ = cb->buf_ + cb->size_;
+}
+
+/*
+ * Puts the free space where it is wanted: `lo` bytes below the live text, `gap`
+ * at the cursor, and whatever is left above. One move of the live bytes, which
+ * is what every slide used to cost, and it happens once per (free space at an
+ * end / chunk) of them.
+ *
+ * The gap is not only there for typing. A read-only copy walking the document
+ * moves the gap as it goes, and that stays safe for the cursor that owns the
+ * buffer only while the gap is wider than the distance the copy has travelled
+ * -- memmove(curr_, cend_, n) leaves behind the bytes it read, so the original
+ * still sees them, until the writes catch up with where its cend_ points.
+ *
+ * Before this file had ends, the gap held *all* the free space, so that was
+ * true by accident. Asking for a share of it on purpose is what keeps it true,
+ * and it is why the buffer has to keep a real part of itself free -- see
+ * prime_spare in text_buffer.c.
+ */
+static void cb_arrange(char_buffer* cb, int lo, int gap) {
+    const int psz = (int) (cb->curr_ - cb->lo_);
+    const int ssz = (int) (cb->hi_ - cb->cend_);
+    const int free_all = cb->size_ - psz - ssz;
+
+    if (gap < 0) {
+        gap = 0;
+    }
+    if (gap > free_all) {
+        gap = free_all;
+    }
+    if (lo < 0) {
+        lo = 0;
+    }
+    if (lo > free_all - gap) {
+        lo = free_all - gap;
+    }
+
+    char* const new_lo = cb->buf_ + lo;
+    char* const new_curr = new_lo + psz;
+    char* const new_cend = new_curr + gap;
+
+    // Whichever way the bytes travel, the move that goes first is the one whose
+    // destination the other move's source is sitting in.
+    if (new_lo > cb->lo_) {
+        memmove(new_cend, cb->cend_, (size_t) ssz);
+        memmove(new_lo, cb->lo_, (size_t) psz);
+    } else {
+        memmove(new_lo, cb->lo_, (size_t) psz);
+        memmove(new_cend, cb->cend_, (size_t) ssz);
+    }
+
+    cb->lo_ = new_lo;
+    cb->curr_ = new_curr;
+    cb->cend_ = new_cend;
+    cb->hi_ = new_cend + ssz;
+}
+
+// An even three-way split, for when nothing in particular is being asked for.
+static void cb_rebalance(char_buffer* cb) {
+    const int free_all = cb_available(cb);
+
+    cb_arrange(cb, free_all / 3, free_all / 3);
+}
+
+// Room for `n` at one end, and half of whatever is left over kept at the
+// cursor. Always enough when the caller has checked that n fits in the buffer
+// at all, which is what makes a give at either end succeed or fail on the one
+// question of whether the bytes fit.
+static void cb_room_front(char_buffer* cb, int n) {
+    const int spare = cb_available(cb) - n;
+
+    cb_arrange(cb, n + (spare > 0 ? spare / 2 : 0), spare > 0 ? spare / 2 : 0);
+}
+
+static void cb_room_back(char_buffer* cb, int n) {
+    const int spare = cb_available(cb) - n;
+    const int gap = spare > 0 ? spare / 2 : 0;
+
+    cb_arrange(cb, spare > 0 ? spare - gap : 0, gap);
 }
 
 int cb_size(char_buffer* cb) {
@@ -50,19 +131,23 @@ int cb_available(char_buffer* cb) {
 }
 
 int cb_used(char_buffer* cb) {
-    char* end = cb->buf_ + cb->size_;
-    int total = 0;
-
-    total += (cb->curr_ - cb->buf_);
-    total += (end - cb->cend_);
-    return total;
+    return (int) ((cb->curr_ - cb->lo_) + (cb->hi_ - cb->cend_));
 }
 
 // Returns false and writes nothing when the gap is closed, i.e. the buffer is
 // full. Callers must not advance their own bookkeeping on a refused write.
 bool cb_put(char_buffer* cb, char ch) {
     if (cb->curr_ >= cb->cend_) {
-        return false;
+        // The gap is shut. There may still be room at the ends -- a run of
+        // slides leaves it there -- so take a share of it back before saying
+        // the buffer is full.
+        if (cb_available(cb) == 0) {
+            return false;
+        }
+        cb_rebalance(cb);
+        if (cb->curr_ >= cb->cend_) {
+            return false;
+        }
     }
     *cb->curr_ = ch;
     cb->curr_++;
@@ -81,7 +166,16 @@ bool cb_write(char_buffer* cb, const char* buf, int sz) {
         return true;
     }
     if (sz > (int) (cb->cend_ - cb->curr_)) {
-        return false;
+        if (sz > cb_available(cb)) {
+            return false;
+        }
+        cb_rebalance(cb);           // see cb_put
+        if (sz > (int) (cb->cend_ - cb->curr_)) {
+            cb_arrange(cb, 0, sz);  // everything the gap can have
+            if (sz > (int) (cb->cend_ - cb->curr_)) {
+                return false;
+            }
+        }
     }
     memmove(cb->curr_, buf, (size_t) sz);
     cb->curr_ += sz;
@@ -93,19 +187,15 @@ int cb_take_front(char_buffer* cb, char* out, int n) {
     if (cb == NULL || out == NULL || n <= 0) {
         return 0;
     }
-    const int have = (int) (cb->curr_ - cb->buf_);
+    const int have = (int) (cb->curr_ - cb->lo_);
     if (n > have) {
         n = have;
     }
     if (n == 0) {
         return 0;
     }
-    memcpy(out, cb->buf_, (size_t) n);
-    // What is left of the prefix closes up against the start of the buffer. The
-    // space it gives up joins the gap, which is where the arriving bytes at the
-    // other end will come out of.
-    memmove(cb->buf_, cb->buf_ + n, (size_t) (have - n));
-    cb->curr_ -= n;
+    memcpy(out, cb->lo_, (size_t) n);
+    cb->lo_ += n;       // the space it gives up joins the free end below
 
     return n;
 }
@@ -117,13 +207,14 @@ bool cb_give_front(char_buffer* cb, const char* in, int n) {
     if (n == 0) {
         return true;
     }
-    if (n > (int) (cb->cend_ - cb->curr_)) {
-        return false;       // the gap cannot cover it
+    if (n > cb_available(cb)) {
+        return false;       // nowhere in the buffer for it
     }
-    const int have = (int) (cb->curr_ - cb->buf_);
-    memmove(cb->buf_ + n, cb->buf_, (size_t) have);
-    memcpy(cb->buf_, in, (size_t) n);
-    cb->curr_ += n;
+    if (n > (int) (cb->lo_ - cb->buf_)) {
+        cb_room_front(cb, n);
+    }
+    cb->lo_ -= n;
+    memcpy(cb->lo_, in, (size_t) n);
 
     return true;
 }
@@ -132,19 +223,15 @@ int cb_take_back(char_buffer* cb, char* out, int n) {
     if (cb == NULL || out == NULL || n <= 0) {
         return 0;
     }
-    char* const top = cb->buf_ + cb->size_;
-    const int have = (int) (top - cb->cend_);
+    const int have = (int) (cb->hi_ - cb->cend_);
     if (n > have) {
         n = have;
     }
     if (n == 0) {
         return 0;
     }
-    memcpy(out, top - n, (size_t) n);
-    // The rest of the suffix stays packed against the top of the buffer, so it
-    // moves up by what was taken off its end.
-    memmove(cb->cend_ + n, cb->cend_, (size_t) (have - n));
-    cb->cend_ += n;
+    cb->hi_ -= n;
+    memcpy(out, cb->hi_, (size_t) n);
 
     return n;
 }
@@ -156,21 +243,20 @@ bool cb_give_back(char_buffer* cb, const char* in, int n) {
     if (n == 0) {
         return true;
     }
-    if (n > (int) (cb->cend_ - cb->curr_)) {
-        return false;       // the gap cannot cover it
+    if (n > cb_available(cb)) {
+        return false;
     }
-    char* const top = cb->buf_ + cb->size_;
-    const int have = (int) (top - cb->cend_);
-    memmove(cb->cend_ - n, cb->cend_, (size_t) have);
-    cb->cend_ -= n;
-    memcpy(top - n, in, (size_t) n);
+    if (n > (int) (cb->buf_ + cb->size_ - cb->hi_)) {
+        cb_room_back(cb, n);
+    }
+    memcpy(cb->hi_, in, (size_t) n);
+    cb->hi_ += n;
 
     return true;
 }
 
 bool cb_del(char_buffer* cb) {
-    const char* end = cb->buf_+cb->size_;
-    const bool ok = cb->cend_ < end;
+    const bool ok = cb->cend_ < cb->hi_;
     if (ok) {
         cb->cend_++;
     }
@@ -178,7 +264,7 @@ bool cb_del(char_buffer* cb) {
 }
 
 bool cb_bksp(char_buffer* cb) {
-    const bool bk = cb->curr_ > cb->buf_;
+    const bool bk = cb->curr_ > cb->lo_;
     if (bk) {
         cb->curr_--;
     }
@@ -186,7 +272,7 @@ bool cb_bksp(char_buffer* cb) {
 }
 
 char cb_prev(char_buffer* cb, int cnt) {
-    const bool pr = cb->curr_ > cb->buf_;
+    const bool pr = cb->curr_ > cb->lo_;
     if (!pr) {
         return 0;
     }
@@ -201,7 +287,7 @@ char cb_prev(char_buffer* cb, int cnt) {
     // do not normally overlap, but a gap smaller than the move is legal and the
     // overlap is real when it happens.
     int n = cnt;
-    const int have = (int) (cb->curr_ - cb->buf_);
+    const int have = (int) (cb->curr_ - cb->lo_);
     if (n > have) {
         n = have;
     }
@@ -216,7 +302,7 @@ char cb_prev(char_buffer* cb, int cnt) {
     // still one past the last byte and reading it walks off the allocation.
     // tb_home does exactly that -- cb_prev(cb, 0) -- whenever HOME is pressed
     // with the cursor already at the start of the last line.
-    if (cb->cend_ < cb->buf_ + cb->size_) {
+    if (cb->cend_ < cb->hi_) {
         return *cb->cend_;
     }
 
@@ -224,7 +310,7 @@ char cb_prev(char_buffer* cb, int cnt) {
 }
 
 char cb_next(char_buffer* cb, int cnt) {
-    const char* end = cb->buf_+cb->size_;
+    const char* end = cb->hi_;
     if (cb->cend_ >= end) {
         return 0;
     }
@@ -248,24 +334,22 @@ char cb_next(char_buffer* cb, int cnt) {
 }
 
 char cb_peek(char_buffer* cb) {
-    const char* end = cb->buf_ + cb->size_;
-    if (cb->cend_ == end) {
+    if (cb->cend_ == cb->hi_) {
         return 0;
     }
     return *cb->cend_;
 }
 
 char* cb_prefix(char_buffer* cb, int* sz) {
-    *sz = (cb->curr_ - cb->buf_);
+    *sz = (int) (cb->curr_ - cb->lo_);
     if (*sz == 0) {
         return NULL;
     }
-    return  cb->buf_;
+    return cb->lo_;
 }
 
 char* cb_suffix(char_buffer* cb, int* sz) {
-    const char* end = cb->buf_ + cb->size_;
-    *sz = end - cb->cend_;
+    *sz = (int) (cb->hi_ - cb->cend_);
     if (*sz == 0) {
         return NULL;
     }

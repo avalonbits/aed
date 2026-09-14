@@ -132,9 +132,12 @@ flowchart LR
     end
 ```
 
-[`char_buffer`](../src/char_buffer.h#L25) holds the bytes with a gap at the
+[`char_buffer`](../src/char_buffer.h#L42) holds the bytes with a gap at the
 cursor, so typing is a write into the gap rather than a move of everything after
-it. [`line_buffer`](../src/line_buffer.h#L25) is the same shape holding the
+it. It also keeps free space at *both ends*, which is what makes the four ends
+below cheap: without it, taking a chunk off one end closed that whole side up
+against the buffer, and every 2 KB slide moved a quarter of a megabyte.
+[`line_buffer`](../src/line_buffer.h#L25) is the same shape holding the
 *length of each line*, gap at the cursor's line, so a line number is a count of
 entries rather than a scan for line feeds.
 
@@ -143,11 +146,19 @@ last line of the document, which has no break after it.
 
 **Every break in the document is a CRLF**, whatever the file had. The loader
 converts on the way in, everything else goes through `tb_newline`, and
-[`tb_save`](../src/text_buffer.c#L2654) converts back on the way out when the
+[`tb_save`](../src/text_buffer.c#L2694) converts back on the way out when the
 file arrived with bare line feeds. Several things depend on that invariant.
 
 Both buffers have the same four ends — take and give, at the front and at the
-back — which is what section 4 slides a window with.
+back — which is what section 4 slides a window with. On the character buffer
+they are pointer moves, and the free space they eat at one end and make at the
+other is evened up when a side runs dry: one move of the live bytes, in place of
+one per slide.
+
+A quarter of the buffer is kept free for that, which is also what keeps the gap
+wide enough for a walker. A copy walking the document moves the gap as it goes,
+and that stays safe for the cursor that owns the buffer only while the gap is
+wider than the distance the copy has travelled.
 
 ### 3a. Line numbers
 
@@ -182,13 +193,13 @@ find anything, only hand back what it was given last.
 
 The window moves in [`TB_CHUNK`](../src/text_buffer.h#L59) of 2 KB, whole lines
 only, driven by [`TB_MARGIN`](../src/text_buffer.h#L60) of 16 KB either side.
-[`tb_settle()`](../src/text_buffer.c#L894) notices a margin has been crossed and
-slides until it has not: [`tb_slide_down()`](../src/text_buffer.c#L1054) sends
+[`tb_settle()`](../src/text_buffer.c#L905) notices a margin has been crossed and
+slides until it has not: [`tb_slide_down()`](../src/text_buffer.c#L1074) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer.c#L1157) is the exact reverse.
+[`tb_slide_up()`](../src/text_buffer.c#L1177) is the exact reverse.
 
 Everything that moves the cursor settles —
-[`tb_seek`](../src/text_buffer.c#L1282), and `tb_up` and `tb_down` too, so the
+[`tb_seek`](../src/text_buffer.c#L1302), and `tb_up` and `tb_down` too, so the
 arrow keys and page up and down reach the whole document rather than the window.
 A read-only copy is the exception, for the reason section 5 gives.
 
@@ -206,9 +217,9 @@ than a millisecond for the 2 KB it actually moves.
 
 Its longest line, rather than its size: a slide moves whole lines, so a line
 longer than the window can never be brought in.
-[`tb_open`](../src/text_buffer.c#L2277) reads the front of the file and refuses
+[`tb_open`](../src/text_buffer.c#L2317) reads the front of the file and refuses
 before discarding what is on screen, and
-[`tb_load`](../src/text_buffer.c#L2148) has nothing to lose so it catches the
+[`tb_load`](../src/text_buffer.c#L2188) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
 unreachable document rather than an open one.
 
@@ -225,7 +236,7 @@ the window under the cursor that owns it would turn a repaint into a scroll.
 Painting uses walkers, and painting only ever wants what is on screen.
 
 Everything else that has to see text outside the window **streams the document**.
-[`doc_stream()`](../src/text_buffer.c#L2548) walks HEAD, then memory, then what
+[`doc_stream()`](../src/text_buffer.c#L2588) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 
@@ -234,9 +245,9 @@ Four callers:
 | | |
 |---|---|
 | saving | a converting sink puts the line endings back |
-| [`tb_find`](../src/text_buffer.c#L581) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
-| [`tb_range_size`](../src/text_buffer.c#L1551) | counts the bytes in a range |
-| [`tb_range_walk`](../src/text_buffer.c#L1580) | feeds them somewhere |
+| [`tb_find`](../src/text_buffer.c#L589) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
+| [`tb_range_size`](../src/text_buffer.c#L1571) | counts the bytes in a range |
+| [`tb_range_walk`](../src/text_buffer.c#L1600) | feeds them somewhere |
 
 The last two share one pass, which is what stops them disagreeing about what a
 range is — they once did, and a select-all copy returned 37% of a document with

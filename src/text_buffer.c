@@ -351,6 +351,31 @@ static char fold(char ch) {
     return (ch >= 'A' && ch <= 'Z') ? (char) (ch + ('a' - 'A')) : ch;
 }
 
+
+/*
+ * Finding in a paged document.
+ *
+ * The in-memory search walks a line at a time on a tb_copy, and a walker cannot
+ * slide, so it searches the window and stops. On a 160,000 byte document paged
+ * into 64 KiB, a match planted a hundred lines from the end reported "not
+ * found" -- and reported it the same way a real absence does.
+ *
+ * So a paged document is searched by streaming it, once, from the beginning.
+ * One pass answers all four questions a search can ask, because forwards and
+ * backwards differ only in which match is kept:
+ *
+ *   forward  -- the first match at or after `from`, else the first anywhere
+ *   backward -- the last match at or before `from`, else the last anywhere
+ *
+ * which is what "wrapping once around the document" means. Collecting all four
+ * costs nothing over collecting one, and saves the second pass a wrap would
+ * otherwise need.
+ *
+ * Knuth-Morris-Pratt rather than the in-memory scan, because there is no line
+ * to back up over: the bytes arrive once, in order, and a partial match has to
+ * survive between chunks. The failure table is built from the needle each time
+ * -- 64 bytes of work against a document's worth of reading.
+ */
 static bool match_at(const char* hay, const char* needle, int nsz) {
     for (int i = 0; i < nsz; i++) {
         if (fold(hay[i]) != fold(needle[i])) {
@@ -400,32 +425,16 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
     return -1;
 }
 
-/*
- * Finding in a paged document.
- *
- * The in-memory search walks a line at a time on a tb_copy, and a walker cannot
- * slide, so it searches the window and stops. On a 160,000 byte document paged
- * into 64 KiB, a match planted a hundred lines from the end reported "not
- * found" -- and reported it the same way a real absence does.
- *
- * So a paged document is searched by streaming it, once, from the beginning.
- * One pass answers all four questions a search can ask, because forwards and
- * backwards differ only in which match is kept:
- *
- *   forward  -- the first match at or after `from`, else the first anywhere
- *   backward -- the last match at or before `from`, else the last anywhere
- *
- * which is what "wrapping once around the document" means. Collecting all four
- * costs nothing over collecting one, and saves the second pass a wrap would
- * otherwise need.
- *
- * Knuth-Morris-Pratt rather than the in-memory scan, because there is no line
- * to back up over: the bytes arrive once, in order, and a partial match has to
- * survive between chunks. The failure table is built from the needle each time
- * -- 64 bytes of work against a document's worth of reading.
- */
 #define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
 
+// One of these, at file scope. On this machine a field of a file-scope object
+// is addressed absolutely -- the address is a constant in the instruction --
+// where the same field through a pointer parameter is a load of the pointer out
+// of the frame and then a displacement. A search touches these fields once per
+// byte of the document, so that difference is the search.
+//
+// Which makes a search non-reentrant, and it always was: the needle is one
+// buffer on the editor and nothing searches inside a search.
 typedef struct _find_pass {
     const char* needle;
     int nsz;
@@ -447,93 +456,92 @@ typedef struct _find_pass {
     bool has_last;
 } find_pass;
 
-static void fp_build(find_pass* fp) {
-    fp->fail[0] = 0;
-    for (int i = 1; i < fp->nsz; i++) {
-        int k = fp->fail[i - 1];
-        while (k > 0 && fold(fp->needle[i]) != fold(fp->needle[k])) {
-            k = fp->fail[k - 1];
+static find_pass fp;
+
+static void fp_build(void) {
+    fp.fail[0] = 0;
+    for (int i = 1; i < fp.nsz; i++) {
+        int k = fp.fail[i - 1];
+        while (k > 0 && fold(fp.needle[i]) != fold(fp.needle[k])) {
+            k = fp.fail[k - 1];
         }
-        if (fold(fp->needle[i]) == fold(fp->needle[k])) {
+        if (fold(fp.needle[i]) == fold(fp.needle[k])) {
             k++;
         }
-        fp->fail[i] = k;
+        fp.fail[i] = k;
     }
 }
 
-static void fp_hit(find_pass* fp, tb_pos p) {
-    if (!fp->has_first) {
-        fp->first = p;
-        fp->has_first = true;
+static void fp_hit(tb_pos p) {
+    if (!fp.has_first) {
+        fp.first = p;
+        fp.has_first = true;
     }
-    fp->last = p;
-    fp->has_last = true;
+    fp.last = p;
+    fp.has_last = true;
 
     // At or after `from`, for a forward search. Only the first one counts.
-    if (!fp->has_at_from
-            && (p.line > fp->from.line
-                || (p.line == fp->from.line && p.x >= fp->from.x))) {
-        fp->at_from = p;
-        fp->has_at_from = true;
+    if (!fp.has_at_from
+            && (p.line > fp.from.line
+                || (p.line == fp.from.line && p.x >= fp.from.x))) {
+        fp.at_from = p;
+        fp.has_at_from = true;
     }
     // At or before it, for a backward one. The last such is the answer, so
     // this keeps overwriting until the positions run past `from`.
-    if (p.line < fp->from.line
-            || (p.line == fp->from.line && p.x <= fp->from.x)) {
-        fp->to_from = p;
-        fp->has_to_from = true;
+    if (p.line < fp.from.line
+            || (p.line == fp.from.line && p.x <= fp.from.x)) {
+        fp.to_from = p;
+        fp.has_to_from = true;
     }
 }
 
-static void fp_char(find_pass* fp, char c) {
-    const char f = fold(c);
-    while (fp->m > 0 && f != fold(fp->needle[fp->m])) {
-        fp->m = fp->fail[fp->m - 1];
-    }
-    if (f == fold(fp->needle[fp->m])) {
-        fp->m++;
-    }
-    if (fp->m == fp->nsz) {
-        const tb_pos p = { fp->line, fp->x - fp->nsz + 1 };
-        fp_hit(fp, p);
-        fp->m = fp->fail[fp->m - 1];
-    }
-    fp->x++;
-}
 
 static bool find_sink(void* ctx, const char* buf, int sz) {
-    find_pass* fp = (find_pass*) ctx;
+    (void) ctx;     // fp is at file scope; see the note on find_pass
 
     for (int i = 0; i < sz; i++) {
-        const char c = buf[i];
-        if (c == '\r' && !fp->held_cr) {
-            fp->held_cr = true;
+        char c = buf[i];
+        if (c == '\r' && !fp.held_cr) {
+            fp.held_cr = true;
             continue;
         }
         if (c == '\n') {
             // A match never spans a break, so nothing carries across one.
-            fp->held_cr = false;
-            fp->m = 0;
-            fp->line++;
-            fp->x = 0;
+            fp.held_cr = false;
+            fp.m = 0;
+            fp.line++;
+            fp.x = 0;
             continue;
         }
-        if (fp->held_cr) {
-            fp->held_cr = false;    // a stray carriage return is a character
-            fp_char(fp, '\r');
+        if (fp.held_cr) {
+            fp.held_cr = false;     // a stray carriage return is a character
+            i--;                    // and this byte is dealt with next time
+            c = '\r';
         }
-        fp_char(fp, c);
+
+        // The Knuth-Morris-Pratt step, written here rather than called. It runs
+        // once per byte of the document, and a call, a frame and a return on
+        // top of it doubled the cost of a search.
+        const char f = fold(c);
+        while (fp.m > 0 && f != fold(fp.needle[fp.m])) {
+            fp.m = fp.fail[fp.m - 1];
+        }
+        if (f == fold(fp.needle[fp.m])) {
+            fp.m++;
+        }
+        if (fp.m == fp.nsz) {
+            const tb_pos p = { fp.line, fp.x - fp.nsz + 1 };
+            fp_hit(p);
+            fp.m = fp.fail[fp.m - 1];
+        }
+        fp.x++;
     }
 
     return true;
 }
-
-static bool find_paged(text_buffer* tb, const char* needle, int nsz,
+static bool find_stream(text_buffer* tb, const char* needle, int nsz,
                        tb_pos from, bool forward, tb_pos* at) {
-    if (nsz > TB_FIND_MAX) {
-        return false;
-    }
-    static find_pass fp;    // 64 ints of failure table: too big for a frame
     fp.needle = needle;
     fp.nsz = nsz;
     fp.from = from;
@@ -545,9 +553,9 @@ static bool find_paged(text_buffer* tb, const char* needle, int nsz,
     fp.has_first = false;
     fp.has_to_from = false;
     fp.has_last = false;
-    fp_build(&fp);
+    fp_build();
 
-    if (!doc_stream(tb, find_sink, &fp)) {
+    if (!doc_stream(tb, find_sink, NULL)) {
         return false;
     }
     if (forward) {
@@ -580,13 +588,17 @@ static bool find_paged(text_buffer* tb, const char* needle, int nsz,
 
 bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
              bool forward, tb_pos* at) {
-    if (needle == NULL || nsz <= 0 || at == NULL) {
+    if (needle == NULL || nsz <= 0 || at == NULL || nsz > TB_FIND_MAX) {
         return false;
     }
+
     if (tb->paged_) {
-        // Always, not only when `from` is outside memory: a match can be
-        // anywhere in the document wherever the search starts from.
-        return find_paged(tb, needle, nsz, from, forward, at);
+        // Streaming is the only way past the window, and it walks every byte
+        // through the line and column bookkeeping to do it. Measured against
+        // the scan below on a document that fits: 338 centiseconds to 264 on
+        // a full search that misses. So the scan stays for the documents it
+        // can answer, which is most of them.
+        return find_stream(tb, needle, nsz, from, forward, at);
     }
 
     // On a copy, which is safe because moving a gap duplicates rather than
@@ -641,7 +653,6 @@ bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
 
     return false;
 }
-
 bool tb_is_word_stop(char ch) {
     return isstop(ch);
 }
@@ -951,9 +962,18 @@ static int fit_lines(const int* lens, int lines, int room, int* bytes) {
 // right for the 248 KiB the editor runs with and larger than the whole of a
 // small one, and a reserve bigger than the buffer fills nothing at all.
 static int prime_spare(text_buffer* tb) {
-    int spare = cb_size(&tb->cb_) / 4;
-
-    return spare > TB_CHUNK * 2 ? TB_CHUNK * 2 : spare;
+    // A quarter of the buffer, and no cap. It used to be capped at two chunks,
+    // which filled memory to within 4 KB of full -- and a buffer with no free
+    // space in it has nowhere to put the slack the four ends need, so every
+    // slide closed a quarter of a megabyte up against the wall. That was 71%
+    // of what walking a large document cost.
+    //
+    // A third of what this reserves ends up at the cursor, where it also has to
+    // outlast a paint walking the screen; see cb_gap_want.
+    //
+    // The trade is fewer lines in memory, so a long scroll crosses more
+    // chunks. Each one is cheap enough now that it is worth it.
+    return cb_size(&tb->cb_) / 4;
 }
 
 // Puts the front of a run of bytes into memory, whole lines only, and says how
@@ -1755,15 +1775,14 @@ bool tb_insert(text_buffer* tb, const char* buf, int sz) {
 }
 
 void tb_copy(text_buffer* dst, text_buffer* src) {
-    dst->lb_.buf_ = src->lb_.buf_;
-    dst->lb_.curr_ = src->lb_.curr_;
-    dst->lb_.cend_ = src->lb_.cend_;
-    dst->lb_.size_ = src->lb_.size_;
-
-    dst->cb_.buf_ = src->cb_.buf_;
-    dst->cb_.curr_ = src->cb_.curr_;
-    dst->cb_.cend_ = src->cb_.cend_;
-    dst->cb_.size_ = src->cb_.size_;
+    // Whole structs rather than field by field. A copy that names its fields
+    // goes stale the moment either buffer gains one, and quietly: the walker
+    // carries on with whatever was on the stack in the field nobody copied.
+    //
+    // They alias the original's memory either way; what makes a copy a walker
+    // is the flag below, and every mutator refuses on it.
+    dst->lb_ = src->lb_;
+    dst->cb_ = src->cb_;
 
     dst->x_ = src->x_;
     dst->walker_ = true;
@@ -2043,22 +2062,43 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
 
             return false;
         }
+        // The run up to the next line feed, found and moved whole, the same way
+        // tb_read does it: memchr is a CPIR on this machine and memcpy an LDIR,
+        // block instructions that manage a byte in a cycle or two, where
+        // testing and copying a byte at a time in C is a dozen instructions
+        // each. Only the line feed itself is handled singly, and there is one
+        // of those per line rather than per byte.
+        //
+        // This was half of what opening a 419 KB file cost.
         int n = carry;      // the converted bytes land after what was held over
         carry = 0;
-        for (int i = 0; i < got; i++) {
-            const char c = in[i];
-            if (c == '\n') {
-                if (pending_cr) {
-                    crlf++;         // it already had its carriage return
-                } else {
-                    out[n++] = '\r';
-                    added++;
-                }
-                pending_cr = false;
-            } else {
-                pending_cr = (c == '\r');
+        const char* p = in;
+        int left_in = got;
+        while (left_in > 0) {
+            const char* nl = (const char*) memchr(p, '\n', (size_t) left_in);
+            const int run = nl != NULL ? (int) (nl - p) : left_in;
+            if (run > 0) {
+                memcpy(out + n, p, (size_t) run);
+                n += run;
+                p += run;
+                left_in -= run;
+                // Only the last byte of the run can leave one pending, and a
+                // run of none leaves whatever the chunk before did.
+                pending_cr = out[n - 1] == '\r';
             }
-            out[n++] = c;
+            if (nl == NULL) {
+                break;
+            }
+            if (pending_cr) {
+                crlf++;             // it already had its carriage return
+            } else {
+                out[n++] = '\r';
+                added++;
+            }
+            out[n++] = '\n';
+            pending_cr = false;
+            p++;
+            left_in--;
         }
         int at = 0;
         if (filling) {

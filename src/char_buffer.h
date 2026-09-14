@@ -22,11 +22,30 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/*
+ * A gap buffer with free space at *both* ends:
+ *
+ *   [ free ][ prefix ][ gap ][ suffix ][ free ]
+ *   ^buf_   ^lo_      ^curr_ ^cend_    ^hi_    ^buf_+size_
+ *
+ * The gap at the cursor makes typing cheap. The free space outside lo_ and hi_
+ * makes the four ends cheap, and those are what a window sliding over a large
+ * document uses. Without it, taking a chunk off one end closed that whole side
+ * up against the buffer, so every 2 KB slide moved a quarter of a megabyte --
+ * measured as 71% of what walking a 419 KB document cost, against 4% for every
+ * read and write to the card.
+ *
+ * Sliding one way eats the free space at one end and makes it at the other, so
+ * the two are evened up when a side runs dry. That costs one move of the live
+ * bytes, which is what every slide used to cost.
+ */
 typedef struct _char_buffer  {
     int size_;
-    char* buf_;
-    char* curr_;
-    char* cend_;
+    char* buf_;     // the allocation
+    char* lo_;      // where the live bytes start
+    char* curr_;    // end of the prefix: the cursor
+    char* cend_;    // start of the suffix
+    char* hi_;      // where the live bytes end
 } char_buffer;
 
 // Setup ops.

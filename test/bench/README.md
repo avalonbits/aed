@@ -49,9 +49,9 @@ lines. Per repeat, in centiseconds:
 | case | `9f53dc9` | now | change |
 |---|---:|---:|---:|
 | load | 287 | 30 | **-89%** |
-| load-paged | -- | 574 | |
-| slide-both-ways | -- | 1510 | |
-| stream-whole | -- | 667 | |
+| load-paged | -- | 295 | |
+| slide-both-ways | -- | 1131 | |
+| stream-whole | -- | 507 | |
 | find-miss | 233 | 64 | **-73%** |
 | walk-lines | -- | 32 | |
 | seek-lines | -- | 82 | |
@@ -65,8 +65,13 @@ with `mkcorpus.sh big.txt 14000`, which is 452,270 bytes over 14,001 lines.
 
 Their first readings, taken 2026-09-12 before the line-feed scans became memchr
 and the streaming pass got a fast path for a chunk lying wholly inside the
-range, were 709, 1667 and 1163 -- so -19%, -9% and -43%. The card is free here,
-so all of that is AED's own work.
+range, were 709, 1667 and 1163. Two changes on 2026-09-14 took them to 295, 1131 and
+507: free space at both ends of the character buffer, and converting line
+endings a run at a time. The card is free here, so all of it is AED's own work.
+
+On slow.asm, 419 KB on the emulator's MOS 3.0.2, that is an open of 12.4 s at
+the start of the paging work and 2.5 s now, and a walk to the far end of 9.98 s
+and 2.3 s.
 
 seek-lines, walk-lines and range-copy have no first reading because the first
 two cases were measuring nothing and the third did not exist: `tb_pos` is
