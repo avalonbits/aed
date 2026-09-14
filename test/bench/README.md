@@ -49,9 +49,9 @@ lines. Per repeat, in centiseconds:
 | case | `9f53dc9` | now | change |
 |---|---:|---:|---:|
 | load | 287 | 30 | **-89%** |
-| load-paged | -- | 574 | |
-| slide-both-ways | -- | 1510 | |
-| stream-whole | -- | 667 | |
+| load-paged | -- | 494 | |
+| slide-both-ways | -- | 1130 | |
+| stream-whole | -- | 507 | |
 | find-miss | 233 | 64 | **-73%** |
 | walk-lines | -- | 32 | |
 | seek-lines | -- | 82 | |
@@ -65,8 +65,9 @@ with `mkcorpus.sh big.txt 14000`, which is 452,270 bytes over 14,001 lines.
 
 Their first readings, taken 2026-09-12 before the line-feed scans became memchr
 and the streaming pass got a fast path for a chunk lying wholly inside the
-range, were 709, 1667 and 1163 -- so -19%, -9% and -43%. The card is free here,
-so all of that is AED's own work.
+range, were 709, 1667 and 1163. Giving the character buffer free space at both ends
+took another 22%, 30% and 24% off those on 2026-09-14. The card is free here, so
+all of it is AED's own work.
 
 seek-lines, walk-lines and range-copy have no first reading because the first
 two cases were measuring nothing and the third did not exist: `tb_pos` is

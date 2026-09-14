@@ -962,9 +962,18 @@ static int fit_lines(const int* lens, int lines, int room, int* bytes) {
 // right for the 248 KiB the editor runs with and larger than the whole of a
 // small one, and a reserve bigger than the buffer fills nothing at all.
 static int prime_spare(text_buffer* tb) {
-    int spare = cb_size(&tb->cb_) / 4;
-
-    return spare > TB_CHUNK * 2 ? TB_CHUNK * 2 : spare;
+    // A quarter of the buffer, and no cap. It used to be capped at two chunks,
+    // which filled memory to within 4 KB of full -- and a buffer with no free
+    // space in it has nowhere to put the slack the four ends need, so every
+    // slide closed a quarter of a megabyte up against the wall. That was 71%
+    // of what walking a large document cost.
+    //
+    // A third of what this reserves ends up at the cursor, where it also has to
+    // outlast a paint walking the screen; see cb_gap_want.
+    //
+    // The trade is fewer lines in memory, so a long scroll crosses more
+    // chunks. Each one is cheap enough now that it is worth it.
+    return cb_size(&tb->cb_) / 4;
 }
 
 // Puts the front of a run of bytes into memory, whole lines only, and says how
