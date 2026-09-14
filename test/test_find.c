@@ -420,6 +420,72 @@ int main(void) {
         ed_destroy(&ped);
     }
 
+    /* --- the same line, arriving in two pieces --- */
+    {
+        /* A walker moves the gap to the start of every line it reads, so no
+         * search meets a split line yet. Once one stops moving it -- see
+         * .internal/docs/WALKER.md -- every search that passes the cursor's
+         * own line does, and a needle lying across the cut is the case that a
+         * scan of each piece on its own silently misses.
+         *
+         * Held to the contiguous scan: every cut of the line, every starting
+         * position, both directions. Whatever the whole line answers, the two
+         * pieces have to answer too. */
+        static const char LINE[] = "abcabcXYZabcXY";
+        const int len = (int) sizeof(LINE) - 1;
+        static const char* NEEDLES[] = { "a", "XY", "XYZ", "abcXYZ", "cab",
+                                         "Q", "abcabcXYZabcXY", "Y" };
+
+        int wrong = 0;
+        int splits = 0;
+        for (int n = 0; n < (int) (sizeof(NEEDLES) / sizeof(NEEDLES[0]))
+                        && wrong == 0; n++) {
+            const char* needle = NEEDLES[n];
+            const int nsz = (int) strlen(needle);
+            for (int cut = 0; cut <= len && wrong == 0; cut++) {
+                for (int from = -1; from <= len && wrong == 0; from++) {
+                    for (int dir = 0; dir < 2; dir++) {
+                        const bool fwd = dir == 0;
+                        const int whole = tb_scan_split(NULL, 0, LINE, len,
+                                                        needle, nsz, from, fwd);
+                        const int split = tb_scan_split(LINE, cut, LINE + cut,
+                                                        len - cut, needle, nsz,
+                                                        from, fwd);
+                        if (cut > 0 && cut < len) {
+                            splits++;
+                        }
+                        if (whole != split) {
+                            wrong = 1;
+                            fprintf(stderr,
+                                    "      needle %s cut %d from %d %s: "
+                                    "whole %d split %d\n",
+                                    needle, cut, from, fwd ? "fwd" : "back",
+                                    whole, split);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        check("a line cut anywhere finds what the whole line finds", wrong, 0);
+        check("  and the cut was a real one most of the time",
+              splits > 1000 ? 1 : 0, 1);
+
+        /* The case the join window exists for, spelled out: the needle starts
+         * in the first piece and ends in the second. Neither run holds it. */
+        check("a needle lying across the cut is found",
+              tb_scan_split(LINE, 7, LINE + 7, len - 7, "XYZ", 3, -1, true), 6);
+        check("  and searching backwards finds it too",
+              tb_scan_split(LINE, 7, LINE + 7, len - 7, "XYZ", 3, -1, false), 6);
+        check("  a needle one byte over the cut as well",
+              tb_scan_split(LINE, 7, LINE + 7, len - 7, "YZ", 2, -1, true), 7);
+
+        /* Longer than the line is no match, however it is cut. */
+        check("a needle longer than the line matches nothing",
+              tb_scan_split(LINE, 7, LINE + 7, len - 7, "abcabcXYZabcXYZ", 15,
+                            -1, true), -1);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

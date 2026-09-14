@@ -316,6 +316,14 @@ bool tb_settle(text_buffer* tb);
 // a line number must move with these, and nothing else may.
 void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines);
 
+// For tests, for the same reason: the only way to see the split-line scan
+// before there are split lines. A walker moves the gap to the start of every
+// line it reads, so nothing hands this two runs yet -- once one stops, every
+// search that passes the cursor's own line does. Positions in and out are
+// indices into the line as a whole. See .internal/docs/WALKER.md.
+int tb_scan_split(const char* pre, int psz, const char* suf, int ssz,
+                  const char* needle, int nsz, int from, bool forward);
+
 // Negative, zero or positive as `a` is before, at, or after `b`. Lets a caller
 // hand ranges over in either order without sorting them first.
 int tb_cmp(tb_pos a, tb_pos b);

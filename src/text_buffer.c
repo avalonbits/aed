@@ -400,6 +400,8 @@ static bool match_at(const char* hay, const char* needle, int nsz) {
 
 // Where `needle` sits in one line, or -1. `from` is the first index tried going
 // forward, or the last one going backward; negative means the whole line.
+#define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
+
 static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
                      int from, bool forward) {
     if (hay == NULL || nsz > hsz) {
@@ -437,7 +439,105 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
     return -1;
 }
 
-#define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
+/*
+ * The same scan, over a line that arrives in two pieces.
+ *
+ * Three places a match can be, and they are three disjoint ranges of starting
+ * position: wholly inside the first run, across the join, or wholly inside the
+ * second. The two runs are the contiguous scan again, unchanged -- the cost of
+ * a search is in those and they stay a tight loop over a flat buffer.
+ *
+ * Across the join there are at most nsz - 1 starting positions, because a match
+ * starting any earlier ends before the join and a match starting at the join is
+ * wholly in the second run. So the bytes either side are copied into a window
+ * and scanned there. That is the only copying a search does, and it is bounded
+ * by the needle rather than by the line: 126 bytes at the most.
+ *
+ * Positions in and out are indices into the line as a whole, the way the caller
+ * counts columns. `forward` decides which end the three ranges are tried from,
+ * and they are strictly ordered, so the first hit found is the nearest one.
+ */
+static int scan_split(const char* pre, int psz, const char* suf, int ssz,
+                      const char* needle, int nsz, int from, bool forward);
+
+int tb_scan_split(const char* pre, int psz, const char* suf, int ssz,
+                  const char* needle, int nsz, int from, bool forward) {
+    return scan_split(pre, psz, suf, ssz, needle, nsz, from, forward);
+}
+
+static int scan_split(const char* pre, int psz, const char* suf, int ssz,
+                      const char* needle, int nsz, int from, bool forward) {
+    if (psz <= 0) {
+        return scan_line(suf, ssz, needle, nsz, from, forward);
+    }
+    if (ssz <= 0) {
+        return scan_line(pre, psz, needle, nsz, from, forward);
+    }
+    if (nsz > psz + ssz) {
+        return -1;
+    }
+
+    // A negative `from` is the caller saying "anywhere on this line", which is
+    // a different thing from a position that happens to fall before one of the
+    // runs. Keeping the two apart is the whole of the bookkeeping below.
+    const bool anywhere = from < 0;
+
+    // Static because a frame is addressed with a signed byte on this machine
+    // and 126 of them would put every other local out of reach. A search is
+    // already non-reentrant -- see find_pass.
+    static char join[2 * (TB_FIND_MAX - 1)];
+
+    // As much of each side as a crossing match could possibly touch.
+    const int lead = (nsz - 1) < psz ? (nsz - 1) : psz;
+    const int tail = (nsz - 1) < ssz ? (nsz - 1) : ssz;
+    const int base = psz - lead;        // where the window starts in the line
+    memcpy(join, pre + base, (size_t) lead);
+    memcpy(join + lead, suf, (size_t) tail);
+
+    int hit = -1;
+    for (int part = 0; part < 3 && hit < 0; part++) {
+        // Forwards: first run, join, second run. Backwards: the reverse. The
+        // three ranges of starting position do not overlap and are in order,
+        // so the first hit found is the nearest one to `from`.
+        const int which = forward ? part : 2 - part;
+
+        if (which == 0) {
+            hit = scan_line(pre, psz, needle, nsz, anywhere ? -1 : from,
+                            forward);
+        } else if (which == 2) {
+            const int f = anywhere ? -1 : from - psz;
+            if (!anywhere && f < 0 && !forward) {
+                continue;       // the whole run is past where to look
+            }
+            const int in = scan_line(suf, ssz, needle, nsz,
+                                     (!anywhere && f < 0) ? 0 : f, forward);
+            hit = in < 0 ? -1 : psz + in;
+        } else {
+            // Only the starts that really cross count: the others belong to
+            // one of the two runs and are found there, in the right order.
+            for (int j = forward ? 0 : lead - 1;
+                 forward ? j < lead : j >= 0;
+                 forward ? j++ : j--) {
+                if (j + nsz <= lead) {
+                    continue;           // ends before the join
+                }
+                if (j + nsz > lead + tail) {
+                    continue;           // runs past what the line holds
+                }
+                const int line_at = base + j;
+                if (!anywhere && (forward ? line_at < from : line_at > from)) {
+                    continue;
+                }
+                if (match_at(join + j, needle, nsz)) {
+                    hit = line_at;
+                    break;
+                }
+            }
+        }
+    }
+
+    return hit;
+}
 
 // One of these, at file scope. On this machine a field of a file-scope object
 // is addressed absolutely -- the address is a constant in the instruction --
@@ -629,14 +729,18 @@ bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
     // One pass per line, plus one more for the part of the starting line the
     // first pass skipped over.
     for (int n = 0; n <= total; n++) {
-        int sz = 0;
-        const char* text = tb_suffix(&cp, &sz);
+        // The whole line, in the one or two runs it is held in. The walker's
+        // gap sits wherever the step left it, so from the second line on the
+        // line it is reading is split at that column -- which is why the scan
+        // takes a pair.
+        const split_line ln = tb_curr_line(&cp);
         // A caller searching backwards hands us x - 1, which is negative when
         // the cursor sits in column 0 -- and that means nothing on this line is
         // behind it, not that the whole line is fair game.
         const int hit = (first && !forward && start < 0)
             ? -1
-            : scan_line(text, sz, needle, nsz, first ? start : -1, forward);
+            : scan_split(ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_,
+                         needle, nsz, first ? start : -1, forward);
         first = false;
         if (hit >= 0) {
             at->line = line;
@@ -655,10 +759,8 @@ bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
             tb_seek(&cp, (tb_pos){next, 0});
         } else if (forward) {
             tb_down(&cp);
-            tb_home(&cp);
         } else {
             tb_up(&cp);
-            tb_home(&cp);
         }
         line = next;
     }
