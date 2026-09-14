@@ -2333,6 +2333,39 @@ static void tb_content(text_buffer* tb, char** prefix, int* psz, char** suffix, 
     *suffix = cb_suffix(&tb->cb_, ssz);
 }
 
+// How long the break just written is. The byte in front of the line feed has
+// already been copied, so a break is two bytes when that byte is a carriage
+// return and one when it is not. An empty first line has no byte in front of
+// it at all, which makes it a bare feed, correctly.
+static int break_len_at(const char* text, int n) {
+    return (n > 0 && text[n - 1] == '\r') ? 2 : 1;
+}
+
+// One document, one break length. The first break decides it and every break
+// after has to agree; a file holding both kinds is reported through `mixed` so
+// the caller can read it again and normalise the lot.
+//
+// Worth having in one place. Five separate pieces of code once assumed a break
+// was two bytes -- deleting one, backspacing over one, merging the lines either
+// side of one, counting a range in them, and undoing a delete that spanned one
+// -- and every one of them took a byte too many from a document of bare feeds.
+// The number they all read is the one set here.
+static bool break_len_agrees(text_buffer* tb, int* seen, int len, bool* mixed) {
+    if (*seen == 0) {
+        *seen = len;
+        tb->elen_ = len;
+
+        return true;
+    }
+    if (*seen != len) {
+        *mixed = true;
+
+        return false;
+    }
+
+    return true;
+}
+
 static int ensure_newline(char_buffer* cb, line_buffer* lb) {
     int added = 0;
 
@@ -2451,17 +2484,8 @@ static bool tb_read_pass(char fh, text_buffer* tb, int sz, bool* full,
             n = ensure_newline(&tb->cb_, &tb->lb_);
             added += n;
         } else {
-            // The byte in front of the line feed has already been copied, so
-            // whether this break is one byte or two is whether that byte is a
-            // carriage return. An empty first line has no byte in front of it,
-            // which makes it a bare feed, correctly.
-            const int len = (curr > cb->buf_ && curr[-1] == '\r') ? 2 : 1;
-            if (seen == 0) {
-                seen = len;
-                tb->elen_ = len;
-            } else if (seen != len) {
-                *mixed = true;
-
+            const int len = break_len_at(cb->buf_, (int) (curr - cb->buf_));
+            if (!break_len_agrees(tb, &seen, len, mixed)) {
                 return false;
             }
             n = lb_new(&tb->lb_, lb_csize(&tb->lb_)) ? 0 : -1;
@@ -2629,17 +2653,10 @@ static bool tb_load_paged_pass(text_buffer* tb, char fh, int size,
                     added++;
                 }
             } else {
-                // Taken as it is. Whether this break is one byte or two is
-                // whether the byte already copied in front of it is a carriage
-                // return -- which works across a chunk boundary too, because a
-                // break split by one is held over in `out` with its return.
-                const int len = (n > 0 && out[n - 1] == '\r') ? 2 : 1;
-                if (seen == 0) {
-                    seen = len;
-                    tb->elen_ = len;
-                } else if (seen != len) {
-                    *mixed = true;
-
+                // Taken as it is. Reading the byte already copied works
+                // across a chunk boundary too, because a break split by one is
+                // held over in `out` with its return.
+                if (!break_len_agrees(tb, &seen, break_len_at(out, n), mixed)) {
                     return false;
                 }
             }
