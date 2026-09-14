@@ -226,7 +226,17 @@ void ed_destroy(editor* ed) {
 // and select-all makes one.
 static bool owns_selection(cmd_op cmd) {
     return cmd == cmd_copy || cmd == cmd_cut
-        || cmd == cmd_paste || cmd == cmd_select_all;
+        || cmd == cmd_paste || cmd == cmd_select_all
+        // Find is about the selection too: a match is left selected, and the
+        // next search measures from where that selection starts. Dropping it
+        // here left cmd_find_prev searching back from the cursor -- which is
+        // at the *end* of the match it is standing on, so it found the same
+        // one again and CTRL+P appeared to do nothing.
+        //
+        // cmd_find_prev has had the code to handle this for a while; it could
+        // never run, because selecting_ was already false by the time it was
+        // called. The test of it called the command directly and so passed.
+        || cmd == cmd_find || cmd == cmd_find_next || cmd == cmd_find_prev;
 }
 
 sel_action ed_selection_for(editor* ed, key_command kc) {
@@ -466,6 +476,14 @@ key_command ctrlCmds(key_command kc, char mods) {
         case VK_d:
         case VK_D:
             kc.cmd = cmd_del_line;
+            break;
+        case VK_HOME:
+        case VK_KP_HOME:
+            kc.cmd = cmd_doc_top;
+            break;
+        case VK_END:
+        case VK_KP_END:
+            kc.cmd = cmd_doc_end;
             break;
         case VK_S:
         case VK_s:

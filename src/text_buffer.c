@@ -684,7 +684,20 @@ char tb_w_prev(text_buffer* tb, char from_ch) {
 
 char tb_up(text_buffer* tb) {
     if (!lb_up(&tb->lb_)) {
-        return 0;
+        // The top of the *window*, which on a paged document is not the top of
+        // the document. Settling brings the chunk above it in.
+        //
+        // Here rather than in the callers because every one of them steps:
+        // the arrow keys, page up and page down. Arrow-up from the bottom of a
+        // 4,000 line document stopped at line 2,551, which is most of the file
+        // unreachable by the ordinary way of moving through it.
+        //
+        // A walker settles to nothing -- it may not move the window -- so this
+        // still stops at the edge for the copies that paint the screen, which
+        // is what they want.
+        if (!tb_settle(tb) || !lb_up(&tb->lb_)) {
+            return 0;
+        }
     }
 
     const int  sz = lb_csize(&tb->lb_);
@@ -694,13 +707,40 @@ char tb_up(text_buffer* tb) {
         tb->x_ = maxX;
     }
 
-    return cb_prev(&tb->cb_, back - tb->x_);
+    // Settled again after moving, for the same reason tb_seek settles: the
+    // cursor must not come to rest on the index's last entry, the line that
+    // carries on past memory, because its text is still in the store and the
+    // line reads as empty. Stepping there is how a document walked with the
+    // arrow keys shows a blank line and a NULL suffix.
+    //
+    // The margins make it cheap on a paged document -- settling does nothing
+    // until the cursor is within one of the edge. The early return is what
+    // makes it free on a document that is not paged, which is every ordinary
+    // one: the call alone, doing nothing, cost 14% of a walk down a 64 KiB
+    // file, and keeping the tail call for that path cost nothing at all.
+    if (!tb->paged_) {
+        return cb_prev(&tb->cb_, back - tb->x_);
+    }
+    const char ch = cb_prev(&tb->cb_, back - tb->x_);
+    tb_settle(tb);
+
+    return ch;
 }
 
 char tb_down(text_buffer* tb) {
     int move = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_down(&tb->lb_)) {
-        return 0;
+        // The bottom of the window. See tb_up: settling is what gets past it,
+        // and a walker settles to nothing.
+        if (!tb_settle(tb)) {
+            return 0;
+        }
+        // Measured again after the slide and before stepping off the line, so
+        // that it is still the distance to the end of the line being left.
+        move = lb_csize(&tb->lb_) - tb->x_;
+        if (!lb_down(&tb->lb_)) {
+            return 0;
+        }
     }
     int cend = lb_csize(&tb->lb_);
     if (!lb_last(&tb->lb_)) {
@@ -709,7 +749,13 @@ char tb_down(text_buffer* tb) {
     if (tb->x_ > cend) {
         tb->x_ = cend;
     }
-    return cb_next(&tb->cb_, move + tb->x_);
+    if (!tb->paged_) {
+        return cb_next(&tb->cb_, move + tb->x_);
+    }
+    const char ch = cb_next(&tb->cb_, move + tb->x_);
+    tb_settle(tb);      // see tb_up
+
+    return ch;
 }
 
 char tb_home(text_buffer* tb) {

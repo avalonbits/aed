@@ -1345,6 +1345,74 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- stepping a line at a time gets out of the window --- */
+    {
+        /* tb_up and tb_down move inside what memory is holding, and only
+         * tb_seek settled. So the arrow keys, page up and page down -- every
+         * ordinary way of moving through a document -- stopped dead at the edge
+         * of the window: arrow-down from line 1 of this document reached 1,485
+         * of 4,001, and arrow-up from the bottom stopped at 2,551.
+         *
+         * They settle at the edge now, which is why this is a test of the
+         * buffer rather than of any one command: all of them step. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to walk with the arrow keys",
+              tb_init(&tb, DOC_KB, "/walk.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&tb) < DOC_BYTES, 1);
+
+        int prev = -1;
+        while (tb_ypos(&tb) != prev) {
+            prev = tb_ypos(&tb);
+            tb_down(&tb);
+        }
+        check("  stepping down reaches the last line", tb_ypos(&tb), DOC_LINES + 1);
+
+        prev = -1;
+        while (tb_ypos(&tb) != prev) {
+            prev = tb_ypos(&tb);
+            tb_up(&tb);
+        }
+        check("  and stepping back up reaches the first", tb_ypos(&tb), 1);
+
+        /* From the far end, which is the other direction across the window. */
+        const tb_pos bottom = { DOC_LINES, 0 };
+        tb_seek(&tb, bottom);
+        prev = -1;
+        while (tb_ypos(&tb) != prev) {
+            prev = tb_ypos(&tb);
+            tb_up(&tb);
+        }
+        check("  stepping up from the far end reaches the first too",
+              tb_ypos(&tb), 1);
+
+        /* And the text is still the document's, not something a slide mangled. */
+        int wrong = 0;
+        for (int n = 1; n <= DOC_LINES && wrong == 0; n++) {
+            const split_line ln = tb_curr_line(&tb);
+            if (tb_ypos(&tb) != n || strcmp(LINE_NOW(&tb), WANT(n - 1)) != 0) {
+                wrong = n;
+            }
+            (void) ln;
+            tb_down(&tb);
+        }
+        check("  every line read on the way down is itself", wrong, 0);
+
+        /* A walker still stops at the edge: it may not move the window. */
+        const tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        text_buffer cp;
+        tb_copy(&cp, &tb);
+        prev = -1;
+        while (tb_ypos(&cp) != prev) {
+            prev = tb_ypos(&cp);
+            tb_down(&cp);
+        }
+        check("  but a walker still stops inside the window",
+              tb_ypos(&cp) < DOC_LINES, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- a range that reaches outside the window --- */
     {
         /* Select-all copy on a paged document used to come back with the

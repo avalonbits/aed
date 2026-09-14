@@ -135,6 +135,7 @@ static const help_line HELP[] = {
     { "arrows",           "move the cursor" },
     { "CTRL+LEFT/RIGHT",  "a word at a time" },
     { "HOME / END",       "start or end of the line" },
+    { "CTRL+HOME/END",    "start or end of the file" },
     { "PAGE UP/DOWN",     "a screen at a time" },
     { "CTRL+G",           "go to a line number" },
 

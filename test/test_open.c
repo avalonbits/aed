@@ -661,6 +661,26 @@ int main(void) {
         check("a line number past the end stops at the end",
               tb_ypos(&ged.buf_), GO_LINES + 1);
 
+        /* CTRL+HOME and CTRL+END, which share the same jump. HOME and END on
+         * their own are the ends of the line, so these have to be the ends of
+         * the document and not that. */
+        { const tb_pos mid2 = { 2000, 0 };
+          tb_seek(&ged.buf_, mid2); }
+        cmd_doc_top(&ged);
+        check("CTRL+HOME goes to the first line", tb_ypos(&ged.buf_), 1);
+        check("  with the cursor at the top of the view",
+              (int) ged.scr_.currY_, (int) ged.scr_.topY_);
+
+        cmd_doc_end(&ged);
+        check("CTRL+END goes to the last", tb_ypos(&ged.buf_), GO_LINES + 1);
+        check("  with the cursor at the bottom of the view",
+              (int) ged.scr_.currY_, (int) ged.scr_.bottomY_ - 1);
+
+        cmd_doc_top(&ged);
+        check("and CTRL+HOME comes back from there", tb_ypos(&ged.buf_), 1);
+        check("  reading the first line",
+              memcmp(tb_curr_line(&ged.buf_).suffix_, go, 5) == 0, 1);
+
         stub_set_keys(NULL, 0);
         ed_destroy(&ged);
     }
@@ -682,6 +702,24 @@ int main(void) {
     check("CTRL+Q still quits", ctrlCmds(kc, 0).cmd == CMD_QUIT, 1);
     kc.k.vkey = VK_g;
     check("CTRL+G still goes to a line", ctrlCmds(kc, 0).cmd == cmd_goto, 1);
+    kc.k.vkey = VK_HOME;
+    check("CTRL+HOME is the top of the file",
+          ctrlCmds(kc, 0).cmd == cmd_doc_top, 1);
+    kc.k.vkey = VK_KP_HOME;
+    check("  on the keypad too", ctrlCmds(kc, 0).cmd == cmd_doc_top, 1);
+    kc.k.vkey = VK_END;
+    check("CTRL+END is the bottom", ctrlCmds(kc, 0).cmd == cmd_doc_end, 1);
+    kc.k.vkey = VK_KP_END;
+    check("  on the keypad too", ctrlCmds(kc, 0).cmd == cmd_doc_end, 1);
+    /* And without CTRL they are still the ends of the line. editCmds is the
+     * table the plain keys come from. */
+    memset(&kc, 0, sizeof(kc));
+    kc.k.vkey = VK_HOME;
+    check("HOME on its own is still the start of the line",
+          editCmds(kc).cmd == cmd_home, 1);
+    kc.k.vkey = VK_END;
+    check("END on its own is still the end of it",
+          editCmds(kc).cmd == cmd_end, 1);
 
     /* Starting with nothing to show must still show the cursor.
      *

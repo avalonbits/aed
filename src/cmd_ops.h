@@ -106,4 +106,9 @@ void cmd_page_up(editor* ed);
 void cmd_page_down(editor* ed);
 void cmd_goto(editor* ed);
 
+// The top and the bottom of the document, for CTRL+HOME and CTRL+END. HOME and
+// END on their own are the ends of the line the cursor is on.
+void cmd_doc_top(editor* ed);
+void cmd_doc_end(editor* ed);
+
 #endif  // _CMD_OPS_H_

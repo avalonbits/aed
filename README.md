@@ -10,7 +10,10 @@ undoes with `CTRL+Z` and redoes with `CTRL+Y`. It finds text with `CTRL+F`, open
 another file without leaving the editor, keeps real tab characters, and remembers your colours and
 tab width in a settings file.
 
-Currently it is limited to reading and writing files up to 248KB long with up to 8k lines.
+It opens files larger than memory. A document that does not fit is held as a window on
+the file with the rest in two scratch files beside it, so the size you can edit is the
+space on your SD card rather than the RAM in the machine -- and the old limit of 8,000
+lines is gone with it.
 
 The editor can work in any Agon supported resolution and will use whatever color scheme you've configured
 your Agon.
@@ -19,8 +22,24 @@ your Agon.
 
 # Installation
 
-Copy the `aed.bin` file to your sdcard's `/bin` directory. You should now be able to run it just
-typing `aed` at the command line.
+Download `aed-<version>.zip` from the release and unzip it at the **root of your SD card**.
+Everything lands where it belongs:
+
+```
+bin/aed.bin                 the editor -- MOS searches /bin, so `aed` runs it
+config/aed/unscii8.bin      the three fonts, where the settings file expects them
+config/aed/unscii8x10.bin
+config/aed/unscii16.bin
+```
+
+You should now be able to run it just by typing `aed` at the command line.
+
+The fonts do nothing until a settings file names one -- see [Fonts](#font) -- so unzipping
+changes nothing about how AED looks until you ask it to.
+
+**The zip is the thing to download.** The release page also carries `aed.bin` and each
+font on its own, for upgrading when you already have the rest -- most upgrades are just
+`aed.bin` over the old one.
 
 > NOTE: The editor uses most of the memory available, so do not start it if you are in BBCBasic.
 
@@ -217,8 +236,9 @@ the whole thing off. A name that does not exist yet is created, so this is also 
 start a new file without leaving the editor.
 
 Opening replaces the document you are editing -- there is only ever one buffer -- but a
-file that cannot be opened, or that is too large to fit, leaves your work exactly where
-it was and says what went wrong.
+file that cannot be opened leaves your work exactly where it was and says what went
+wrong. Size is not a reason on its own: a file bigger than memory opens here the same
+way it does from the command line.
 
 # Navigation and shortcuts.
 You navigate using the `LEFT, RIGHT, UP, DOWN` arrow keys to move the cursor one character at a time. The cursor will wrap around lines if you
@@ -226,6 +246,11 @@ try to move past the end or beginning. You can also use `CTRL+LEFT` and `CTRL+RI
 faster movement.
 
 Use `PAGE_UP / PAGE_DOWN` to move a page of text at a time.
+
+`HOME` and `END` go to the start and the end of the line. `CTRL+HOME` and `CTRL+END` go
+to the start and the end of the *file*.
+
+`CTRL+G` asks for a line number and goes there.
 
 # Selecting text
 Hold `SHIFT` and move the cursor to select. Every movement key works: the arrows,
@@ -275,6 +300,23 @@ saved. The tab width is 4 columns by default and can be changed in the settings 
 since it is a single character, and the cursor sits at the column where the tab
 begins.
 
+# Large files, and waiting for them
+
+A file too big to hold in memory is kept mostly on the SD card, and the editor moves a
+window over it as you go. Everything works the same way it does on a small file, but
+some of it now takes time you can see.
+
+Opening a 400KB file takes a few seconds. So does `CTRL+END`, a `CTRL+G` to a distant
+line, a `CTRL+F` that has to search the whole document, `CTRL+A` followed by a copy, and
+saving. The screen does not update while that happens, so **the editor can look like it
+has locked up when it is only working its way through the file.** It has not. Give it a
+moment and it will come back.
+
+Scrolling with the arrow keys and `PAGE_UP / PAGE_DOWN` does not do this: the window
+follows the cursor a chunk at a time, so the pauses are small and spread out.
+
+The card is what sets the pace. A faster card makes all of the above faster.
+
 # Find
 `CTRL+F` asks what to look for and jumps to the first match after the cursor,
 wrapping round the end of the file. `CTRL+N` finds the next one and `CTRL+P` the
@@ -313,26 +355,4 @@ If no file was specified on startup, it will prompt for a file name to save the 
 `CTRL+E` opens the settings: tab width, colours, and font. `UP/DOWN` chooses a row and
 `RETURN` changes it; `ESC` closes. Choosing the colours row shows the picker at the
 bottom of the screen, where `UP/DOWN` selects the foreground colour and `LEFT/RIGHT`
-the background. 
-
-# Road to v1.0
-The following features will be implemented before releasing v1.0 of the editor:
-
-- [x] ~~BACKSPACE merges current line with previous when pressed at the beginning of the line.~~
-- [x] ~~Shortcut to change foreground and background colors.~~
-- [x] ~~`PAGE-UP` and `PAGE-DOWN` support.~~
-- [x] ~~Shortcut for saving the current buffer without quiting.~~
-- [x] ~~File selection while in the editor.~~
-- [x] ~~Copy-cut-paste.~~
-- [x] ~~Find.~~
-
-## Roadmap after v1.0
-
-- [x] ~~Undo / Redo.~~
-- [x] ~~Native tabs.~~
-- [x] ~~Configurable tab size.~~
-- [ ] Change settings from inside the editor.
-- [ ] Tab-to-space conversion.
-- [ ] Syntax highlighting for BBCBasic and assembly files.
-- [ ] Unlimted file size support.
-- [ ] Console8 mouse support (need to get one).
+the background.
