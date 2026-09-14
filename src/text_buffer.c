@@ -37,6 +37,10 @@ static int eol_len(const text_buffer* tb) {
     return tb->elen_;
 }
 
+int tb_break_len(text_buffer* tb) {
+    return eol_len(tb);
+}
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;

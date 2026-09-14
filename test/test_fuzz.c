@@ -16,6 +16,14 @@
  *      streaming it counts them again; a disagreement means the index and the
  *      text stopped describing the same document.
  *
+ *   3. The index's lengths add up to the bytes the buffer holds. This is the
+ *      one underneath the other two: when it goes, the next edit lands
+ *      somewhere other than where it was aimed.
+ *
+ * And at the end of each run, undoing everything has to give the document back
+ * exactly as it was loaded. That is what caught a redo leaving a byte behind
+ * on a document of bare line feeds -- see delete_span in undo.c.
+ *
  * Deterministic: the seeds are fixed, so a failure is reproducible and the
  * report says which op number and which seed. Streaming is what both checks
  * read the document through -- tb_range_walk goes through the store rather
@@ -31,6 +39,7 @@
 #include "editor.h"
 #include "cmd_ops.h"
 #include "text_buffer.h"
+#include "line_buffer.h"
 
 static int failures = 0;
 
@@ -101,6 +110,17 @@ static int line_disagrees(text_buffer* tb) {
     return 0;
 }
 
+/* 0 when the index's lengths add up to the bytes the buffer is holding. */
+static int sum_disagrees(text_buffer* tb) {
+    const int n = lb_lines(&tb->lb_);
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum += lb_at(&tb->lb_, i);
+    }
+
+    return sum == tb_used(tb) ? 0 : 1;
+}
+
 /* 0 when the index and the text agree on how many lines there are. */
 static int count_disagrees(text_buffer* tb) {
     int lines = 1;
@@ -114,7 +134,7 @@ static int count_disagrees(text_buffer* tb) {
 }
 
 static void one_op(editor* ed, unsigned r) {
-    switch (r % 22) {
+    switch (r % 26) {
     case 0:  cmd_down(ed); break;
     case 1:  cmd_up(ed); break;
     case 2:  cmd_left(ed); break;
@@ -140,6 +160,11 @@ static void one_op(editor* ed, unsigned r) {
     case 20: ed->selecting_ = true; cmd_down(ed); cmd_copy(ed);
              ed->selecting_ = false; break;
     case 21: cmd_paste(ed); break;
+    case 22: cmd_undo(ed); break;
+    case 23: cmd_redo(ed); break;
+    case 24: ed->selecting_ = true; cmd_right(ed); cmd_right(ed);
+             cmd_cut(ed); ed->selecting_ = false; break;
+    case 25: cmd_select_all(ed); cmd_copy(ed); ed->selecting_ = false; break;
     }
 }
 
@@ -161,6 +186,8 @@ int main(void) {
 
     int line_bad = 0;
     int count_bad = 0;
+    int sum_bad = 0;
+    int undo_bad = 0;
     int ran = 0;
     for (int d = 0; d < ndocs; d++) {
         for (int s = 1; s <= seeds; s++) {
@@ -199,6 +226,42 @@ int main(void) {
                             "      doc %d seed %d op %d: tb_ymax says %d\n",
                             d, s, i, tb_ymax(&ed.buf_));
                 }
+                if (sum_disagrees(&ed.buf_) && sum_bad == 0) {
+                    sum_bad = 1;
+                    fprintf(stderr,
+                            "      doc %d seed %d op %d: the buffer holds %d "
+                            "bytes and the index adds to something else\n",
+                            d, s, i, tb_used(&ed.buf_));
+                }
+            }
+
+            /* Undo the lot. Whatever the run did, the document has to come
+             * back the way it was loaded -- the log either describes the edits
+             * exactly or it does not. */
+            for (int u = 0; u < ops * 4; u++) {
+                cmd_undo(&ed);
+            }
+            read_doc(&ed.buf_);
+
+            /* Against the original as it streams, not as it was handed in: a
+             * range gives back CRLF whatever the document keeps, so a bare
+             * feed in the source is two bytes here. */
+            static char want[512];
+            int want_n = 0;
+            for (const char* p = DOCS[d]; *p != 0; p++) {
+                if (*p == '\n' && (p == DOCS[d] || p[-1] != '\r')) {
+                    want[want_n++] = '\r';
+                }
+                want[want_n++] = *p;
+            }
+            if ((doc_n != want_n
+                 || memcmp(doc_buf, want, (size_t) want_n) != 0)
+                    && undo_bad == 0) {
+                undo_bad = 1;
+                fprintf(stderr,
+                        "      doc %d seed %d: undoing everything gave %d "
+                        "bytes where the document is %d\n",
+                        d, s, doc_n, want_n);
             }
             ed_destroy(&ed);
         }
@@ -206,6 +269,8 @@ int main(void) {
 
     check("commands leave the cursor on the line it claims", line_bad, 0);
     check("  and the index counting the lines the text has", count_bad, 0);
+    check("  and its lengths adding up to the bytes there are", sum_bad, 0);
+    check("  and undoing everything giving the document back", undo_bad, 0);
     check("  over every command, all the way through", ran, ndocs * seeds * ops);
 
     if (failures > 0) {

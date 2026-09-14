@@ -151,6 +151,13 @@ int tb_size(text_buffer* tb);
 int tb_available(text_buffer* tb);
 int tb_used(text_buffer* tb);
 bool tb_eol(text_buffer* tb);
+
+// How many bytes this document's line break takes: two for CRLF, one for a
+// bare line feed. A document keeps the breaks its file had, so anything
+// counting bytes across one has to ask rather than assume -- assuming two is
+// what four separate places did, and every one of them ate a character of the
+// next line on a document written with bare feeds.
+int tb_break_len(text_buffer* tb);
 bool tb_bol(text_buffer* tb);
 char* tb_fname(text_buffer* tb);
 bool tb_changed(text_buffer* tb);

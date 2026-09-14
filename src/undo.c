@@ -310,14 +310,24 @@ static void insert_reversed(text_buffer* tb, undo* u, const undo_rec* r,
 
 // Takes len bytes out from `at`, through the same primitives an ordinary delete
 // uses so the line index is maintained by code that already gets it right.
+//
+// A record's length is in the document's own bytes -- tb_newline and
+// tb_del_merge both record a break as however long this document's breaks are
+// -- so the break has to be counted off at that length too. Taking two flat
+// stopped the loop a byte early on a document of bare line feeds, and a record
+// can hold a break with text either side of it: DELETE joins the lines, so
+// what follows is recorded on the same line and coalesces into the same run.
+// Redoing four DELETEs that ate a break left the last byte behind, and undoing
+// that put a byte too many back.
 static void delete_span(text_buffer* tb, int len) {
     int left = len;
     while (left > 0) {
         if (tb_eol(tb)) {
+            const int brk = tb_break_len(tb);
             if (!tb_del_merge(tb)) {
                 break;
             }
-            left -= 2;
+            left -= brk;
         } else {
             if (!tb_del(tb)) {
                 break;
