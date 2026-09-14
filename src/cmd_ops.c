@@ -1162,98 +1162,83 @@ void cmd_del_line(editor* ed) {
     region_up(scr, &cp, ch);
 }
 
-void cmd_left(editor* ed) {
+/*
+ * The four sideways movements are one command with two holes in it: which end
+ * of the line has nowhere further to go, and how far a single step reaches.
+ * What follows a step is the same in all four -- the screen is told where the
+ * cursor went, and scrolled sideways when it went past the edge.
+ *
+ * They were four copies of that, and the copies had begun to drift: three of
+ * the four indented the resync twelve spaces where the first used eight, which
+ * is the fingerprint of the paste that made them.
+ *
+ * One difference between the copies turned out to be nothing. cmd_right alone
+ * returned early when the character under the cursor was a zero byte, which
+ * cannot happen here: IS_EOL counts zero as the end of a line, so tb_eol has
+ * already sent that case up the other branch. The guard went with the copies.
+ */
+static void stepped(editor* ed, char from_ch, char to_ch) {
     TB(ed);
     SCR(ed);
 
-    if (tb_bol(tb)) {
-        if (tb_ypos(tb) > 1) {
-            cmd_up(ed);
-            cmd_end(ed);
-        }
-        return;
-    }
-    char from_ch = tb_peek(tb);
-    char to_ch = tb_prev(tb);
-
     split_line ln = tb_curr_line(tb);
-    const int moved = scr_move_cursor(scr, from_ch, to_ch,
-                                      ln.prefix_, ln.psz_);
+    const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
         resync_after_scroll(scr, tb, to_ch, moved, false);
     }
 }
 
-void cmd_w_left(editor* ed) {
+// Back one character, or one word when by_word. Off the front of a line is the
+// end of the line above, when there is one.
+static void step_back(editor* ed, bool by_word) {
     TB(ed);
-    SCR(ed);
 
     if (tb_bol(tb)) {
         if (tb_ypos(tb) > 1) {
             cmd_up(ed);
             cmd_end(ed);
         }
+
         return;
     }
 
     const char from_ch = tb_peek(tb);
-    const char to_ch = tb_w_prev(tb, from_ch);
+    stepped(ed, from_ch, by_word ? tb_w_prev(tb, from_ch) : tb_prev(tb));
+}
 
-    split_line ln = tb_curr_line(tb);
-    const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
-    if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved, false);
+// On one character, or one word. Off the end of a line is the start of the one
+// below -- but only if there was a line below to go to.
+static void step_on(editor* ed, bool by_word) {
+    TB(ed);
+
+    if (tb_eol(tb)) {
+        const int ypos = tb_ypos(tb);
+        cmd_down(ed);
+        if (ypos != tb_ypos(tb)) {
+            cmd_home(ed);
+        }
+
+        return;
     }
+
+    const char from_ch = tb_peek(tb);
+    stepped(ed, from_ch, by_word ? tb_w_next(tb, from_ch) : tb_next(tb));
+}
+
+void cmd_left(editor* ed) {
+    step_back(ed, false);
+}
+
+void cmd_w_left(editor* ed) {
+    step_back(ed, true);
 }
 
 void cmd_right(editor* ed) {
-    TB(ed);
-    SCR(ed);
-
-    if (tb_eol(tb)) {
-        int ypos = tb_ypos(tb);
-        cmd_down(ed);
-        if (ypos != tb_ypos(tb)) {
-            cmd_home(ed);
-        }
-        return;
-    }
-
-    char from_ch = tb_peek(tb);
-    if (from_ch == 0 ) {
-        return;
-    }
-
-    const char to_ch = tb_next(tb);
-
-    split_line ln = tb_curr_line(tb);
-    const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
-    if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved, false);
-    }
+    step_on(ed, false);
 }
 
 void cmd_w_right(editor* ed) {
-    TB(ed);
-    SCR(ed);
-
-    if (tb_eol(tb)) {
-        int ypos = tb_ypos(tb);
-        cmd_down(ed);
-        if (ypos != tb_ypos(tb)) {
-            cmd_home(ed);
-        }
-        return;
-    }
-
-    const char from_ch = tb_peek(tb);
-    const char to_ch = tb_w_next(tb, from_ch);
-
-    split_line ln = tb_curr_line(tb);
-    const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
-    if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved, false);
-    }
+    step_on(ed, true);
 }
 
 void cmd_up(editor* ed) {
