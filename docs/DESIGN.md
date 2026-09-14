@@ -143,7 +143,7 @@ last line of the document, which has no break after it.
 
 **Every break in the document is a CRLF**, whatever the file had. The loader
 converts on the way in, everything else goes through `tb_newline`, and
-[`tb_save`](../src/text_buffer.c#L2665) converts back on the way out when the
+[`tb_save`](../src/text_buffer.c#L2664) converts back on the way out when the
 file arrived with bare line feeds. Several things depend on that invariant.
 
 Both buffers have the same four ends — take and give, at the front and at the
@@ -206,9 +206,9 @@ than a millisecond for the 2 KB it actually moves.
 
 Its longest line, rather than its size: a slide moves whole lines, so a line
 longer than the window can never be brought in.
-[`tb_open`](../src/text_buffer.c#L2288) reads the front of the file and refuses
+[`tb_open`](../src/text_buffer.c#L2287) reads the front of the file and refuses
 before discarding what is on screen, and
-[`tb_load`](../src/text_buffer.c#L2159) has nothing to lose so it catches the
+[`tb_load`](../src/text_buffer.c#L2158) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
 unreachable document rather than an open one.
 
@@ -225,7 +225,7 @@ the window under the cursor that owns it would turn a repaint into a scroll.
 Painting uses walkers, and painting only ever wants what is on screen.
 
 Everything else that has to see text outside the window **streams the document**.
-[`doc_stream()`](../src/text_buffer.c#L2559) walks HEAD, then memory, then what
+[`doc_stream()`](../src/text_buffer.c#L2558) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 

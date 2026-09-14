@@ -1766,15 +1766,14 @@ bool tb_insert(text_buffer* tb, const char* buf, int sz) {
 }
 
 void tb_copy(text_buffer* dst, text_buffer* src) {
-    dst->lb_.buf_ = src->lb_.buf_;
-    dst->lb_.curr_ = src->lb_.curr_;
-    dst->lb_.cend_ = src->lb_.cend_;
-    dst->lb_.size_ = src->lb_.size_;
-
-    dst->cb_.buf_ = src->cb_.buf_;
-    dst->cb_.curr_ = src->cb_.curr_;
-    dst->cb_.cend_ = src->cb_.cend_;
-    dst->cb_.size_ = src->cb_.size_;
+    // Whole structs rather than field by field. A copy that names its fields
+    // goes stale the moment either buffer gains one, and quietly: the walker
+    // carries on with whatever was on the stack in the field nobody copied.
+    //
+    // They alias the original's memory either way; what makes a copy a walker
+    // is the flag below, and every mutator refuses on it.
+    dst->lb_ = src->lb_;
+    dst->cb_ = src->cb_;
 
     dst->x_ = src->x_;
     dst->walker_ = true;
