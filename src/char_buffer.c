@@ -49,16 +49,12 @@ void cb_clear(char_buffer* cb) {
  * is what every slide used to cost, and it happens once per (free space at an
  * end / chunk) of them.
  *
- * The gap is not only there for typing. A read-only copy walking the document
- * moves the gap as it goes, and that stays safe for the cursor that owns the
- * buffer only while the gap is wider than the distance the copy has travelled
- * -- memmove(curr_, cend_, n) leaves behind the bytes it read, so the original
- * still sees them, until the writes catch up with where its cend_ points.
- *
- * Before this file had ends, the gap held *all* the free space, so that was
- * true by accident. Asking for a share of it on purpose is what keeps it true,
- * and it is why the buffer has to keep a real part of itself free -- see
- * prime_spare in text_buffer.c.
+ * The gap is there for typing, and for nothing else now. A read-only copy
+ * walking the document used to move it, which was safe only while the gap
+ * stayed wider than the distance the copy had travelled -- so the gap had to
+ * be wider than a screenful, and the buffer had to keep a large part of itself
+ * free to make that so. Walkers move by number instead; see
+ * .internal/docs/WALKER.md. What the gap has to cover is one insert.
  */
 static void cb_arrange(char_buffer* cb, int lo, int gap) {
     const int psz = (int) (cb->curr_ - cb->lo_);
@@ -98,28 +94,60 @@ static void cb_arrange(char_buffer* cb, int lo, int gap) {
     cb->hi_ = new_cend + ssz;
 }
 
-// An even three-way split, for when nothing in particular is being asked for.
+/*
+ * Free space spread for a buffer with nothing in particular being asked of it.
+ *
+ * Most of it goes to the ends, because that is what a slide spends: sliding one
+ * way eats the free space at one end and makes it at the other, and a
+ * rebalance is only needed when an end runs dry. Every byte at an end is a
+ * slide that costs a pointer move rather than a move of the live text.
+ *
+ * The gap keeps an eighth. Insertion is the only thing that consumes it -- the
+ * cursor moving slides it along rather than using it up -- so an eighth is
+ * thousands of keystrokes on any buffer worth paging, and cb_put asks for more
+ * when it finally shuts.
+ *
+ * It used to be an even three-way split, because a walker moved the gap to
+ * read and the gap had to outlast a repaint. That is what set the floor under
+ * prime_spare, and it is gone.
+ */
+#define CB_GAP_SHARE 8
+
 static void cb_rebalance(char_buffer* cb) {
     const int free_all = cb_available(cb);
+    const int gap = free_all / CB_GAP_SHARE;
 
-    cb_arrange(cb, free_all / 3, free_all / 3);
+    cb_arrange(cb, (free_all - gap) / 2, gap);
 }
 
-// Room for `n` at one end, and half of whatever is left over kept at the
-// cursor. Always enough when the caller has checked that n fits in the buffer
-// at all, which is what makes a give at either end succeed or fail on the one
-// question of whether the bytes fit.
+// Room for `n` at one end, with whatever is left over spread the way
+// cb_rebalance spreads it: most to the ends, a share to the cursor. Always
+// enough when the caller has checked that n fits in the buffer at all, which
+// is what makes a give at either end succeed or fail on the one question of
+// whether the bytes fit -- the gap and the far end together never ask for more
+// than `spare`.
 static void cb_room_front(char_buffer* cb, int n) {
     const int spare = cb_available(cb) - n;
+    if (spare <= 0) {
+        cb_arrange(cb, n, 0);
 
-    cb_arrange(cb, n + (spare > 0 ? spare / 2 : 0), spare > 0 ? spare / 2 : 0);
+        return;
+    }
+    const int gap = spare / CB_GAP_SHARE;
+
+    cb_arrange(cb, n + (spare - gap) / 2, gap);
 }
 
 static void cb_room_back(char_buffer* cb, int n) {
     const int spare = cb_available(cb) - n;
-    const int gap = spare > 0 ? spare / 2 : 0;
+    if (spare <= 0) {
+        cb_arrange(cb, 0, 0);
 
-    cb_arrange(cb, spare > 0 ? spare - gap : 0, gap);
+        return;
+    }
+    const int gap = spare / CB_GAP_SHARE;
+
+    cb_arrange(cb, (spare - gap) / 2, gap);
 }
 
 int cb_size(char_buffer* cb) {

@@ -1209,9 +1209,9 @@ static int fit_lines(const int* lens, int lines, int room, int* bytes) {
 
 // Room kept back when memory is filled at open, so the first slide has
 // somewhere to put what it brings in, and so the margins have something to be
-// margins of. A share of the buffer rather than a fixed amount: two chunks is
-// right for the 248 KiB the editor runs with and larger than the whole of a
-// small one, and a reserve bigger than the buffer fills nothing at all.
+// margins of. A share of the buffer rather than a fixed amount, so it scales
+// with whatever the editor was given: a fixed reserve is most of a small
+// buffer and a rounding error in a large one.
 static int prime_spare(text_buffer* tb) {
     // A quarter of the buffer, and no cap. It used to be capped at two chunks,
     // which filled memory to within 4 KB of full -- and a buffer with no free
@@ -1219,11 +1219,27 @@ static int prime_spare(text_buffer* tb) {
     // slide closed a quarter of a megabyte up against the wall. That was 71%
     // of what walking a large document cost.
     //
-    // A third of what this reserves ends up at the cursor, where it also has to
-    // outlast a paint walking the screen; see cb_gap_want.
+    // A quarter was for a while a floor rather than a choice: a walker read by
+    // moving the gap, so the gap had to outlast a repaint -- 12 KiB on the
+    // widest mode -- and cb_rebalance gave it a third of whatever this left.
+    // Anything under a seventh of the buffer put the gap below that and a
+    // repaint would corrupt the document it was painting. Walkers move by
+    // number now, and that floor is gone; see .internal/docs/WALKER.md.
+    //
+    // It stays a quarter because the measurements still say so, for reasons
+    // that have nothing to do with the old one. On slow.asm, 419 KB, MOS
+    // 3.0.2:
+    //
+    //              open    seek    3000 down
+    //     1/4      0.94s   2.32s   0.38s
+    //     1/8      1.04s   2.50s   0.34s
+    //     1/16     1.10s   2.84s   0.32s
+    //
+    // Opening and seeking both want the reserve; only scrolling wants it back,
+    // and it gains 0.06s where a seek loses 0.52. See docs/SIZING.md.
     //
     // The trade is fewer lines in memory, so a long scroll crosses more
-    // chunks. Each one is cheap enough now that it is worth it.
+    // chunks. Each one is cheap enough that it is worth it.
     return cb_size(&tb->cb_) / 4;
 }
 
