@@ -6,7 +6,7 @@ was picked against a measurement rather than a guess:
 | | where | value |
 |---|---|---|
 | how much RAM a document gets | [`AED_DOC_KB`](../src/editor.h#L79) | 256 |
-| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1235) | a quarter |
+| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1256) | a quarter |
 | how far a slide moves | [`TB_CHUNK`](../src/text_buffer.h#L51) | 2 KiB |
 | how close the cursor may get to an end | [`TB_MARGIN`](../src/text_buffer.h#L52) | 16 KiB |
 

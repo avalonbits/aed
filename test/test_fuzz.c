@@ -60,7 +60,7 @@ static unsigned next_rand(void) {
 }
 
 /* The whole document, streamed. */
-static char doc_buf[32768];
+static char doc_buf[262144];
 static int doc_n = 0;
 static bool doc_sink(void* ctx, const char* buf, int sz) {
     (void) ctx;
@@ -171,11 +171,19 @@ static void one_op(editor* ed, unsigned r) {
 int main(void) {
     stub_discard_output();
 
-    /* A document bigger than the buffer it is opened into, so it pages: the
+    /*
+     * A document bigger than the buffer it is opened into, so it pages: the
      * window slides, the head and the tail fill, and the commands run against
      * a document most of which is on disk. This is what found the two slides
-     * miscounting -- see tb_slide_down and tb_slide_up. */
-    static char paged[6000];
+     * miscounting -- see tb_slide_down and tb_slide_up.
+     *
+     * Opened at 48 KiB rather than something smaller, because TB_MARGIN is
+     * 16 KiB either side and a window has to be wider than both of them put
+     * together for tb_settle to have anywhere to work. Below that the editor
+     * is outside the size it supports -- test_paging says the same thing about
+     * the buffer -- and the states it reaches are ones no real run has.
+     */
+    static char paged[50000];
     {
         int at = 0;
         for (int i = 0; at < (int) sizeof(paged) - 40; i++) {
@@ -214,7 +222,7 @@ int main(void) {
             stub_file_reset();
             stub_file_set_content(DOCS[d], (int) strlen(DOCS[d]));
 
-            const int kb = DOCS[d] == paged ? 4 : 8;
+            const int kb = DOCS[d] == paged ? 48 : 8;
             static editor ed;
             if (ed_init(&ed, kb, "/fuzz.txt") == NULL) {
                 fprintf(stderr, "FAIL  editor would not start\n");
