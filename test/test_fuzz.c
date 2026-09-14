@@ -265,21 +265,33 @@ int main(void) {
              * back the way it was loaded -- the log either describes the edits
              * exactly or it does not.
              *
-             * Asked of the documents that fit in memory. On the paged one it
-             * fails, and it is undo that is wrong rather than this:
+             * Asked of the documents that fit in memory. A paged one fails,
+             * and the log is not what is wrong with it.
              *
-             *   * the same 6,000 byte document in a 64 KiB buffer, where it
-             *     does not page, undoes back to the byte
-             *   * in a 4 KiB buffer, where it does, the same commands with the
-             *     same seeds come back the same *length* and the wrong
-             *     *bytes*, starting with a zero at offset zero
+             * A 300 KB document in a 768 KiB buffer, where it does not page,
+             * undoes back to the byte. The same document and the same commands
+             * in a 512 KiB buffer, where the *line index* runs out and it
+             * pages, do not. Both windows are far wider than two margins, so
+             * this is nothing to do with the buffer being too small.
              *
-             * So it is not the undo ring dropping its oldest records, which it
-             * does by design and which would come back short rather than
-             * wrong. Something about a window that moves puts the text back in
-             * the wrong place, and it wants its own pass the way the two slide
-             * counters did. To see it: take the `DOCS[d] == paged` skip out
-             * below and run doc 5 seed 1.
+             * What fails is the seek. undo_apply goes to the position a record
+             * names before editing there, and on a paged document that seek
+             * can land somewhere else entirely:
+             *
+             *     want (17095,1) -> landed (17141,0)
+             *     want (1,0)     -> landed (17139,0)
+             *
+             * The undo then edits wherever it ended up. Underneath, the window
+             * has collapsed -- two bytes in memory with the whole document in
+             * the head -- and each slide up brings back a byte or two instead
+             * of a chunk, so tb_seek runs out of the one retry it allows and
+             * gives up. tb_slide_up returns true having moved almost nothing.
+             *
+             * So it is a movement bug that undo is the victim of, and the
+             * thing to look at is why a slide into an emptied window brings
+             * back so little. To see it: take the `DOCS[d] == paged` skip out
+             * below, and for the small reproduction drive 58 commands at seed
+             * 1 against a 300 KB document at 512 KiB and again at 768.
              */
             if (DOCS[d] == paged) {
                 ed_destroy(&ed);
