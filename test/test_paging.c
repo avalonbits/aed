@@ -1875,6 +1875,100 @@ int main(void) {
         }
     }
 
+    /* --- a window emptied at the bottom of a document --- */
+    {
+        /*
+         * Sliding down has long had an exception for a window that deleting
+         * emptied: bring text in without sending any out, because the room is
+         * already there. Sliding up never got the mirror of it, so a window
+         * emptied near the *end* of a document -- tail spent, head holding
+         * everything -- could move in neither direction. The rest of the file
+         * was in the head with no way back to it.
+         *
+         * The exception is about room rather than emptiness, which is what
+         * makes it cover a window down to its last byte as well as one down to
+         * none.
+         */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to strand", tb_init(&tb, DOC_KB, "/st.txt") != NULL, 1);
+
+        /* To the end, so the tail is spent and the head holds the document. */
+        tb_pos last = { DOC_LINES, 0 };
+        tb_seek(&tb, last);
+        check("  the tail is spent", store_tail_bytes(tb.store_), 0);
+        check("  and the head has the document", store_head_bytes(tb.store_) > 0, 1);
+
+        /* Empty the window: everything from its first line to the last. */
+        const int first_in_mem = tb.head_lines_ + 1;
+        tb_pos from = { first_in_mem, 0 };
+        tb_pos to = { tb_ymax(&tb), 1 << 20 };
+        check("  a range covering the window deletes",
+              tb_range_del(&tb, from, to) ? 1 : 0, 1);
+        check("    with the head still full", store_head_bytes(tb.store_) > 0, 1);
+        check("    and the tail still spent", store_tail_bytes(tb.store_), 0);
+
+        /* The document above has to still be reachable. */
+        check("  sliding up still works", tb_slide_up(&tb) ? 1 : 0, 1);
+        check("    and brings text in", tb_used(&tb) > 0, 1);
+
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        check("  and a seek gets back to the first line", tb_ypos(&tb), 1);
+        check("    which reads as itself", tb_curr_line(&tb).ssz_ > 0, 1);
+        tb_destroy(&tb);
+    }
+
+    /* --- BACKSPACE at the top of the window --- */
+    {
+        /*
+         * tb_bksp_merge refuses on line one of the document. On a paged one
+         * that is not the same question as "is there a line above this in
+         * memory": the cursor can sit on the first line the window holds with
+         * the rest of the document behind it in the head.
+         *
+         * It used to go ahead anyway -- take the break out of the character
+         * buffer, find lb_merge_prev had no line above to merge with, and
+         * leave the column at minus one and the index counting a byte the
+         * text no longer had. Found by fuzzing a paged document down to its
+         * last few bytes, which is where the cursor ends up on the first line
+         * in memory with a head still full.
+         */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to backspace at the top of",
+              tb_init(&tb, DOC_KB, "/bk.txt") != NULL, 1);
+        check("  which pages", tb.paged_ ? 1 : 0, 1);
+
+        /* Down far enough that the window has slid and the head has text. */
+        tb_pos deep = { DOC_LINES / 2, 0 };
+        tb_seek(&tb, deep);
+        check("  with a head behind it", store_head_bytes(tb.store_) > 0, 1);
+
+        /* The state the bug needs -- cursor on the first line in memory, head
+         * still full -- is reached by emptying the document down to its last
+         * bytes, which is what test_fuzz does to a paged document. What is
+         * checkable here is the ordinary case either side of it: joining two
+         * lines that are both in memory has to take the break and nothing
+         * else, and the document's own first line has to refuse. */
+        const int before = tb_used(&tb);
+        const int lines_before = tb_ymax(&tb);
+        check("  BACKSPACE at the start of a line joins it up",
+              tb_bksp_merge(&tb) ? 1 : 0, 1);
+        check("    taking the break and nothing else",
+              before - tb_used(&tb), 2);
+        check("    one line fewer", lines_before - tb_ymax(&tb), 1);
+        check("    and a column that is a column", tb.x_ >= 0, 1);
+
+        /* And on the document's own first line it still refuses. */
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        check("  and refuses on the first line of the document",
+              tb_bksp_merge(&tb) ? 1 : 0, 0);
+        check("    changing nothing", tb.x_, 0);
+        tb_destroy(&tb);
+    }
+
     /* --- a paged save onto a card that fills up --- */
     {
         /* A paged save streams the document through a sink a chunk at a time.

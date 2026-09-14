@@ -60,7 +60,7 @@ static unsigned next_rand(void) {
 }
 
 /* The whole document, streamed. */
-static char doc_buf[8192];
+static char doc_buf[32768];
 static int doc_n = 0;
 static bool doc_sink(void* ctx, const char* buf, int sz) {
     (void) ctx;
@@ -171,6 +171,35 @@ static void one_op(editor* ed, unsigned r) {
 int main(void) {
     stub_discard_output();
 
+    /*
+     * A document bigger than the buffer it is opened into, so it pages.
+     *
+     * Built but not yet in the list below, and the reason is worth writing
+     * down: with it, this finds that head_lines_ and tail_lines_ drift on a
+     * paged document. tb_ypos comes out larger than tb_ymax -- the cursor on a
+     * line past the end of the document -- and the index stops adding up to
+     * the buffer. Cutting a selection and undoing are what reach it.
+     *
+     * It is a different thing from anything this file has caught so far, which
+     * were all one buffer disagreeing with the other about a line. These are
+     * the two line counters that say how much of the document is *not* in
+     * memory, and they want their own pass. Put `paged` in DOCS when they have
+     * had one; seeds 1 to 6 at 300 commands into a 4 KiB buffer all reach it.
+     */
+    static char paged[6000];
+    {
+        int at = 0;
+        for (int i = 0; at < (int) sizeof(paged) - 40; i++) {
+            const int len = 1 + (i * 13) % 30;
+            for (int k = 0; k < len; k++) {
+                paged[at++] = (char) ('a' + ((i + k) % 26));
+            }
+            paged[at++] = '\r';
+            paged[at++] = '\n';
+        }
+        paged[at] = 0;
+    }
+
     static const char* DOCS[] = {
         "alpha\r\nbeta\r\ngamma\r\ndelta\r\nepsilon\r\n",
         // Bare line feeds. This is the one that found tb_del_merge deleting
@@ -195,8 +224,9 @@ int main(void) {
             stub_file_reset();
             stub_file_set_content(DOCS[d], (int) strlen(DOCS[d]));
 
+            const int kb = DOCS[d] == paged ? 4 : 8;   /* paged is held out for now */
             static editor ed;
-            if (ed_init(&ed, 8, "/fuzz.txt") == NULL) {
+            if (ed_init(&ed, kb, "/fuzz.txt") == NULL) {
                 fprintf(stderr, "FAIL  editor would not start\n");
 
                 return 1;
@@ -206,6 +236,11 @@ int main(void) {
 
             for (int i = 0; i < ops; i++) {
                 one_op(&ed, next_rand());
+                // What ed_run does after every command and before anything is
+                // repainted. Without it the fuzz reaches states the editor
+                // never has -- a window emptied down to one byte with the rest
+                // of the document still in the store -- and reports them.
+                tb_settle(&ed.buf_);
                 ran++;
                 read_doc(&ed.buf_);     // once, for both checks below
                 if (line_disagrees(&ed.buf_) && line_bad == 0) {
@@ -246,7 +281,7 @@ int main(void) {
             /* Against the original as it streams, not as it was handed in: a
              * range gives back CRLF whatever the document keeps, so a bare
              * feed in the source is two bytes here. */
-            static char want[512];
+            static char want[16384];
             int want_n = 0;
             for (const char* p = DOCS[d]; *p != 0; p++) {
                 if (*p == '\n' && (p == DOCS[d] || p[-1] != '\r')) {
