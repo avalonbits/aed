@@ -867,33 +867,6 @@ static int walk_line_len(text_buffer* tb) {
     return tb->wline_ + 1 >= lb_lines(&tb->lb_) ? sz : sz - eol_len(tb);
 }
 
-/*
- * A walker's position, kept in step with the walk.
- *
- * Both are maintained only for walkers: nothing else reads them, and tb_up and
- * tb_down are the hottest pair in the editor. `woff_` counts from lo_ to the
- * start of the line `wline_` names, so x_ still says where in that line the
- * walker is and the invariant a test can hold them to is
- *
- *     woff_ + x_ == cb_.curr_ - cb_.lo_
- *
- * for as long as the walk is also moving the buffer. Once it stops -- see
- * .internal/docs/WALKER.md -- these are the only record of where it is.
- */
-static void walk_stepped_down(text_buffer* tb, int line_bytes) {
-    if (tb->walker_) {
-        tb->woff_ += line_bytes;
-        tb->wline_++;
-    }
-}
-
-static void walk_stepped_up(text_buffer* tb, int line_bytes) {
-    if (tb->walker_) {
-        tb->woff_ -= line_bytes;
-        tb->wline_--;
-    }
-}
-
 char tb_up(text_buffer* tb) {
     if (tb->walker_) {
         // By number. Nothing moves: the buffers stay exactly as the cursor
@@ -929,7 +902,6 @@ char tb_up(text_buffer* tb) {
     }
 
     const int  sz = lb_csize(&tb->lb_);
-    walk_stepped_up(tb, sz);
     const int maxX = sz - eol_len(tb);
     int back = sz + tb->x_;
     if (maxX < tb->x_) {
@@ -984,9 +956,6 @@ char tb_down(text_buffer* tb) {
             return 0;
         }
     }
-    // `move` is the rest of the line just left, so the whole of it is that
-    // plus the column the walker was standing in.
-    walk_stepped_down(tb, move + tb->x_);
     int cend = lb_csize(&tb->lb_);
     if (!lb_last(&tb->lb_)) {
         cend -= eol_len(tb);
