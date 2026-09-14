@@ -77,6 +77,29 @@ static inline int lb_csize(line_buffer* lb) {
     return *lb->curr_;
 }
 
+/*
+ * The length of line `k`, including its break, without moving the index to get
+ * at it.
+ *
+ * The index is a gap buffer as well, so the lines up to the cursor's own sit
+ * below its gap and the rest sit above it: which side a line is on is what
+ * decides where its length lives. lb_up and lb_down answer the same question by
+ * copying an entry across the gap, which is a write -- fine for the cursor,
+ * and the reason a reader that must not write has to ask this way instead.
+ * See .internal/docs/WALKER.md.
+ */
+static inline int lb_at(const line_buffer* lb, int k) {
+    const int ci = (int) (lb->curr_ - lb->buf_);
+
+    return k <= ci ? lb->buf_[k] : lb->cend_[k - ci - 1];
+}
+
+// How many lines the index is holding. One more than the breaks it counts,
+// because the text after the last break is a line too.
+static inline int lb_lines(const line_buffer* lb) {
+    return lb->size_ - (int) (lb->cend_ - lb->curr_) + 1;
+}
+
 static inline bool lb_up(line_buffer* lb) {
     const bool ok = lb->curr_ > lb->buf_;
     if (ok) {

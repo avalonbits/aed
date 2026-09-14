@@ -2,17 +2,22 @@
  * Host tests for walkers: the read-only copies a repaint, a search and the
  * range operations make with tb_copy.
  *
- * A walker shares the original's buffers. Moving one used to mean moving the
- * gap, which duplicates rather than destroys -- so the cursor that owns the
- * buffer still reads the same bytes, but only while the gap is wider than the
- * distance the walker has travelled. That is what makes prime_spare keep a
- * third of the free space at the cursor, and what stops the buffer shrinking.
+ * A walker shares the original's buffers. It used to move the gap to read --
+ * every tb_down was a cb_next, and a cb_next is a memmove -- which duplicates
+ * rather than destroys, so the cursor that owns the buffer still read the same
+ * bytes. But only while the gap stayed wider than the distance the walker had
+ * travelled. Narrower, and the walker overwrote the document it was reading.
  *
- * These tests hold a walker's position to the arithmetic that replaces the
- * moving: wline_ is the line and woff_ is the byte offset of that line's start
- * from lo_. While the walk is also still moving the buffer, the two have to
- * agree, and that agreement is what says the arithmetic is right before
- * anything depends on it.
+ * That is what forced prime_spare to keep a third of the free space at the
+ * cursor, and what stopped the buffer shrinking. A walker moves by number now:
+ * wline_ is the line and woff_ is the byte offset of its start from lo_, and
+ * the bytes are found rather than brought into place.
+ *
+ * So the tests are about two things. The walker has to read the right bytes,
+ * including for the one line in the buffer that spans the gap and comes back
+ * in two pieces. And the document has to be untouched afterwards, however
+ * narrow the gap was -- which is the failure the whole change is for, and
+ * which is silent.
  *
  * See .internal/docs/WALKER.md.
  */
@@ -38,18 +43,34 @@ static void check(const char* name, int got, int want) {
 }
 
 /*
- * What the walker's numbers claim, against where the buffer actually is.
- *
- * woff_ is the start of the line and x_ is the column within it, so together
- * they are the cursor's distance from lo_ -- which is exactly what the gap
- * sitting at curr_ says while a walk is still moving it. Returns the
- * difference, so a failure prints how far out it was rather than just "1".
+ * The walker's current line as the document has it, whichever way the buffer
+ * split it. A line that spans the gap arrives in two runs, and joining them is
+ * the caller's job -- scr_paint_row, scan_split and scr_glyph_at_split all do
+ * exactly this.
  */
-static int drift(text_buffer* w) {
-    const int by_pointer = (int) (w->cb_.curr_ - w->cb_.lo_);
-    const int by_number = w->woff_ + w->x_;
+static int line_is(text_buffer* w, const char* want) {
+    const split_line ln = tb_curr_line(w);
+    const int wsz = (int) strlen(want);
 
-    return by_number - by_pointer;
+    if (ln.psz_ + ln.ssz_ != wsz) {
+        return 0;
+    }
+    if (ln.psz_ > 0 && memcmp(ln.prefix_, want, (size_t) ln.psz_) != 0) {
+        return 0;
+    }
+    if (ln.ssz_ > 0
+            && memcmp(ln.suffix_, want + ln.psz_, (size_t) ln.ssz_) != 0) {
+        return 0;
+    }
+
+    return 1;
+}
+
+/* Whether the walker's line arrived in two runs rather than one. */
+static int is_split(text_buffer* w) {
+    const split_line ln = tb_curr_line(w);
+
+    return ln.psz_ > 0 && ln.ssz_ > 0;
 }
 
 /* A document of `lines` lines, each `len` bytes of text plus a CRLF. */
@@ -73,12 +94,37 @@ static char* make_doc(int lines, int len, int* size) {
     return doc;
 }
 
+/* The text of line `i` of such a document, without its break. */
+static const char* doc_line(int i, int len) {
+    static char out[128];
+    for (int k = 0; k < len; k++) {
+        out[k] = (char) ('a' + ((i + k) % 26));
+    }
+    out[len] = 0;
+
+    return out;
+}
+
+/* Does the document still say what it said? Saves it and compares the bytes. */
+static int still_says(text_buffer* tb, const char* want, int wsz,
+                      const char* path) {
+    tb_set_fname(tb, path, (int) strlen(path));
+    if (!tb_save(tb)) {
+        return 0;
+    }
+    int got = 0;
+    const char* saved = stub_file_content(path, &got);
+
+    return got == wsz && saved != NULL
+        && memcmp(saved, want, (size_t) wsz) == 0;
+}
+
 int main(void) {
     stub_discard_output();
 
     static text_buffer tb;
 
-    /* --- a walker's numbers say where it is --- */
+    /* --- a walker reads every line, wherever the gap is --- */
     {
         #define LINES 60
         #define LEN   20
@@ -93,141 +139,156 @@ int main(void) {
         stub_file_set_content(doc, size);
         check("a document to walk", tb_init(&tb, 16, "/walk.txt") != NULL, 1);
 
-        /* From the middle, so there is buffer on both sides of the cursor and
-         * the walk crosses it in both directions. */
-        tb_pos mid = { LINES / 2, 0 };
+        /* The cursor in the middle, so the gap is in the middle: the walker
+         * starts below it, crosses it, and ends above it. */
+        tb_pos mid = { LINES / 2, 7 };
         tb_seek(&tb, mid);
 
         text_buffer w;
         tb_copy(&w, &tb);
         check("a walker starts on the line the cursor is on",
-              w.wline_ + 1, tb_ypos(&tb));
-        check("  and its offset is where the buffer says it is", drift(&w), 0);
+              tb_ypos(&w), tb_ypos(&tb));
+        tb_pos top = { 1, 0 };
+        tb_seek(&w, top);
+        check("  and can be sent to the top of the window", tb_ypos(&w), 1);
 
-        /* Down to the end of the document, one line at a time. */
-        int worst = 0;
-        int steps = 0;
-        while (tb_ypos(&w) < LINES) {
-            const int before = tb_ypos(&w);
-            tb_down(&w);
-            if (tb_ypos(&w) == before) {
+        int wrong = 0;
+        int splits = 0;
+        for (int n = 1; n <= LINES; n++) {
+            if (!line_is(&w, doc_line(n - 1, LEN))) {
+                wrong = n;
                 break;
             }
-            steps++;
-            const int d = drift(&w);
-            if (d != 0 && worst == 0) {
-                worst = d;
+            splits += is_split(&w);
+            if (n < LINES) {
+                tb_down(&w);
             }
         }
-        check("  it steps down the rest of the document", steps, LINES / 2);
-        check("    and its numbers keep up the whole way", worst, 0);
+        check("  every line of the document reads as itself", wrong, 0);
+        check("    with exactly one of them split across the gap", splits, 1);
+        check("  ending on the last line", tb_ypos(&w), LINES);
 
-        /* And back up to the top. */
-        worst = 0;
-        steps = 0;
-        while (tb_ypos(&w) > 1) {
-            const int before = tb_ypos(&w);
-            tb_up(&w);
-            if (tb_ypos(&w) == before) {
+        /* And back up, which reads the same lines in the other order. */
+        wrong = 0;
+        for (int n = LINES; n >= 1; n--) {
+            if (!line_is(&w, doc_line(n - 1, LEN))) {
+                wrong = n;
                 break;
             }
-            steps++;
-            const int d = drift(&w);
-            if (d != 0 && worst == 0) {
-                worst = d;
+            if (n > 1) {
+                tb_up(&w);
             }
         }
-        check("  and back up to the first line", steps, LINES - 1);
-        check("    with its numbers still keeping up", worst, 0);
-        check("  landing on line one", w.wline_, 0);
-        check("    at offset zero", w.woff_, 0);
+        check("  and every line again walking back up", wrong, 0);
+
+        check("  without moving the cursor it came from",
+              tb_ypos(&tb), LINES / 2);
+        check("    or its column", tb.x_, 7);
+        check("  and the document is byte for byte what it was",
+              still_says(&tb, doc, size, "/out.txt"), 1);
 
         tb_destroy(&tb);
         free(doc);
     }
 
-    /* --- a column is not a line --- */
+    /* --- the line that spans the gap --- */
     {
-        /* woff_ is the start of the line, so moving along a line must leave it
-         * alone and moving between lines must not lose the column. Getting
-         * these two mixed up is the arithmetic error that the walk above
-         * cannot catch, because it only ever sits in column zero. */
+        /* One line in the buffer has the gap inside it: the one the cursor is
+         * on. Everything that reads a walker's line has to take it in two
+         * pieces, and the pieces have to be the line in order. */
         int size = 0;
-        char* doc = make_doc(10, 20, &size);
+        char* doc = make_doc(10, 26, &size);
         stub_file_reset();
         stub_file_set_content(doc, size);
-        check("a document to walk along", tb_init(&tb, 16, "/cols.txt") != NULL, 1);
-        tb_pos at = { 5, 7 };
+        check("a document with the cursor mid-line",
+              tb_init(&tb, 16, "/split.txt") != NULL, 1);
+        tb_pos at = { 4, 13 };
         tb_seek(&tb, at);
 
         text_buffer w;
         tb_copy(&w, &tb);
-        check("a walker inherits the column", w.x_, 7);
-        check("  and its numbers agree there too", drift(&w), 0);
-        const int line_start = w.woff_;
+        check("the walker's own line is the split one", is_split(&w), 1);
 
-        tb_end(&w);
-        check("  to the end of the line", w.x_, 20);
-        check("    without moving the line it is on", w.woff_, line_start);
-        check("    and still agreeing", drift(&w), 0);
+        const split_line ln = tb_curr_line(&w);
+        check("  cut where the cursor is", ln.psz_, 13);
+        check("    with the rest after it", ln.ssz_, 13);
+        check("  and the two halves are the line", line_is(&w, doc_line(3, 26)), 1);
 
-        tb_home(&w);
-        check("  and home again", w.x_, 0);
-        check("    same line", w.woff_, line_start);
-        check("    still agreeing", drift(&w), 0);
+        /* Its neighbours are whole. */
+        tb_up(&w);
+        check("  the line above is in one piece", is_split(&w), 0);
+        check("    and reads right", line_is(&w, doc_line(2, 26)), 1);
+        tb_down(&w);
+        tb_down(&w);
+        check("  the line below is too", is_split(&w), 0);
+        check("    and reads right", line_is(&w, doc_line(4, 26)), 1);
 
         tb_destroy(&tb);
         free(doc);
     }
 
-    /* --- walking down from a column that is not zero --- */
+    /* --- a gap narrower than the walk --- */
     {
-        /* tb_down measures the rest of the line it is leaving, so the line's
-         * whole length is that plus the column the walker was standing in.
-         * Dropping the column is invisible from column zero, which is where
-         * every repaint starts -- and wrong by x_ for every line after the
-         * first anywhere else. */
+        /*
+         * The failure this change exists to remove.
+         *
+         * A walker used to read by moving the gap, which leaves the bytes it
+         * passed behind it -- so the owner still saw them, until the walker's
+         * writes reached where the owner's cend_ pointed. Past that the
+         * document was overwritten with a copy of itself shifted along, and
+         * nothing said so: the repaint looked plausible and the file saved
+         * wrong.
+         *
+         * A buffer filled to within a few dozen bytes of full has a gap that
+         * small, and walking twenty lines of forty bytes travels eight hundred.
+         * Before the walker stopped moving the gap this corrupted the document
+         * outright. It must now not touch it.
+         */
+        #define TIGHT_LINES 20
+        #define TIGHT_LEN   40
         int size = 0;
-        char* doc = make_doc(20, 30, &size);
+        char* doc = make_doc(TIGHT_LINES, TIGHT_LEN, &size);
         stub_file_reset();
         stub_file_set_content(doc, size);
-        check("a document to walk down the middle of",
-              tb_init(&tb, 16, "/mid.txt") != NULL, 1);
-        tb_pos at = { 3, 11 };
-        tb_seek(&tb, at);
+        /* One kilobyte of buffer against 840 bytes of document. */
+        check("a document that nearly fills its buffer",
+              tb_init(&tb, 1, "/tight.txt") != NULL, 1);
+        check("  really nearly", tb_available(&tb) < 200 ? 1 : 0, 1);
+
+        tb_pos mid = { TIGHT_LINES / 2, 0 };
+        tb_seek(&tb, mid);
+        const int gap_was = tb_available(&tb);
+        const int walk = TIGHT_LINES * (TIGHT_LEN + 2);
+        check("  with a gap narrower than the walk about to happen",
+              gap_was < walk ? 1 : 0, 1);
 
         text_buffer w;
         tb_copy(&w, &tb);
-        check("a walker starting in column eleven", w.x_, 11);
-
-        int worst = 0;
-        int steps = 0;
-        while (tb_ypos(&w) < 20) {
-            const int before = tb_ypos(&w);
-            tb_down(&w);
-            if (tb_ypos(&w) == before) {
+        tb_pos top = { 1, 0 };
+        tb_seek(&w, top);
+        int wrong = 0;
+        for (int n = 1; n <= TIGHT_LINES; n++) {
+            if (!line_is(&w, doc_line(n - 1, TIGHT_LEN))) {
+                wrong = n;
                 break;
             }
-            steps++;
-            if (drift(&w) != 0 && worst == 0) {
-                worst = drift(&w);
+            if (n < TIGHT_LINES) {
+                tb_down(&w);
             }
         }
-        check("  walks down without losing its place", steps, 17);
-        check("    and its numbers keep up", worst, 0);
-        check("  still in column eleven at the bottom", w.x_, 11);
+        check("  the walk reads every line correctly", wrong, 0);
+        check("  and the document is untouched afterwards",
+              still_says(&tb, doc, size, "/tight.out"), 1);
 
         tb_destroy(&tb);
         free(doc);
     }
 
-    /* --- a buffer whose text does not start at the allocation --- */
+    /* --- a walker stops at the window, and says so --- */
     {
-        /* lo_ is where the live bytes start, and it is only the same as buf_
-         * while nothing has slid. A walker's offset is measured from lo_, so a
-         * copy that measures from buf_ agrees with the pointers on every
-         * document that fits in memory and is wrong by the free space below
-         * lo_ on every one that does not. */
+        /* A walker may not slide, so the ends of the window are the ends of
+         * what it can reach. Stepping past one has to stop rather than run on
+         * into whatever the index holds next. */
         #define PAGED_LINES 4000
         #define PAGED_LEN   40
         static char big[PAGED_LINES * PAGED_LEN + 1];
@@ -243,8 +304,6 @@ int main(void) {
         check("a paged document", tb_init(&tb, 64, "/paged.txt") != NULL, 1);
         check("  really pages", tb.paged_ ? 1 : 0, 1);
 
-        /* Far enough down that the window has slid and left free space below
-         * the live text, which is the whole point of this case. */
         tb_pos deep = { PAGED_LINES / 2, 0 };
         tb_seek(&tb, deep);
         check("  with its text away from the start of the buffer",
@@ -252,52 +311,91 @@ int main(void) {
 
         text_buffer w;
         tb_copy(&w, &tb);
-        check("  a walker still lands on the right byte", drift(&w), 0);
+        check("  a walker starts where the cursor is",
+              tb_ypos(&w), tb_ypos(&tb));
+        check("    reading its line", line_is(&w, doc_line(PAGED_LINES / 2 - 1,
+                                                          PAGED_LEN - 2)), 1);
 
-        int worst = 0;
-        for (int i = 0; i < 40; i++) {
-            tb_down(&w);
-            if (drift(&w) != 0 && worst == 0) {
-                worst = drift(&w);
-            }
-        }
-        check("    and stays on it walking down", worst, 0);
-        for (int i = 0; i < 80; i++) {
+        /* Up until it will go no further, which is the top of the window. */
+        int at = tb_ypos(&w);
+        int steps = 0;
+        while (steps < PAGED_LINES) {
             tb_up(&w);
-            if (drift(&w) != 0 && worst == 0) {
-                worst = drift(&w);
+            if (tb_ypos(&w) == at) {
+                break;
             }
+            at = tb_ypos(&w);
+            steps++;
         }
-        check("    and walking back up past where it started", worst, 0);
+        check("  it stops going up", steps < PAGED_LINES ? 1 : 0, 1);
+        check("    inside the window rather than at the document's top",
+              at > 1 ? 1 : 0, 1);
+        check("    still reading the line it stopped on",
+              line_is(&w, doc_line(at - 1, PAGED_LEN - 2)), 1);
+        check("  without having moved the cursor",
+              tb_ypos(&tb), PAGED_LINES / 2);
+
+        /* And down to the far end of the window. */
+        steps = 0;
+        while (steps < PAGED_LINES) {
+            tb_down(&w);
+            if (tb_ypos(&w) == at) {
+                break;
+            }
+            at = tb_ypos(&w);
+            steps++;
+        }
+        check("  it stops going down too", steps < PAGED_LINES ? 1 : 0, 1);
+
+        /* And it stops on an empty line, which is right and worth pinning.
+         * The last entry in the index is the line that carries on past memory:
+         * the rest of its text is still in the tail, so what memory holds of
+         * it is nothing at all. The cursor never rests there because tb_settle
+         * moves it on, and a walker cannot settle -- so this is the one place
+         * a walker sees a line the document does not have. Measured identical
+         * before and after a walker stopped moving the gap. */
+        check("    on the line that carries on past memory",
+              line_is(&w, ""), 1);
+        tb_up(&w);
+        check("    with the last whole line right above it",
+              line_is(&w, doc_line(at - 2, PAGED_LEN - 2)), 1);
+        check("  and the window has not moved under it",
+              tb_ypos(&tb), PAGED_LINES / 2);
 
         tb_destroy(&tb);
     }
 
-    /* --- the owner is where the walker started --- */
+    /* --- a column is not a line --- */
     {
-        /* tb_copy reads the owner's position out of its pointers. A walker
-         * seeded from a cursor sitting mid-line has to account for the column,
-         * or every line it reads afterwards is x_ bytes out. */
+        /* woff_ is the start of the line and x_ is where in it the walker is.
+         * Moving along a line must leave the line alone, and moving between
+         * lines must keep the column where it can. */
         int size = 0;
         char* doc = make_doc(10, 20, &size);
         stub_file_reset();
         stub_file_set_content(doc, size);
-        tb_init(&tb, 16, "/seed.txt");
+        check("a document to walk along", tb_init(&tb, 16, "/cols.txt") != NULL, 1);
+        tb_pos at = { 5, 7 };
+        tb_seek(&tb, at);
 
-        int wrong = 0;
-        for (int line = 1; line <= 10 && wrong == 0; line++) {
-            for (int x = 0; x <= 20; x += 5) {
-                tb_pos p = { line, x };
-                tb_seek(&tb, p);
-                text_buffer w;
-                tb_copy(&w, &tb);
-                if (drift(&w) != 0 || w.wline_ + 1 != tb_ypos(&tb)) {
-                    wrong = line * 100 + x;
-                    break;
-                }
-            }
-        }
-        check("a walker seeded from anywhere lands on the same byte", wrong, 0);
+        text_buffer w;
+        tb_copy(&w, &tb);
+        check("a walker inherits the column", w.x_, 7);
+        check("  reading its whole line even so",
+              line_is(&w, doc_line(4, 20)), 1);
+
+        tb_end(&w);
+        check("  to the end of the line", w.x_, 20);
+        check("    without changing the line it is on",
+              line_is(&w, doc_line(4, 20)), 1);
+
+        tb_home(&w);
+        check("  and home again", w.x_, 0);
+        check("    same line", line_is(&w, doc_line(4, 20)), 1);
+
+        tb_down(&w);
+        check("  a step down is the next line", tb_ypos(&w), 6);
+        check("    read in full", line_is(&w, doc_line(5, 20)), 1);
 
         tb_destroy(&tb);
         free(doc);

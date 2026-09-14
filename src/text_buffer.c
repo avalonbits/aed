@@ -808,6 +808,66 @@ char tb_w_prev(text_buffer* tb, char from_ch) {
 }
 
 /*
+ * A walker's line, and the bytes of it.
+ *
+ * walk_bytes maps a run of the document onto the buffer. The live text is two
+ * runs, [lo_, curr_) and [cend_, hi_), and a document offset lands in one of
+ * them; a run that spans the boundary between them is the only one that comes
+ * back in two pieces, and at most one line in the buffer does.
+ *
+ * A single run is reported as the *suffix* with an empty prefix, which is the
+ * shape every single-run caller already reads -- scr_paint_row and the rest
+ * take a pair and an empty first half.
+ */
+static void walk_bytes(text_buffer* tb, int from, int n,
+                       char** pre, int* psz, char** suf, int* ssz) {
+    char_buffer* cb = &tb->cb_;
+    const int split = (int) (cb->curr_ - cb->lo_);
+
+    *pre = NULL;
+    *psz = 0;
+    *suf = NULL;
+    *ssz = 0;
+    if (n <= 0 || from < 0) {
+        return;
+    }
+    // Never past the live text. The byte after the last one is a position the
+    // cursor can legitimately be in -- the end of the last line -- and reading
+    // it is reading off the allocation, which is what cb_peek guards too.
+    const int used = split + (int) (cb->hi_ - cb->cend_);
+    if (from >= used) {
+        return;
+    }
+    if (from + n > used) {
+        n = used - from;
+    }
+    if (from >= split) {                // wholly above the gap
+        *suf = cb->cend_ + (from - split);
+        *ssz = n;
+
+        return;
+    }
+    if (from + n <= split) {            // wholly below it
+        *suf = cb->lo_ + from;
+        *ssz = n;
+
+        return;
+    }
+    *pre = cb->lo_ + from;              // the one line that spans it
+    *psz = split - from;
+    *suf = cb->cend_;
+    *ssz = n - *psz;
+}
+
+// The text of a walker's line, without the break. lb_at reads the length out
+// of the index by number; the last line in the buffer has no break to take off.
+static int walk_line_len(text_buffer* tb) {
+    const int sz = lb_at(&tb->lb_, tb->wline_);
+
+    return tb->wline_ + 1 >= lb_lines(&tb->lb_) ? sz : sz - eol_len(tb);
+}
+
+/*
  * A walker's position, kept in step with the walk.
  *
  * Both are maintained only for walkers: nothing else reads them, and tb_up and
@@ -835,6 +895,22 @@ static void walk_stepped_up(text_buffer* tb, int line_bytes) {
 }
 
 char tb_up(text_buffer* tb) {
+    if (tb->walker_) {
+        // By number. Nothing moves: the buffers stay exactly as the cursor
+        // that owns them left them, which is what lets the gap be whatever
+        // size prime_spare finds convenient rather than wider than a screen.
+        if (tb->wline_ <= 0) {
+            return 0;       // the top of the window, which a walker may not pass
+        }
+        tb->wline_--;
+        tb->woff_ -= lb_at(&tb->lb_, tb->wline_);
+        const int maxX = walk_line_len(tb);
+        if (tb->x_ > maxX) {
+            tb->x_ = maxX;
+        }
+
+        return tb_peek(tb);
+    }
     if (!lb_up(&tb->lb_)) {
         // The top of the *window*, which on a paged document is not the top of
         // the document. Settling brings the chunk above it in.
@@ -881,6 +957,19 @@ char tb_up(text_buffer* tb) {
 }
 
 char tb_down(text_buffer* tb) {
+    if (tb->walker_) {
+        if (tb->wline_ + 1 >= lb_lines(&tb->lb_)) {
+            return 0;       // the bottom of the window; see tb_up
+        }
+        tb->woff_ += lb_at(&tb->lb_, tb->wline_);
+        tb->wline_++;
+        const int maxX = walk_line_len(tb);
+        if (tb->x_ > maxX) {
+            tb->x_ = maxX;
+        }
+
+        return tb_peek(tb);
+    }
     int move = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_down(&tb->lb_)) {
         // The bottom of the window. See tb_up: settling is what gets past it,
@@ -915,6 +1004,11 @@ char tb_down(text_buffer* tb) {
 }
 
 char tb_home(text_buffer* tb) {
+    if (tb->walker_) {
+        tb->x_ = 0;
+
+        return tb_peek(tb);
+    }
     const int back = tb->x_;
     tb->x_ = 0;
     return cb_prev(&tb->cb_, back);
@@ -923,6 +1017,12 @@ char tb_home(text_buffer* tb) {
 char tb_goto_offset(text_buffer* tb, int off) {
     if (off < 0) {
         off = 0;
+    }
+    if (tb->walker_) {
+        const int maxX = walk_line_len(tb);
+        tb->x_ = off > maxX ? maxX : off;
+
+        return tb_peek(tb);
     }
     if (off < tb->x_) {
         cb_prev(&tb->cb_, tb->x_ - off);
@@ -935,6 +1035,11 @@ char tb_goto_offset(text_buffer* tb, int off) {
 }
 
 char tb_end(text_buffer* tb) {
+    if (tb->walker_) {
+        tb->x_ = walk_line_len(tb);
+
+        return 0;
+    }
     char ch = cb_peek(&tb->cb_);
     while (!IS_EOL(ch)) {
         ch = cb_next(&tb->cb_, 1);
@@ -955,7 +1060,8 @@ static int mem_lines(text_buffer* tb) {
 }
 
 int tb_ypos(text_buffer* tb) {
-    return tb->head_lines_ + lb_curr(&tb->lb_) + 1;
+    return tb->head_lines_
+        + (tb->walker_ ? tb->wline_ : lb_curr(&tb->lb_)) + 1;
 }
 
 int tb_ymax(text_buffer* tb) {
@@ -1420,6 +1526,9 @@ void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
 
 // The line's text, not counting the CRLF that ends it. The last line has none.
 static int line_len(text_buffer* tb) {
+    if (tb->walker_) {
+        return walk_line_len(tb);
+    }
     const int sz = lb_csize(&tb->lb_);
 
     return lb_last(&tb->lb_) ? sz : sz - eol_len(tb);
@@ -1963,10 +2072,29 @@ void tb_set_undo(text_buffer* tb, undo* u) {
 
 // Char read.
 char tb_peek(text_buffer* tb) {
+    if (tb->walker_) {
+        char* pre = NULL;
+        char* suf = NULL;
+        int psz = 0;
+        int ssz = 0;
+        // One byte, so it is never the run that spans the gap.
+        walk_bytes(tb, tb->woff_ + tb->x_, 1, &pre, &psz, &suf, &ssz);
+
+        return ssz > 0 ? *suf : 0;
+    }
     return cb_peek(&tb->cb_);
 }
 
 char* tb_prefix(text_buffer* tb, int* sz) {
+    if (tb->walker_) {
+        // A walker's line sits where the owner's gap left it, so the bytes
+        // before its column can be two runs and there is no one pointer to
+        // give. tb_curr_line is what reads a walker's line; nothing asks a
+        // walker for half of one.
+        *sz = 0;
+
+        return NULL;
+    }
     int psz = 0;
     char* prefix = cb_prefix(&tb->cb_, &psz);
     if (prefix == NULL) {
@@ -1978,6 +2106,11 @@ char* tb_prefix(text_buffer* tb, int* sz) {
 }
 
 char* tb_suffix(text_buffer* tb, int* sz) {
+    if (tb->walker_) {
+        *sz = 0;        // see tb_prefix
+
+        return NULL;
+    }
     char* suffix = cb_suffix(&tb->cb_, sz);
     if (suffix == NULL) {
         return NULL;
@@ -1993,6 +2126,17 @@ char* tb_suffix(text_buffer* tb, int* sz) {
 split_line tb_curr_line(text_buffer* tb) {
     split_line ln;
 
+    if (tb->walker_) {
+        // The whole line, in the one or two runs the buffer is holding it in.
+        // For the cursor the two happen to be "before" and "after" it, because
+        // the gap is where the cursor is; for a walker they are wherever the
+        // owner's gap falls, which is a different split of the same bytes and
+        // the same thing to paint.
+        walk_bytes(tb, tb->woff_, walk_line_len(tb),
+                   &ln.prefix_, &ln.psz_, &ln.suffix_, &ln.ssz_);
+
+        return ln;
+    }
     ln.prefix_ = tb_prefix(tb, &ln.psz_);
     ln.suffix_ = tb_suffix(tb, &ln.ssz_);
     return ln;

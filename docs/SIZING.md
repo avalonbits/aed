@@ -6,7 +6,7 @@ was picked against a measurement rather than a guess:
 | | where | value |
 |---|---|---|
 | how much RAM a document gets | [`main.c`](../src/main.c#L32) | 256 |
-| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1109) | a quarter |
+| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1215) | a quarter |
 | how far a slide moves | [`TB_CHUNK`](../src/text_buffer.h#L51) | 2 KiB |
 | how close the cursor may get to an end | [`TB_MARGIN`](../src/text_buffer.h#L52) | 16 KiB |
 
@@ -108,7 +108,7 @@ described in `DESIGN.md` section 3 is why it does not.
 
 The 64 KiB row is worse than slow. After the arrow walk, a seek from line 7509
 back to line 1 left the cursor on 7509. Its window holds 47,602 bytes against
-`2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer.c#L1050) has
+`2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer.c#L1156) has
 almost no room to work in and gives up. The same row seeked correctly in a run
 without the arrow walk first, which makes it a state-dependent failure.
 
@@ -240,7 +240,7 @@ runs from `lo_` to `curr_`, the suffix from `cend_` to `hi_`, and at most one
 line straddles the boundary between them.
 [`split_line`](../src/text_buffer.h#L190) already hands a line back in two
 pieces, which is exactly what that one line needs.
-[`tb_copy`](../src/text_buffer.c#L1922) already marks a copy as read-only, and
+[`tb_copy`](../src/text_buffer.c#L2031) already marks a copy as read-only, and
 every mutator already refuses on that flag, so the walker is a distinct enough
 thing to give a different implementation to.
 
