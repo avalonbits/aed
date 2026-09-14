@@ -44,6 +44,16 @@ static void check_bytes(const char* name, const char* got, int gotsz,
     }
 }
 
+static int doc_line_is(text_buffer* tb, int line, const char* want) {
+    const tb_pos p = { line, 0 };
+    tb_seek(tb, p);
+    int sz = 0;
+    const char* s = tb_suffix(tb, &sz);
+    const int wsz = (int) strlen(want);
+
+    return sz == wsz && (wsz == 0 || (s != NULL && memcmp(s, want, (size_t) wsz) == 0));
+}
+
 int main(void) {
     stub_discard_output();
 
@@ -138,10 +148,19 @@ int main(void) {
     }
     free(exact);
 
-    /* A file that exactly fills the buffer and is all bare LFs passes the size
-     * check, then has no room for a single normalising CR. ensure_newline must
-     * not record line boundaries it cannot represent as CRLF: doing so would
-     * leave tb_suffix and tb_up subtracting 2 from lines that are 1 byte long. */
+    /* A file that exactly fills the buffer and is all bare LFs.
+     *
+     * This used to be a file AED could not represent. Every break was turned
+     * into a CRLF on the way in, so a file already filling the buffer had no
+     * room for a single one of the added carriage returns -- and recording the
+     * line boundaries anyway would have left tb_suffix and tb_up subtracting
+     * two from lines that were one byte long. It loaded as a single 992 byte
+     * line, which is the whole document unreachable.
+     *
+     * A document keeps its own break length now, so this one is stored exactly
+     * as it arrived and nothing has to fit that was not already there. It has
+     * more lines than the index has slots, so it pages -- and pages correctly,
+     * giving every line back and saving byte for byte. */
     stub_file_reset();
     char* lfs = malloc(cap);
     if (lfs == NULL) {
@@ -154,11 +173,82 @@ int main(void) {
     const int loaded = tb_init(&tb, 1, "lfs.txt") != NULL;
     check("all-LF file at capacity still loads", loaded, 1);
     if (loaded) {
-        check("no CRLF room -> no line boundaries recorded", tb_ymax(&tb), 1);
-        check("buffer is full", tb_available(&tb), 0);
+        check("  with every one of its lines", tb_ymax(&tb), cap + 1);
+        check("  and its breaks kept as they were, one byte each", tb.elen_, 1);
+        check("  clean, because nothing was changed", tb_changed(&tb) ? 1 : 0, 0);
+
+        /* And it goes back out as it came in. */
+        tb_set_fname(&tb, "/lfs.out", 8);
+        check("  saving it works", tb_save(&tb) ? 1 : 0, 1);
+        int saved_len = 0;
+        const char* saved = stub_file_content("/lfs.out", &saved_len);
+        check("    giving back every byte", saved_len, cap);
+        check("      unchanged",
+              saved != NULL && memcmp(saved, lfs, (size_t) cap) == 0, 1);
         tb_destroy(&tb);
     }
     free(lfs);
+
+    /* --- a document keeps the breaks it arrived with --- */
+    {
+        /* Nothing is converted on the way in or back on the way out. The line
+         * index carries one break length for the whole document, so a file of
+         * one kind is held as it is, and only a file with both has to be
+         * normalised -- which is the one case that still opens dirty, because
+         * saving really does rewrite it. */
+        static const char lf_doc[] = "alpha\nbeta\ngamma\n";
+        static const char crlf_doc[] = "alpha\r\nbeta\r\ngamma\r\n";
+        static const char mixed_doc[] = "alpha\r\nbeta\ngamma\r\n";
+
+        stub_file_reset();
+        stub_file_set_content(lf_doc, (int) sizeof(lf_doc) - 1);
+        check("a document of bare line feeds", tb_init(&tb, 4, "lf.txt") != NULL, 1);
+        check("  is held one byte to a break", tb.elen_, 1);
+        check("  and counted as three lines and the empty one", tb_ymax(&tb), 4);
+        check("  reading the second", doc_line_is(&tb, 2, "beta"), 1);
+        check("  clean on open", tb_changed(&tb) ? 1 : 0, 0);
+        tb_destroy(&tb);
+
+        stub_file_reset();
+        stub_file_set_content(crlf_doc, (int) sizeof(crlf_doc) - 1);
+        check("a document of CRLF", tb_init(&tb, 4, "crlf.txt") != NULL, 1);
+        check("  is held two bytes to a break", tb.elen_, 2);
+        check("  with the same lines", tb_ymax(&tb), 4);
+        check("  reading the second", doc_line_is(&tb, 2, "beta"), 1);
+        check("  clean on open", tb_changed(&tb) ? 1 : 0, 0);
+        tb_destroy(&tb);
+
+        stub_file_reset();
+        stub_file_set_content(mixed_doc, (int) sizeof(mixed_doc) - 1);
+        check("a document of both kinds", tb_init(&tb, 4, "mixed.txt") != NULL, 1);
+        check("  is normalised to CRLF", tb.elen_, 2);
+        check("  with the lines it had", tb_ymax(&tb), 4);
+        check("  reading the second", doc_line_is(&tb, 2, "beta"), 1);
+        check("  and dirty, because saving will rewrite it",
+              tb_changed(&tb) ? 1 : 0, 1);
+        tb_destroy(&tb);
+
+        /* Typing into a bare-LF document adds a bare-LF break, so it stays one
+         * kind all the way through. */
+        stub_file_reset();
+        stub_file_set_content(lf_doc, (int) sizeof(lf_doc) - 1);
+        check("a bare-LF document to type into", tb_init(&tb, 4, "lf.txt") != NULL, 1);
+        tb_pos at = { 2, 4 };
+        tb_seek(&tb, at);
+        check("  a new line splits it", tb_newline(&tb) ? 1 : 0, 1);
+        check("    giving one more line", tb_ymax(&tb), 5);
+        check("    and the halves read right",
+              doc_line_is(&tb, 2, "beta") && doc_line_is(&tb, 3, ""), 1);
+        tb_set_fname(&tb, "/typed.out", 10);
+        check("  saving it works", tb_save(&tb) ? 1 : 0, 1);
+        int tlen = 0;
+        const char* tsaved = stub_file_content("/typed.out", &tlen);
+        check("    and it is still bare line feeds", tlen,
+              (int) sizeof(lf_doc) - 1 + 1);
+        check("      with no carriage return anywhere",
+              tsaved != NULL && memchr(tsaved, '\r', (size_t) tlen) == NULL, 1);
+        tb_destroy(&tb);
+    }
 
     /* Line endings survive the round trip.
      *

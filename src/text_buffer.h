@@ -23,14 +23,6 @@
 #include "doc_store.h"
 #include "line_buffer.h"
 
-// Line ending the document came in with, and the one it goes back out as. The
-// buffer itself is always CRLF -- every consumer of the line index subtracts 2
-// for a break -- so this is purely about what reaches the file.
-typedef enum _tb_eol_style {
-    TB_EOL_CRLF = 0,
-    TB_EOL_LF,
-} tb_eol_style;
-
 // The undo log, if one is attached. Defined in undo.h, which includes this
 // header for tb_pos -- so the pointer is opaque here and the dependency only
 // runs one way.
@@ -64,7 +56,6 @@ typedef struct _text_buffer {
     line_buffer lb_;
     int x_;
     bool dirty_;
-    tb_eol_style eol_;
 
     // How many bytes a line break occupies *in the buffer*: two for CRLF, one
     // for a bare line feed. The line index stores each line's length including

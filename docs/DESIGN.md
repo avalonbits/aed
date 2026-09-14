@@ -141,13 +141,16 @@ against the buffer, and every 2 KB slide moved a quarter of a megabyte.
 *length of each line*, gap at the cursor's line, so a line number is a count of
 entries rather than a scan for line feeds.
 
-Both carry the CRLF in the length. `line_len` subtracts the two, except on the
+Both carry the line break in the length. `line_len` subtracts it, except on the
 last line of the document, which has no break after it.
 
-**Every break in the document is a CRLF**, whatever the file had. The loader
-converts on the way in, everything else goes through `tb_newline`, and
-[`tb_save`](../src/text_buffer.c#L2712) converts back on the way out when the
-file arrived with bare line feeds. Several things depend on that invariant.
+**Every break in a document is the same length**, and the document says which:
+[`elen_`](../src/text_buffer.h#L69) is 2 for a file of CRLFs and 1 for a file of
+bare line feeds. Every piece of line arithmetic subtracts that, and `tb_newline`
+writes it. A file whose breaks are all of one kind is held exactly as it
+arrived, so saving it gives the file back byte for byte and no conversion
+happens at either end. A file with both kinds is normalised to CRLF on the way
+in, which is the one case that costs a pass and the one case that opens dirty.
 
 Both buffers have the same four ends — take and give, at the front and at the
 back — which is what section 4 slides a window with. On the character buffer
@@ -191,15 +194,15 @@ push and pop, at each end — plus reads for saving.
 memory, which is the property the whole design rests on: the store never has to
 find anything, only hand back what it was given last.
 
-The window moves in [`TB_CHUNK`](../src/text_buffer.h#L59) of 2 KB, whole lines
-only, driven by [`TB_MARGIN`](../src/text_buffer.h#L60) of 16 KB either side.
-[`tb_settle()`](../src/text_buffer.c#L916) notices a margin has been crossed and
-slides until it has not: [`tb_slide_down()`](../src/text_buffer.c#L1085) sends
+The window moves in [`TB_CHUNK`](../src/text_buffer.h#L51) of 2 KB, whole lines
+only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
+[`tb_settle()`](../src/text_buffer.c#L915) notices a margin has been crossed and
+slides until it has not: [`tb_slide_down()`](../src/text_buffer.c#L1084) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer.c#L1188) is the exact reverse.
+[`tb_slide_up()`](../src/text_buffer.c#L1187) is the exact reverse.
 
 Everything that moves the cursor settles —
-[`tb_seek`](../src/text_buffer.c#L1313), and `tb_up` and `tb_down` too, so the
+[`tb_seek`](../src/text_buffer.c#L1312), and `tb_up` and `tb_down` too, so the
 arrow keys and page up and down reach the whole document rather than the window.
 A read-only copy is the exception, for the reason section 5 gives.
 
@@ -217,9 +220,9 @@ than a millisecond for the 2 KB it actually moves.
 
 Its longest line, rather than its size: a slide moves whole lines, so a line
 longer than the window can never be brought in.
-[`tb_open`](../src/text_buffer.c#L2335) reads the front of the file and refuses
+[`tb_open`](../src/text_buffer.c#L2410) reads the front of the file and refuses
 before discarding what is on screen, and
-[`tb_load`](../src/text_buffer.c#L2205) has nothing to lose so it catches the
+[`tb_load`](../src/text_buffer.c#L2281) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
 unreachable document rather than an open one.
 
@@ -236,7 +239,7 @@ the window under the cursor that owns it would turn a repaint into a scroll.
 Painting uses walkers, and painting only ever wants what is on screen.
 
 Everything else that has to see text outside the window **streams the document**.
-[`doc_stream()`](../src/text_buffer.c#L2606) walks HEAD, then memory, then what
+[`doc_stream()`](../src/text_buffer.c#L2551) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 
@@ -244,10 +247,10 @@ Four callers:
 
 | | |
 |---|---|
-| saving | a converting sink puts the line endings back |
-| [`tb_find`](../src/text_buffer.c#L600) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
-| [`tb_range_size`](../src/text_buffer.c#L1582) | counts the bytes in a range |
-| [`tb_range_walk`](../src/text_buffer.c#L1611) | feeds them somewhere |
+| saving | the sink writes what it is given, breaks and all |
+| [`tb_find`](../src/text_buffer.c#L599) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
+| [`tb_range_size`](../src/text_buffer.c#L1581) | counts the bytes in a range |
+| [`tb_range_walk`](../src/text_buffer.c#L1610) | feeds them somewhere |
 
 The last two share one pass, which is what stops them disagreeing about what a
 range is — they once did, and a select-all copy returned 37% of a document with

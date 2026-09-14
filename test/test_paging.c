@@ -1798,6 +1798,30 @@ int main(void) {
               stub_file_exists("/big.txt.aedh") || stub_file_exists("/big.txt.aedt"), 0);
     }
 
+    /* --- a paged save onto a card that fills up --- */
+    {
+        /* A paged save streams the document through a sink a chunk at a time.
+         * If the sink takes what mos_fwrite returned on trust, a card that
+         * stops accepting bytes partway gives a truncated file and a buffer
+         * that says it was saved -- the document gone, with nothing said. */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document on a card that fills up",
+              tb_init(&tb, DOC_KB, "/big.txt") != NULL, 1);
+        tb_pos mid = { DOC_LINES / 2, 0 };
+        tb_seek(&tb, mid);
+        tb_put(&tb, 'x');
+        check("  edited, so it has something to lose",
+              tb_changed(&tb) ? 1 : 0, 1);
+
+        stub_file_short_write(64);
+        check("  saving fails", tb_save(&tb) ? 1 : 0, 0);
+        stub_file_short_write(-1);
+        check("  and the buffer still says it is unsaved",
+              tb_changed(&tb) ? 1 : 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- saving one that has been edited --- */
     {
         stub_file_reset();
