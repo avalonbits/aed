@@ -574,6 +574,97 @@ int main(void) {
     ed_destroy(&ed);
     stub_set_keys(NULL, 0);
 
+    /* --- CTRL+G reaches a line that is not in the window --- */
+    {
+        /* cmd_goto stepped with tb_up and tb_down, which move inside what
+         * memory is holding and stop at its edge. On a paged document it could
+         * only ever reach as far as the window: from line 5,300 of slow.asm,
+         * going to line 200 landed on 1,302. Reported from a real machine, and
+         * it had gone unnoticed because the only test of CTRL+G was that the
+         * key was bound to it.
+         *
+         * A document of 4,000 lines into 64 KiB pages, so most of it is out of
+         * reach at any moment, and the jumps below cross the window both ways. */
+        #define GO_LINES 4000
+        #define GO_LEN   40
+        static char go[GO_LINES * GO_LEN];
+        for (int i = 0; i < GO_LINES; i++) {
+            int at = i * GO_LEN;
+            go[at++] = 'l';
+            for (int d = 1000; d > 0; d /= 10) {
+                go[at++] = (char) ('0' + ((i / d) % 10));
+            }
+            while (at % GO_LEN != GO_LEN - 2) {
+                go[at++] = '.';
+            }
+            go[at++] = '\r';
+            go[at] = '\n';
+        }
+
+        stub_file_reset();
+        stub_file_set_content(go, (int) sizeof(go));
+        editor ged;
+        check("an editor on a paged document",
+              ed_init(&ged, 64, "/go.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&ged.buf_) < (int) sizeof(go), 1);
+        check("  with all of its lines", tb_ymax(&ged.buf_), GO_LINES + 1);
+
+        /* Typing a line number into the prompt, then RETURN. */
+        static stub_key gkeys[16];
+        int gn = 0;
+        #define GO_TO(s) do {                                             \
+            gn = 0;                                                       \
+            for (const char* q = (s); *q; q++) {                          \
+                gkeys[gn].ch = *q; gkeys[gn++].vk = VK_NONE;              \
+            }                                                             \
+            gkeys[gn].ch = 0; gkeys[gn++].vk = VK_RETURN;                 \
+            stub_set_keys(gkeys, gn);                                     \
+            cmd_goto(&ged);                                               \
+        } while (0)
+
+        GO_TO("3900");
+        check("going down to a line past the window", tb_ypos(&ged.buf_), 3900);
+        check("  which reads as itself",
+              memcmp(tb_curr_line(&ged.buf_).suffix_,
+                     go + 3899 * GO_LEN, 5) == 0, 1);
+        /* The view has to follow. A jump further than a screenful puts the
+         * cursor against the edge it travelled towards -- without that the
+         * cursor row stays where it was while the text under it changes. */
+        check("  with the cursor against the bottom of the view",
+              (int) ged.scr_.currY_, (int) ged.scr_.bottomY_ - 1);
+
+        GO_TO("200");
+        check("and back up to one well behind it", tb_ypos(&ged.buf_), 200);
+        check("  which reads as itself",
+              memcmp(tb_curr_line(&ged.buf_).suffix_,
+                     go + 199 * GO_LEN, 5) == 0, 1);
+        check("  with the cursor against the top of it",
+              (int) ged.scr_.currY_, (int) ged.scr_.topY_);
+
+        /* The column is carried over, which is what stepping a line at a time
+         * did: going to a line does not also go to its start. */
+        { const tb_pos mid = { 200, 7 };
+          tb_seek(&ged.buf_, mid); }
+        check("the cursor part way along a line", tb_xpos(&ged.buf_), 8);
+        GO_TO("3000");
+        check("  goto keeps the column", tb_xpos(&ged.buf_), 8);
+        check("    on the line asked for", tb_ypos(&ged.buf_), 3000);
+
+        GO_TO("4000");
+        check("the last line of the document", tb_ypos(&ged.buf_), 4000);
+
+        GO_TO("1");
+        check("and the first", tb_ypos(&ged.buf_), 1);
+
+        /* Past the end goes as far as there is, rather than nowhere. */
+        GO_TO("99999");
+        check("a line number past the end stops at the end",
+              tb_ypos(&ged.buf_), GO_LINES + 1);
+
+        stub_set_keys(NULL, 0);
+        ed_destroy(&ged);
+    }
+
     /* --- the binding --- */
     /* A command nothing can reach is not a feature. */
     key_command kc;

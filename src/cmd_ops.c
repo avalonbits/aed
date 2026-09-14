@@ -1433,31 +1433,22 @@ void cmd_goto(editor* ed) {
     if (ypos == line) {
         return;
     }
-
     int diff = 0;
-    scr_hide_cursor_ch(scr, tb_peek(tb));
-    if (line < ypos) {
-        for (; line < ypos; line++) {
-            diff--;
-            tb_up(tb);
-            if (tb_ypos(tb) == 1) {
-                break;
-            }
-        }
-    } else {
-        int curr = tb_ypos(tb);
-        for (; ypos < line; line--) {
-            tb_down(tb);
-            const int nyp = tb_ypos(tb);
-            if (nyp == curr) {
-                break;
-            }
-            curr = nyp;
-            diff++;
-        }
-    }
 
-    diff = ((int)scr->currY_) + diff;
+    scr_hide_cursor_ch(scr, tb_peek(tb));
+
+    // tb_seek, not a walk of tb_up and tb_down. Those move inside what memory
+    // is holding and stop at its edge, so on a paged document CTRL+G could
+    // only ever reach as far as the window: from line 5,300 of a 7,509 line
+    // file, going to line 200 landed on 1,302. Seeking slides the window to
+    // wherever the line is.
+    //
+    // The column is carried over rather than reset, which is what stepping a
+    // line at a time did -- tb_seek clamps it to the line it lands on.
+    const tb_pos to = { line, tb_xpos(tb) - 1 };
+    tb_seek(tb, to);
+
+    diff = ((int) scr->currY_) + (tb_ypos(tb) - ypos);
     if (diff < (int)scr->topY_) {
         scr->currY_ = scr->topY_;
     } else if (diff >= (int) scr->bottomY_) {
