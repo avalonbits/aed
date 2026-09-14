@@ -2062,22 +2062,43 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
 
             return false;
         }
+        // The run up to the next line feed, found and moved whole, the same way
+        // tb_read does it: memchr is a CPIR on this machine and memcpy an LDIR,
+        // block instructions that manage a byte in a cycle or two, where
+        // testing and copying a byte at a time in C is a dozen instructions
+        // each. Only the line feed itself is handled singly, and there is one
+        // of those per line rather than per byte.
+        //
+        // This was half of what opening a 419 KB file cost.
         int n = carry;      // the converted bytes land after what was held over
         carry = 0;
-        for (int i = 0; i < got; i++) {
-            const char c = in[i];
-            if (c == '\n') {
-                if (pending_cr) {
-                    crlf++;         // it already had its carriage return
-                } else {
-                    out[n++] = '\r';
-                    added++;
-                }
-                pending_cr = false;
-            } else {
-                pending_cr = (c == '\r');
+        const char* p = in;
+        int left_in = got;
+        while (left_in > 0) {
+            const char* nl = (const char*) memchr(p, '\n', (size_t) left_in);
+            const int run = nl != NULL ? (int) (nl - p) : left_in;
+            if (run > 0) {
+                memcpy(out + n, p, (size_t) run);
+                n += run;
+                p += run;
+                left_in -= run;
+                // Only the last byte of the run can leave one pending, and a
+                // run of none leaves whatever the chunk before did.
+                pending_cr = out[n - 1] == '\r';
             }
-            out[n++] = c;
+            if (nl == NULL) {
+                break;
+            }
+            if (pending_cr) {
+                crlf++;             // it already had its carriage return
+            } else {
+                out[n++] = '\r';
+                added++;
+            }
+            out[n++] = '\n';
+            pending_cr = false;
+            p++;
+            left_in--;
         }
         int at = 0;
         if (filling) {
