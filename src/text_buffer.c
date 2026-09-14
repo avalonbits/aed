@@ -2083,6 +2083,15 @@ char* tb_prefix(text_buffer* tb, int* sz) {
     int psz = 0;
     char* prefix = cb_prefix(&tb->cb_, &psz);
     if (prefix == NULL) {
+        // Said out loud rather than left to the caller's own initialiser.
+        // cb_prefix reports an empty prefix through its own `sz`, not through
+        // this one, so returning here without writing it handed tb_curr_line
+        // an uninitialised psz_ every time the cursor was at the start of the
+        // buffer. Every caller happens to test the pointer before the size, so
+        // it never showed -- but it is a garbage length in a struct the view
+        // reads.
+        *sz = 0;
+
         return NULL;
     }
     prefix = prefix + (psz - tb->x_);

@@ -124,6 +124,35 @@ int main(void) {
 
     static text_buffer tb;
 
+    /* --- an empty half of a line still says it is empty --- */
+    {
+        /* tb_curr_line fills a split_line by calling tb_prefix and tb_suffix,
+         * and a struct on the stack is whatever was there before. cb_prefix
+         * reports an empty prefix through its own `sz` rather than the
+         * caller's, so tb_prefix returning early left psz_ untouched -- a
+         * garbage length beside a NULL pointer, handed to the view, on every
+         * line where the cursor sits in column zero. Nothing crashed because
+         * every caller tests the pointer first. */
+        stub_file_reset();
+        stub_file_set_content("abc\r\ndef\r\n", 10);
+        check("a document with the cursor at the very start",
+              tb_init(&tb, 4, "/pre.txt") != NULL, 1);
+
+        int sz = 12345;
+        check("  tb_prefix has nothing to give",
+              tb_prefix(&tb, &sz) == NULL ? 1 : 0, 1);
+        check("    and says so in the size", sz, 0);
+
+        sz = 12345;
+        check("  tb_suffix has the line", tb_suffix(&tb, &sz) != NULL ? 1 : 0, 1);
+        check("    and says how much of it", sz, 3);
+
+        const split_line ln = tb_curr_line(&tb);
+        check("  so a split_line starts out empty on the left", ln.psz_, 0);
+        check("    with the line on the right", ln.ssz_, 3);
+        tb_destroy(&tb);
+    }
+
     /* --- a walker reads every line, wherever the gap is --- */
     {
         #define LINES 60
