@@ -6,7 +6,6 @@
 #   config/aed/unscii8.bin   the three fonts, where the README's example
 #   config/aed/unscii8x10.bin  settings file points at them
 #   config/aed/unscii16.bin
-#   README.md                so the thing is readable without the repo
 #
 # There is deliberately no config/aed.cfg in here. AED writes that itself on
 # first run, from the colours the machine is already using, and shipping one
@@ -60,7 +59,6 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/bin" "$STAGE/config/aed"
 cp bin/aed.bin "$STAGE/bin/"
 cp fonts/unscii8.bin fonts/unscii8x10.bin fonts/unscii16.bin "$STAGE/config/aed/"
-cp README.md "$STAGE/"
 
 rm -f "$OUT"
 (cd "$STAGE" && zip -q -r -X "$OLDPWD/$OUT" .)

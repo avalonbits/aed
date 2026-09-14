@@ -23,7 +23,7 @@ your Agon.
 # Installation
 
 Download `aed-<version>.zip` from the release and unzip it at the **root of your SD card**.
-Everything lands where it belongs:
+The editor and the fonts land where they belong:
 
 ```
 bin/aed.bin                 the editor -- MOS searches /bin, so `aed` runs it
