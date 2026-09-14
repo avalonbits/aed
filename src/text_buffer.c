@@ -31,6 +31,12 @@
 // other place a document stops needing it.
 static void tb_drop_store(text_buffer* tb);
 
+// How many bytes this document's line break takes in the buffer. The last line
+// of a document has no break after it, which is what lb_last distinguishes.
+static int eol_len(const text_buffer* tb) {
+    return tb->elen_;
+}
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
@@ -51,6 +57,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->fname_[0] = 0;
     tb->dirty_ = false;
     tb->eol_ = TB_EOL_CRLF;
+    tb->elen_ = 2;
     tb->undo_ = NULL;
     tb->load_dirty_ = false;
     tb->head_lines_ = 0;
@@ -194,7 +201,7 @@ bool tb_newline(text_buffer* tb) {
     }
     // Both halves of the CRLF must fit, or the line index and the text would
     // disagree about where the line ends.
-    if (cb_available(&tb->cb_) < 2) {
+    if (cb_available(&tb->cb_) < eol_len(tb)) {
         return false;
     }
     // And the line index must have room for the line the break starts. It is
@@ -214,7 +221,9 @@ bool tb_newline(text_buffer* tb) {
     // which the line index, built on a two-byte CRLF, cannot represent.
     const tb_pos at = tb_tell(tb);
     const bool was = undo_hold(tb->undo_);
-    tb_put(tb, '\r');
+    if (eol_len(tb) == 2) {
+        tb_put(tb, '\r');
+    }
     tb_put(tb, '\n');
     const bool ok = lb_new(&tb->lb_, tb->x_);
     if (ok) {
@@ -222,7 +231,8 @@ bool tb_newline(text_buffer* tb) {
     }
     undo_release(tb->undo_, was);
     if (ok) {
-        undo_insert(tb->undo_, at, "\r\n", 2);
+        undo_insert(tb->undo_, at, eol_len(tb) == 2 ? "\r\n" : "\n",
+                    eol_len(tb));
     }
 
     return ok;
@@ -266,7 +276,7 @@ bool tb_del_merge(text_buffer* tb) {
     lb_merge_next(&tb->lb_);
     tb->dirty_ = true;
     undo_release(tb->undo_, was);
-    undo_delete(tb->undo_, at, "\r\n", 2);
+    undo_delete(tb->undo_, at, eol_len(tb) == 2 ? "\r\n" : "\n", eol_len(tb));
 
     return true;
 }
@@ -286,7 +296,8 @@ bool tb_bksp_merge(text_buffer* tb) {
 
     tb->x_ = lb_merge_prev(&tb->lb_);
     tb->dirty_ = true;
-    undo_delete(tb->undo_, tb_tell(tb), "\r\n", 2);
+    undo_delete(tb->undo_, tb_tell(tb), eol_len(tb) == 2 ? "\r\n" : "\n",
+                eol_len(tb));
     return true;
 }
 
@@ -712,7 +723,7 @@ char tb_up(text_buffer* tb) {
     }
 
     const int  sz = lb_csize(&tb->lb_);
-    const int maxX = sz - 2;
+    const int maxX = sz - eol_len(tb);
     int back = sz + tb->x_;
     if (maxX < tb->x_) {
         tb->x_ = maxX;
@@ -755,7 +766,7 @@ char tb_down(text_buffer* tb) {
     }
     int cend = lb_csize(&tb->lb_);
     if (!lb_last(&tb->lb_)) {
-        cend -= 2;
+        cend -= eol_len(tb);
     }
     if (tb->x_ > cend) {
         tb->x_ = cend;
@@ -1277,7 +1288,7 @@ void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
 static int line_len(text_buffer* tb) {
     const int sz = lb_csize(&tb->lb_);
 
-    return lb_last(&tb->lb_) ? sz : sz - 2;
+    return lb_last(&tb->lb_) ? sz : sz - eol_len(tb);
 }
 
 tb_pos tb_tell(text_buffer* tb) {
@@ -1659,7 +1670,7 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     while (left > 0) {
         const bool eol = tb_eol(tb);
         if (eol ? tb_del_merge(tb) : tb_del(tb)) {
-            left -= eol ? 2 : 1;
+            left -= eol ? eol_len(tb) : 1;
             stalls = 0;
             any = true;
             continue;
@@ -1749,11 +1760,11 @@ bool tb_insert(text_buffer* tb, const char* buf, int sz) {
     int breaks = 0;
     for (int i = 0; i < sz; i++) {
         if (buf[i] == '\r' && i + 1 < sz && buf[i + 1] == '\n') {
-            needed += 2;
+            needed += eol_len(tb);
             breaks++;
             i++;
         } else if (buf[i] == '\n' || buf[i] == '\r') {
-            needed += 2;
+            needed += eol_len(tb);
             breaks++;
         } else {
             needed += 1;
@@ -1796,6 +1807,12 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->dirty_ = false;
     dst->load_dirty_ = false;
     dst->eol_ = src->eol_;
+    // Every piece of line arithmetic subtracts this, so a walker without it
+    // reads every line at the wrong length. Third time a field added to one of
+    // these structs has been missed here; the two buffers above are assigned
+    // whole for that reason, and this list is the part that still has to be
+    // kept by hand.
+    dst->elen_ = src->elen_;
     // Copies are walked, never written to -- refresh_screen and
     // cmd_repaint_rows only move and read. Carrying the log would mean a paint
     // could record an edit.
@@ -1830,7 +1847,7 @@ char* tb_suffix(text_buffer* tb, int* sz) {
 
     *sz = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_last(&tb->lb_)) {
-        *sz -= 2;
+        *sz -= eol_len(tb);
     }
     return suffix;
 }
@@ -2312,6 +2329,7 @@ void tb_clear(text_buffer* tb) {
     // An emptied document has no endings to preserve, so it takes the platform
     // default rather than keeping the last file's.
     tb->eol_ = TB_EOL_CRLF;
+    tb->elen_ = 2;
 }
 
 tb_result tb_open(text_buffer* tb, const char* fname, int sz) {

@@ -65,6 +65,17 @@ typedef struct _text_buffer {
     int x_;
     bool dirty_;
     tb_eol_style eol_;
+
+    // How many bytes a line break occupies *in the buffer*: two for CRLF, one
+    // for a bare line feed. The line index stores each line's length including
+    // its break, so this is what every piece of line arithmetic subtracts --
+    // line_len, tb_up, tb_down, tb_suffix, the range counting, and what
+    // tb_newline writes.
+    //
+    // It is the document's, not the line's. A file is read as it is when its
+    // breaks are all of one kind; one with both is normalised to CRLF on the
+    // way in, which is the only case that still costs a conversion.
+    int elen_;
     // Where edits are recorded, or NULL to record nothing. NULL during tb_load,
     // which is what keeps the file's own CRLF normalisation out of the history.
     undo* undo_;
