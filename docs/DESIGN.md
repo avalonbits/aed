@@ -325,6 +325,7 @@ dropping the machine to the stock 8x8.
 |---|---|
 | [`test/run.sh`](../test/run.sh) | the host suite: the real `src/*.c` against stub Agon headers, natively, under ASan and UBSan |
 | [`test/frames.sh`](../test/frames.sh) | stack frames against the `(IX+d)` limit, read from the generated assembly |
+| [`test/docs.sh`](../test/docs.sh) | that these documents still point at what they name, including the `#L` links into the sources |
 | [`test/fonts.sh`](../test/fonts.sh) | the shipped fonts, whose height is their file size |
 | [`test/build_deps.sh`](../test/build_deps.sh) | that the build tracks header dependencies |
 | [`test/bench/`](../test/bench/) | the CPU-bound paths, on the emulator at the real clock |

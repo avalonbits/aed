@@ -51,6 +51,11 @@ if [ -z "$FILTER" ]; then
 # access. The usual way one arrives is a 256-byte buffer, and nothing in the C
 # says it happened.
 ./test/frames.sh || status=$?
+
+# The documents, which nothing else reads: a heading renamed out from under the
+# index, a file moved, or a function that drifted away from a `#L123` deep link.
+# The last of those rots without anyone touching the document.
+./test/docs.sh || status=$?
 fi
 
 # The sources are compiled once and linked into each test, rather than compiled
