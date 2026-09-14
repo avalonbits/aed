@@ -5,7 +5,7 @@ was picked against a measurement rather than a guess:
 
 | | where | value |
 |---|---|---|
-| how much RAM a document gets | [`main.c`](../src/main.c#L32) | 256 |
+| how much RAM a document gets | [`AED_DOC_KB`](../src/editor.h#L79) | 256 |
 | how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1215) | a quarter |
 | how far a slide moves | [`TB_CHUNK`](../src/text_buffer.h#L51) | 2 KiB |
 | how close the cursor may get to an end | [`TB_MARGIN`](../src/text_buffer.h#L52) | 16 KiB |
@@ -29,7 +29,7 @@ open document would cost. Read section 4 of that first.
 
 ## 1. What 256 buys
 
-`main` passes 256 to `ed_init`, which reaches
+`main` passes [`AED_DOC_KB`](../src/editor.h#L79) to `ed_init`, which reaches
 [`tb_init`](../src/text_buffer.c#L40), and that number is split two ways:
 
 ```c
@@ -127,8 +127,16 @@ described in `DESIGN.md` section 3 is why it does not.
 The 64 KiB row is worse than slow. After the arrow walk, a seek from line 7509
 back to line 1 left the cursor on 7509. Its window holds 47,602 bytes against
 `2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer.c#L1156) has
-almost no room to work in and gives up. The same row seeked correctly in a run
-without the arrow walk first, which makes it a state-dependent failure.
+almost no room to work in. The same row seeked correctly in a run without the
+arrow walk first, which makes it a state-dependent failure -- and it still
+happens after the free space moved to the ends, so the room `tb_settle` has is
+not the whole of the story.
+
+The host tests hold the arithmetic that can be held there: from 40 KiB down the
+window is narrower than the two margins together and `test_paging` fails. They
+do not reproduce the 64 KiB case, which wants line lengths a synthetic document
+does not have. **The emulator is what says a size is usable.** 256 KiB is
+measured good on MOS 3.0.2 and Console8 both.
 
 ## 4. Why a quarter
 

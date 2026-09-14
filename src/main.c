@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         fname = argv[1];
     }
-    if (!ed_init(&ed, 256, fname)) {
+    if (!ed_init(&ed, AED_DOC_KB, fname)) {
         return 1;
     }
     ed_run(&ed);

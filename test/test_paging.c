@@ -18,6 +18,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <agon/mos.h>
@@ -25,6 +26,7 @@
 #include "char_buffer.h"
 #include "doc_store.h"
 #include "text_buffer.h"
+#include "editor.h"
 
 static int failures = 0;
 
@@ -1796,6 +1798,81 @@ int main(void) {
         tb_destroy(&tb);
         check("closing it takes the scratch away",
               stub_file_exists("/big.txt.aedh") || stub_file_exists("/big.txt.aedt"), 0);
+    }
+
+    /* --- the size the editor actually runs at can be navigated --- */
+    {
+        /*
+         * AED_DOC_KB is the one number a second open document would change, so
+         * this is the property that has to still hold when it does.
+         *
+         * prime_spare keeps a quarter of the character buffer free, and
+         * tb_settle wants TB_MARGIN clear on each side of the cursor. What is
+         * left between the two margins is the room a seek has to work in. This
+         * fails from 40 KiB down, where the window stops being wider than the
+         * two margins together.
+         *
+         * The real floor is higher than that and this cannot see it: on the
+         * emulator, against slow.asm, a 64 KiB buffer walked three thousand
+         * lines and then seeked to the top stays on the last line. Whatever is
+         * behind that wants line lengths this document does not have, so the
+         * arithmetic below is the part that can be held here and the emulator
+         * is what says a size is really usable. 256 KiB is measured good on
+         * MOS 3.0.2 and Console8 both.
+         */
+        const int kb = AED_DOC_KB;
+        const int doc_lines = 12000;
+        const int line_len = 40;            /* 480 KB, comfortably paged */
+        char* doc = (char*) malloc((size_t) (doc_lines * line_len));
+        check("a document larger than the editor's buffer", doc != NULL, 1);
+        if (doc != NULL) {
+            for (int i = 0; i < doc_lines; i++) {
+                for (int k = 0; k < line_len - 2; k++) {
+                    doc[i * line_len + k] = (char) ('a' + ((i + k) % 26));
+                }
+                doc[i * line_len + line_len - 2] = '\r';
+                doc[i * line_len + line_len - 1] = '\n';
+            }
+            stub_file_reset();
+            stub_file_set_content(doc, doc_lines * line_len);
+            check("  opens at the size the editor runs at",
+                  tb_init(&tb, kb, "/real.txt") != NULL, 1);
+            check("    and pages", tb.paged_ ? 1 : 0, 1);
+
+            /* Room for the margins to be margins of. */
+            const int window = tb_used(&tb);
+            check("    with a window wider than both margins together",
+                  window > 2 * TB_MARGIN ? 1 : 0, 1);
+            check("      and by more than a chunk",
+                  window - 2 * TB_MARGIN > TB_CHUNK ? 1 : 0, 1);
+
+            /* The arrow keys first, because that is the state the failure
+             * needs: a long walk leaves the window somewhere a straight seek
+             * never puts it, and at 64 KiB the seek that follows goes nowhere.
+             * The same document seeked correctly without the walk. */
+            tb_pos mid = { doc_lines / 2, 0 };
+            tb_seek(&tb, mid);
+            for (int i = 0; i < 3000; i++) {
+                tb_down(&tb);
+            }
+            for (int i = 0; i < 3000; i++) {
+                tb_up(&tb);
+            }
+            check("  three thousand lines down and back arrive",
+                  tb_ypos(&tb), doc_lines / 2);
+
+            tb_pos last = { doc_lines, 0 };
+            tb_seek(&tb, last);
+            check("  a seek reaches the last line", tb_ypos(&tb), doc_lines);
+            tb_pos first = { 1, 0 };
+            tb_seek(&tb, first);
+            check("    and gets back to the first", tb_ypos(&tb), 1);
+            check("      reading it as itself",
+                  tb_curr_line(&tb).ssz_, line_len - 2);
+
+            tb_destroy(&tb);
+            free(doc);
+        }
     }
 
     /* --- a paged save onto a card that fills up --- */

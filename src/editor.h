@@ -55,6 +55,29 @@ typedef struct _editor {
     int findsz_;
 } editor;
 
+/*
+ * How much RAM one open document gets, in kilobytes.
+ *
+ * tb_init splits it: a thirty-second goes to the line index, the rest to the
+ * character buffer. The index entries are three bytes each on this machine, so
+ * at 256 a document is 253,952 bytes of text plus 24,576 of index -- 279,364
+ * all told once its name and scratch paths are counted, against a heap of
+ * 342,365. One document is ninety per cent of what there is.
+ *
+ * Which is the number to change for a second one, and the only one. It is
+ * free to move now: it used to be pinned from below, because a walker read by
+ * moving the gap and the gap had to stay wider than a repaint, so a smaller
+ * buffer meant a bigger reserve meant a window with no room in it. Walkers
+ * move by number -- .internal/docs/WALKER.md -- and the floor went with that.
+ *
+ * It stays at 256 because the measurement says so and nothing needs the heap
+ * yet. Halving it costs a long scroll twice what it costs now -- 0.70 s
+ * against 0.38 for 3,000 lines on MOS 3.0.2 -- while opening and seeking barely
+ * move. That buys 139 KB, which is what a second document would need. See
+ * docs/SIZING.md section 7.
+ */
+#define AED_DOC_KB 256
+
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
 
 // True for the keys that move the cursor without changing the document. Holding
