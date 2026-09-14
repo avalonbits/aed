@@ -1183,29 +1183,50 @@ bool tb_settle(text_buffer* tb) {
     // so a cursor dropped into the middle of a document needs a handful. The
     // bound is what stops a slide that keeps failing from spinning here.
     int guard = TB_MARGIN / TB_CHUNK + 2;
+
+    // Which way to go is decided once and held for the whole settle. Each
+    // branch was asked on its own before, and re-asked after every slide, so
+    // when both sides were short the answer alternated: slide up, which takes
+    // from below the cursor to give above it, then slide down, which puts it
+    // straight back. Ten slides a keystroke and the window exactly where it
+    // started.
+    //
+    // Both sides are short whenever the window is narrower than two margins,
+    // and the index makes that ordinary -- one slot per 32 bytes means a
+    // document of ten-byte lines fills the index at 15,350 bytes, less than a
+    // single margin, whatever the buffer's size. A climb up such a document
+    // stopped at the top of the window with the rest of it in the head.
+    //
+    // Holding one direction leaves the old behaviour alone wherever only one
+    // of them was ever possible, which is the common case: a cursor with the
+    // document above it can only slide up.
+    int dir = 0;                    // -1 up, +1 down, 0 undecided
     while (guard-- > 0) {
         int psz = 0;
         int ssz = 0;
         cb_prefix(&tb->cb_, &psz);
         cb_suffix(&tb->cb_, &ssz);
 
-        if (ssz < TB_MARGIN && store_tail_bytes(tb->store_) > 0) {
-            if (!tb_slide_down(tb)) {
+        const bool can_down = ssz < TB_MARGIN && store_tail_bytes(tb->store_) > 0;
+        const bool can_up = psz < TB_MARGIN && store_head_bytes(tb->store_) > 0;
+        if (dir == 0) {
+            if (can_down && can_up) {
+                dir = ssz <= psz ? 1 : -1;      // the emptier side first
+            } else if (can_down) {
+                dir = 1;
+            } else if (can_up) {
+                dir = -1;
+            } else {
                 break;
             }
-            moved = true;
-            continue;
         }
-        if (psz < TB_MARGIN && store_head_bytes(tb->store_) > 0) {
-            if (!tb_slide_up(tb)) {
-                break;
-            }
-            moved = true;
-            continue;
-        }
-        break;
-    }
 
+        if (dir > 0 ? (!can_down || !tb_slide_down(tb))
+                    : (!can_up || !tb_slide_up(tb))) {
+            break;
+        }
+        moved = true;
+    }
     return moved;
 }
 
@@ -1386,6 +1407,16 @@ bool tb_slide_down(text_buffer* tb) {
 
     // Out of the front, into the head. Whole lines, and never the line the
     // cursor is on -- lb_front_fit only counts the ones before it.
+    //
+    // Never more than the tail can put back. The cap the other way -- no more
+    // comes in than went out -- was only half of it: a tail holding ten bytes
+    // still had a whole 2 KiB chunk evicted against it, and the difference
+    // stayed in the head. Settling near the bottom of a document made a pump
+    // out of that. Sliding up would send the one line behind the cursor to the
+    // tail; sliding down saw a tail with something in it, evicted a chunk from
+    // the front, and got ten bytes back. Two thousand and thirty bytes left the
+    // window per turn, and inside three cursor movements a 15,350 byte window
+    // held thirty bytes with the document's other 199,960 in the head.
     int out_lines = 0;
     const int out_bytes = lb_front_fit(&tb->lb_, TB_CHUNK, &out_lines);
     if (out_lines == 0 && !slide_room(tb)) {
@@ -1516,6 +1547,10 @@ bool tb_slide_up(text_buffer* tb) {
     //
     // Nothing goes out in that case. Text can still come in, if there is room
     // for it -- see slide_room.
+    //
+    // Bounded by what the head can put back, for the reason sliding down is
+    // bounded by the tail: text sent out against text that is not there to
+    // come back is text the window loses.
     int out_lines = 0;
     int out_bytes = 0;
     if (trailing == 0) {
@@ -1598,14 +1633,46 @@ bool tb_slide_up(text_buffer* tb) {
     int in_lines = run_lines(slide_bytes + keep_at, got - keep_at, slide_lens,
                              (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
                              &in_bytes);
-    in_lines = fit_lines(slide_lens, in_lines, lb_room(&tb->lb_), &in_bytes);
-    if (in_lines == 0 || in_bytes != got - keep_at
-            || !cb_give_front(&tb->cb_, slide_bytes + keep_at, in_bytes)) {
+    if (in_lines == 0 || in_bytes != got - keep_at) {
+        store_head_rewind(tb->store_, got - keep_at);
+
+        return true;        // the chunk does not end where a line does
+    }
+
+    // More lines than there are slots for, which is what a document of short
+    // lines gives every time: the index holds one slot per 32 bytes, so 2 KiB
+    // of ten-byte lines is two hundred lines against a hundred slots.
+    //
+    // The ones to keep are the ones nearest memory, and those are at the *end*
+    // of the run -- a chunk off the head's end is the text directly above the
+    // window. So the leading lines are the ones to drop, and their bytes go
+    // back to the head.
+    //
+    // Trimming from the front instead is what fit_lines does, which is right
+    // sliding down and wrong here; the byte count then disagreed with the
+    // chunk and the whole thing was put back. The slide still reported that it
+    // had moved, so settling would call it again, and again, each time
+    // bringing back nothing: 185,690 bytes stayed in the head across twelve
+    // slides while the cursor waited for text that never arrived.
+    int drop = in_lines - lb_room(&tb->lb_);
+    if (drop < 0) {
+        drop = 0;
+    }
+    int drop_bytes = 0;
+    for (int i = 0; i < drop; i++) {
+        drop_bytes += slide_lens[i];
+    }
+    in_lines -= drop;
+    in_bytes -= drop_bytes;
+    if (in_lines == 0
+            || !cb_give_front(&tb->cb_, slide_bytes + keep_at + drop_bytes,
+                              in_bytes)) {
         store_head_rewind(tb->store_, got - keep_at);
 
         return true;        // still a slide: the back is in the tail
     }
-    lb_give_front(&tb->lb_, slide_lens, in_lines);
+    store_head_rewind(tb->store_, drop_bytes);
+    lb_give_front(&tb->lb_, slide_lens + drop, in_lines);
     tb->head_lines_ -= in_lines;
 
     return true;

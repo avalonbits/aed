@@ -2197,6 +2197,127 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- climbing back up a document whose lines are short --- */
+    {
+        /*
+         * The index holds one slot per 32 bytes of buffer, so a document of
+         * short lines fills it long before the buffer fills. Ten-byte lines
+         * against a 48 KiB buffer is 1,536 slots holding 15,350 bytes -- a
+         * window narrower than a single TB_MARGIN, which is 16 KiB.
+         *
+         * Settling asked each side about the margin on its own, so with both
+         * sides under it both answers were yes, and it alternated: slide up,
+         * which takes from below the cursor to give above it, then slide down,
+         * which puts it straight back. Ten slides a keystroke and the window
+         * exactly where it started. A cursor walking up from the bottom
+         * reached the top of the window and stopped there for good, with the
+         * rest of the document in the head and no way to reach it.
+         *
+         * Long enough to need several windows, and walked a line at a time
+         * because that is how anyone meets it.
+         */
+        #define SHORT_LEN   10          /* eight characters and a CRLF */
+        #define SHORT_LINES 8000
+        static char SHORT[SHORT_LINES * SHORT_LEN + 1];
+        for (int i = 0; i < SHORT_LINES; i++) {
+            for (int k = 0; k < SHORT_LEN - 2; k++) {
+                SHORT[i * SHORT_LEN + k] = (char) ('a' + ((i + k) % 26));
+            }
+            SHORT[i * SHORT_LEN + SHORT_LEN - 2] = '\r';
+            SHORT[i * SHORT_LEN + SHORT_LEN - 1] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(SHORT, SHORT_LINES * SHORT_LEN);
+        check("a document of short lines opens",
+              tb_init(&tb, 48, "/short.txt") != NULL, 1);
+        check("  paged", tb.paged_ ? 1 : 0, 1);
+        check("  with all of its lines", tb_ymax(&tb), SHORT_LINES + 1);
+        check("    more of them than the index has slots",
+              SHORT_LINES > lb_lines(&tb.lb_) + lb_room(&tb.lb_) ? 1 : 0, 1);
+
+        tb_pos bottom = { tb_ymax(&tb), 0 };
+        tb_seek(&tb, bottom);
+        check("  the cursor reaches the last line", tb_ypos(&tb), SHORT_LINES + 1);
+
+        /* Up one line at a time, the whole way. */
+        int at = tb_ypos(&tb);
+        int guard = SHORT_LINES * 4;
+        while (guard-- > 0 && at > 1) {
+            tb_up(&tb);
+            const int now = tb_ypos(&tb);
+            if (now == at) {
+                break;                  /* it stopped moving */
+            }
+            at = now;
+        }
+        check("  and walks back up to the first", at, 1);
+        check("    with the document below it", store_head_bytes(tb.store_), 0);
+        check("    and the line it lands on is the first line",
+              tb_curr_line(&tb).ssz_, SHORT_LEN - 2);
+        check("      reading as itself",
+              memcmp(tb_curr_line(&tb).suffix_, SHORT,
+                     (size_t) (SHORT_LEN - 2)) == 0 ? 1 : 0, 1);
+        tb_destroy(&tb);
+    }
+
+    /* --- a slide that says it moved has to have moved --- */
+    {
+        /*
+         * A chunk is 2 KiB, which for four-byte lines is five hundred of them,
+         * and the index rarely has five hundred slots free. What arrived was
+         * trimmed to fit -- keeping the lines at the *front* of the run, which
+         * is right sliding down and wrong sliding up: a chunk off the head's
+         * end is the text directly above the window, so the lines nearest
+         * memory are at its *end*. The byte count then disagreed with the
+         * chunk and the whole thing went back to the head, while the slide
+         * still reported that it had moved.
+         *
+         * A single scan of such a document hit that path three hundred
+         * thousand times, each one a read of the head thrown away.
+         */
+        #define TINY_LEN   4            /* two characters and a CRLF */
+        #define TINY_ROWS  9000
+        static char TINY2[TINY_ROWS * TINY_LEN + 1];
+        for (int i = 0; i < TINY_ROWS; i++) {
+            TINY2[i * TINY_LEN] = 's';
+            TINY2[i * TINY_LEN + 1] = (char) ('a' + (i % 26));
+            TINY2[i * TINY_LEN + 2] = '\r';
+            TINY2[i * TINY_LEN + 3] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(TINY2, TINY_ROWS * TINY_LEN);
+        check("a document of four-byte lines opens",
+              tb_init(&tb, 48, "/tiny2.txt") != NULL, 1);
+        tb_pos bottom = { tb_ymax(&tb), 0 };
+        tb_seek(&tb, bottom);
+        check("  with the whole of it above the window",
+              store_head_bytes(tb.store_) > 0 ? 1 : 0, 1);
+
+        /* Every slide up that says it moved, with room in the index and text
+         * in the head, has to bring some of that text back. */
+        int idle = 0;
+        int slides = 0;
+        for (int i = 0; i < 4000 && store_head_bytes(tb.store_) > 0; i++) {
+            const int room = lb_room(&tb.lb_);
+            const int head = store_head_bytes(tb.store_);
+            if (!tb_slide_up(&tb)) {
+                tb_pos up = { tb_ypos(&tb) - 1, 0 };
+                if (up.line < 1) {
+                    break;
+                }
+                tb_seek(&tb, up);       /* make room the way movement does */
+                continue;
+            }
+            slides++;
+            if (room > 0 && store_head_bytes(tb.store_) >= head) {
+                idle++;
+            }
+        }
+        check("  it slides", slides > 0 ? 1 : 0, 1);
+        check("    and never says it moved while bringing nothing back", idle, 0);
+        tb_destroy(&tb);
+    }
+
     /* --- an unpaged document never slides --- */
     {
         check("an ordinary document", load_five(&tb), 1);
