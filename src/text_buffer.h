@@ -126,6 +126,21 @@ typedef struct _text_buffer {
     // the writes is the half of that which can be enforced while everything is
     // still in memory. See .internal/docs/PAGING.md, pitfalls 1 and 2.
     bool walker_;
+
+    /*
+     * Where a walker is, said in numbers instead of in pointers.
+     *
+     * `wline_` is the line, indexed the way lb_curr reports it, and `woff_` is
+     * the byte offset of that line's *start* from lo_. Together with x_ they
+     * say everything about a walker's position without the buffers having to
+     * be moved to express it -- which is the point, because moving them is
+     * what forces prime_spare to keep a third of the free space at the cursor.
+     * See .internal/docs/WALKER.md.
+     *
+     * Meaningless on anything but a walker, and maintained only there.
+     */
+    int wline_;
+    int woff_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
