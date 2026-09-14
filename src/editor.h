@@ -116,6 +116,11 @@ void ed_clear_banner(editor* ed);
 // keyboard is not a feature, and nothing below this level would notice.
 key_command ctrlCmds(key_command kc, char mods);
 
+// What a key means on its own. Declared beside ctrlCmds and for the same
+// reason: CTRL+HOME and HOME have to be different commands, and the only way
+// to say so is to ask both tables.
+key_command editCmds(key_command kc);
+
 typedef enum _sel_action {
     SEL_NONE = 0,   // there was no selection and there still is none
     SEL_EXTEND,     // one was started or is being extended

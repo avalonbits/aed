@@ -1418,43 +1418,42 @@ void cmd_page_down(editor* ed) {
     scr_show_cursor_ch(scr, ch);
 }
 
-void cmd_goto(editor* ed) {
+// Puts the cursor on `line` and the view around it. Shared by everything that
+// jumps somewhere far off rather than stepping there: CTRL+G, and CTRL+HOME and
+// CTRL+END.
+//
+// tb_seek, not a walk of tb_up and tb_down. Those move inside what memory is
+// holding, and although they settle at its edge now, walking a 7,509 line file
+// a line at a time to reach the end of it would slide the window the whole way.
+// Seeking goes straight there.
+//
+// The column is carried over rather than reset, which is what stepping a line
+// at a time did -- tb_seek clamps it to the line it lands on.
+static void jump_to_line(editor* ed, int line) {
     SCR(ed);
-    UI(ed);
     TB(ed);
-
-    int line = 0;
-    RESPONSE goto_line = ui_goto(ui, scr, &line);
-    if (goto_line != YES_OPT) {
-        return;
-    }
 
     const int ypos = tb_ypos(tb);
     if (ypos == line) {
         return;
     }
-    int diff = 0;
 
     scr_hide_cursor_ch(scr, tb_peek(tb));
 
-    // tb_seek, not a walk of tb_up and tb_down. Those move inside what memory
-    // is holding and stop at its edge, so on a paged document CTRL+G could
-    // only ever reach as far as the window: from line 5,300 of a 7,509 line
-    // file, going to line 200 landed on 1,302. Seeking slides the window to
-    // wherever the line is.
-    //
-    // The column is carried over rather than reset, which is what stepping a
-    // line at a time did -- tb_seek clamps it to the line it lands on.
     const tb_pos to = { line, tb_xpos(tb) - 1 };
     tb_seek(tb, to);
 
-    diff = ((int) scr->currY_) + (tb_ypos(tb) - ypos);
-    if (diff < (int)scr->topY_) {
+    // The view follows by however far the cursor actually moved, which is not
+    // always how far it was asked to: a line number past the end stops at the
+    // end. Further than a screenful puts it against the edge it travelled
+    // towards.
+    const int diff = ((int) scr->currY_) + (tb_ypos(tb) - ypos);
+    if (diff < (int) scr->topY_) {
         scr->currY_ = scr->topY_;
     } else if (diff >= (int) scr->bottomY_) {
-        scr->currY_ = scr->bottomY_-1;
+        scr->currY_ = scr->bottomY_ - 1;
     } else {
-        scr->currY_ = diff;
+        scr->currY_ = (char) diff;
     }
     scr_sync_cursor(scr);
 
@@ -1463,5 +1462,28 @@ void cmd_goto(editor* ed) {
     scr_place_cursor(scr, prefix, psz);
     refresh_screen(scr, tb);
     scr_show_cursor_ch(scr, tb_peek(tb));
+}
+
+void cmd_goto(editor* ed) {
+    SCR(ed);
+    UI(ed);
+
+    int line = 0;
+    if (ui_goto(ui, scr, &line) != YES_OPT) {
+        return;
+    }
+    jump_to_line(ed, line);
+}
+
+// CTRL+HOME and CTRL+END: the top and the bottom of the document, as against
+// HOME and END, which are the ends of the line.
+void cmd_doc_top(editor* ed) {
+    jump_to_line(ed, 1);
+}
+
+void cmd_doc_end(editor* ed) {
+    TB(ed);
+
+    jump_to_line(ed, tb_ymax(tb));
 }
 

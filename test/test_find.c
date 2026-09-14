@@ -351,6 +351,75 @@ int main(void) {
         ed_destroy(&ed);
     }
 
+    /* --- CTRL+N and CTRL+P on a document that does not fit in memory --- */
+    {
+        /* The same walk as above, on a paged document. tb_find streams the
+         * whole document now, but what decides where a backward search starts
+         * is the controller, and the two had never been exercised together on
+         * a document whose matches are mostly not in the window. */
+        #define FP_LINES 4000
+        #define FP_LEN   40
+        static char fp[FP_LINES * FP_LEN];
+        for (int i = 0; i < FP_LINES; i++) {
+            for (int k = 0; k < FP_LEN - 2; k++) {
+                fp[i * FP_LEN + k] = '.';
+            }
+            fp[i * FP_LEN + FP_LEN - 2] = '\r';
+            fp[i * FP_LEN + FP_LEN - 1] = '\n';
+        }
+        /* Three matches: near the top, in the middle, near the end. */
+        memcpy(fp + (10 - 1) * FP_LEN + 4, "target", 6);
+        memcpy(fp + (2000 - 1) * FP_LEN + 4, "target", 6);
+        memcpy(fp + (3900 - 1) * FP_LEN + 4, "target", 6);
+
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        stub_file_reset();
+        stub_file_set_content(fp, (int) sizeof(fp));
+        stub_file_set_objsize((uint32_t) sizeof(fp));
+
+        editor ped;
+        check("an editor on a paged document", ed_init(&ped, 64, "big.txt") != NULL, 1);
+        check("  which really is paged", tb_used(&ped.buf_) < (int) sizeof(fp), 1);
+        strcpy(ped.find_, "target");
+        ped.findsz_ = 6;
+
+        cmd_find_next(&ped);
+        check("CTRL+F finds the first", tb_ypos(&ped.buf_), 10);
+        cmd_find_next(&ped);
+        check("CTRL+N the second", tb_ypos(&ped.buf_), 2000);
+        cmd_find_next(&ped);
+        check("  and the third", tb_ypos(&ped.buf_), 3900);
+
+        /* Through what the editor loop does to a keystroke, not straight into
+         * the command. ed_selection_for runs first, and a key that is not in
+         * owns_selection drops the selection -- which is where cmd_find_prev
+         * gets the start of the match it is standing on. Calling the command
+         * directly skips that and the bug with it, which is how a test of
+         * CTRL+P passed while CTRL+P did nothing on a real machine. */
+        {
+            key_command kc;
+            memset(&kc, 0, sizeof(kc));
+            kc.k.vkey = VK_p;
+            kc.mods = MOD_CTRL;
+            kc = ctrlCmds(kc, MOD_CTRL);
+            check("CTRL+P is find-previous", kc.cmd == cmd_find_prev, 1);
+            check("  and the find left a selection to measure from",
+                  ped.selecting_ ? 1 : 0, 1);
+            (void) ed_selection_for(&ped, kc);
+            check("  which the loop must not take away",
+                  ped.selecting_ ? 1 : 0, 1);
+        }
+
+        cmd_find_prev(&ped);
+        check("CTRL+P goes back to the second", tb_ypos(&ped.buf_), 2000);
+        cmd_find_prev(&ped);
+        check("  and the first", tb_ypos(&ped.buf_), 10);
+        cmd_find_prev(&ped);
+        check("  and wraps round to the last", tb_ypos(&ped.buf_), 3900);
+        ed_destroy(&ped);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
