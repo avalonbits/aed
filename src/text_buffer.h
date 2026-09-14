@@ -126,6 +126,21 @@ typedef struct _text_buffer {
     // the writes is the half of that which can be enforced while everything is
     // still in memory. See .internal/docs/PAGING.md, pitfalls 1 and 2.
     bool walker_;
+
+    /*
+     * Where a walker is, said in numbers instead of in pointers.
+     *
+     * `wline_` is the line, indexed the way lb_curr reports it, and `woff_` is
+     * the byte offset of that line's *start* from lo_. Together with x_ they
+     * say everything about a walker's position without the buffers having to
+     * be moved to express it -- which is the point, because moving them is
+     * what forces prime_spare to keep a third of the free space at the cursor.
+     * See .internal/docs/WALKER.md.
+     *
+     * Meaningless on anything but a walker, and maintained only there.
+     */
+    int wline_;
+    int woff_;
 } text_buffer;
 
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname);
@@ -300,6 +315,14 @@ bool tb_settle(text_buffer* tb);
 // any paging: pretend some of the document is elsewhere. Everything derived from
 // a line number must move with these, and nothing else may.
 void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines);
+
+// For tests, for the same reason: the only way to see the split-line scan
+// before there are split lines. A walker moves the gap to the start of every
+// line it reads, so nothing hands this two runs yet -- once one stops, every
+// search that passes the cursor's own line does. Positions in and out are
+// indices into the line as a whole. See .internal/docs/WALKER.md.
+int tb_scan_split(const char* pre, int psz, const char* suf, int ssz,
+                  const char* needle, int nsz, int from, bool forward);
 
 // Negative, zero or positive as `a` is before, at, or after `b`. Lets a caller
 // hand ranges over in either order without sorting them first.

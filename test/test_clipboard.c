@@ -63,10 +63,18 @@ static const char* doc_of(text_buffer* tb) {
     int n = 0;
     int tpos = tb_ypos(&cp);
     for (;;) {
-        int sz = 0;
-        char* line = tb_suffix(&cp, &sz);
-        if (line != NULL && sz > 0 && n + sz < (int) sizeof(out) - 2) {
-            memcpy(out + n, line, (size_t) sz);
+        // A walker's line is the one or two runs the buffer holds it in --
+        // the gap sits where the cursor left it, so one line of the document
+        // is split there. tb_curr_line is what reads a walker's line.
+        const split_line ln = tb_curr_line(&cp);
+        const int sz = ln.psz_ + ln.ssz_;
+        if (sz > 0 && n + sz < (int) sizeof(out) - 2) {
+            if (ln.psz_ > 0) {
+                memcpy(out + n, ln.prefix_, (size_t) ln.psz_);
+            }
+            if (ln.ssz_ > 0) {
+                memcpy(out + n + ln.psz_, ln.suffix_, (size_t) ln.ssz_);
+            }
             n += sz;
         }
         tb_down(&cp);
@@ -282,10 +290,9 @@ int main(void) {
         text_buffer probe;
         tb_copy(&probe, &into);
         tb_seek(&probe, at(1, 0));
-        int psz = 0;
-        tb_suffix(&probe, &psz);
+        const split_line pl = tb_curr_line(&probe);
         check("  the line before the boundary is not cut in two",
-              psz, CLIP_CHUNK - 1);
+              pl.psz_ + pl.ssz_, CLIP_CHUNK - 1);
 
         clip_destroy(&cs);
         tb_destroy(&into);

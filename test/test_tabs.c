@@ -213,6 +213,79 @@ int main(void) {
     check("glyph past the end is a space", scr_glyph_at(&scr, gl, 5, 6), ' ');
     check("glyph on an empty line is a space", scr_glyph_at(&scr, NULL, 0, 3), ' ');
 
+    /* ---------- the same line, arriving in two pieces ---------- */
+    /* A line is two runs whenever the gap falls inside it. The cursor's own
+     * line always is; a walker reading without moving the gap meets one more.
+     * Splitting it must not change a single answer, and the place that breaks
+     * is a tab: its width depends on the column it lands in, so a second piece
+     * measured from zero and added on gives the wrong number. */
+    for (int cut = 0; cut <= 5; cut++) {
+        int wrong = 0;
+        for (int col = 0; col <= 7; col++) {
+            const char whole = scr_glyph_at(&scr, gl, 5, col);
+            const char split = scr_glyph_at_split(&scr, gl, cut,
+                                                  gl + cut, 5 - cut, col);
+            if (whole != split) {
+                wrong = 100 + col;
+                break;
+            }
+        }
+        for (int n = 0; n <= 5 && wrong == 0; n++) {
+            const int whole = scr_column_of(&scr, gl, n);
+            const int lead = n < cut ? n : cut;
+            const int rest = n - lead;
+            const int split = scr_column_of_split(&scr, gl, lead,
+                                                  gl + cut, rest);
+            if (whole != split) {
+                wrong = 200 + n;
+            }
+        }
+        check("a line cut in two reads the same as one piece", wrong, 0);
+    }
+
+    /* The case a wrong implementation gets right by accident: cut the line so
+     * the tab is in the first piece and the text after it in the second, then
+     * ask for the column of the whole thing. Measuring the pieces apart and
+     * adding gives 2 + 2 = 4; carrying the column through gives 4 + 2 = 6. */
+    check("a tab in the first piece still pushes the second along",
+          scr_column_of_split(&scr, gl, 3, gl + 3, 2), 6);
+    check("  and a glyph after it is found in the second piece",
+          scr_glyph_at_split(&scr, gl, 3, gl + 3, 2, 4), 'c');
+    check("  with the tab's own columns still spaces",
+          scr_glyph_at_split(&scr, gl, 3, gl + 3, 2, 3), ' ');
+
+    /* A selection column is the width of everything before the byte it starts
+     * at, so the same carry has to survive clipping the line short. Tested
+     * against every cut of the line and every byte count, because the two
+     * clips interact: the one the caller asks for and the one the split
+     * imposes. */
+    for (int cut = 0; cut <= 5; cut++) {
+        int wrong = 0;
+        for (int n = 0; n <= 7 && wrong == 0; n++) {
+            const int want = scr_column_of(&scr, gl, n < 5 ? n : 5);
+            const int got = scr_column_of_n(&scr, gl, cut, gl + cut,
+                                            5 - cut, n);
+            if (want != got) {
+                wrong = cut * 10 + n;
+            }
+        }
+        check("  and clipping it short measures the same either way", wrong, 0);
+    }
+    check("a byte count past the end measures the whole line",
+          scr_column_of_n(&scr, gl, 3, gl + 3, 2, 99),
+          scr_column_of(&scr, gl, 5));
+    check("a negative one measures none of it",
+          scr_column_of_n(&scr, gl, 3, gl + 3, 2, -1), 0);
+
+    /* An empty piece on either side is the contiguous case, which is how every
+     * single-run caller reaches these. */
+    check("an empty prefix is the whole line",
+          scr_column_of_split(&scr, NULL, 0, gl, 5),
+          scr_column_of(&scr, gl, 5));
+    check("an empty suffix is too",
+          scr_column_of_split(&scr, gl, 5, NULL, 0),
+          scr_column_of(&scr, gl, 5));
+
     /* ---------- holding a column across differently shaped lines ---------- */
     /* This is what cmd_up/cmd_down do: column on the old line -> byte on the new. */
     char from[] = "\tx";        /* 'x' is byte 1, column 4 */

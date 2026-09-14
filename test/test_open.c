@@ -86,10 +86,18 @@ static const char* doc_of(text_buffer* tb) {
     int n = 0;
     int tpos = tb_ypos(&cp);
     for (;;) {
-        int sz = 0;
-        char* line = tb_suffix(&cp, &sz);
-        if (line != NULL && sz > 0 && n + sz < (int) sizeof(got) - 2) {
-            memcpy(got + n, line, (size_t) sz);
+        // A walker's line is the one or two runs the buffer holds it in --
+        // the gap sits where the cursor left it, so one line of the document
+        // is split there. tb_curr_line is what reads a walker's line.
+        const split_line ln = tb_curr_line(&cp);
+        const int sz = ln.psz_ + ln.ssz_;
+        if (sz > 0 && n + sz < (int) sizeof(got) - 2) {
+            if (ln.psz_ > 0) {
+                memcpy(got + n, ln.prefix_, (size_t) ln.psz_);
+            }
+            if (ln.ssz_ > 0) {
+                memcpy(got + n + ln.psz_, ln.suffix_, (size_t) ln.ssz_);
+            }
             n += sz;
         }
         got[n++] = '\n';

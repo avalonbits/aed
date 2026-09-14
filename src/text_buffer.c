@@ -64,6 +64,8 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->walker_ = false;
     tb->paged_ = false;
     tb->store_ = NULL;
+    tb->wline_ = 0;
+    tb->woff_ = 0;
 
     if (fname != NULL && tb_load(tb, fname) != TB_OK) {
         free(tb->fname_);
@@ -246,8 +248,22 @@ bool tb_del_line(text_buffer* tb) {
     }
 
     tb_home(tb);
-    while (lb_csize(&tb->lb_) > 0) {
-        tb_del(tb);
+    // Stopped by the delete refusing as well as by the count reaching zero.
+    // Those are the same question asked of the two buffers, and trusting only
+    // the index means that if it ever says a line is longer than the text
+    // really is, this spins for ever. That is what a hang on the last line of
+    // a document turned out to be -- see tb_del_merge and tb_bksp_merge, which
+    // both used to leave it a byte out on a document of bare line feeds.
+    while (lb_csize(&tb->lb_) > 0 && tb_del(tb)) {
+    }
+    if (lb_csize(&tb->lb_) > 0) {
+        // The text ran out before the index said it should. Keeping the entry
+        // leaves the two agreeing about what is still there, which the rest of
+        // the editor can carry on from; dropping it would lose the bytes that
+        // are out of the count but still in the buffer.
+        tb->dirty_ = true;
+
+        return true;
     }
     lb_del(&tb->lb_);
     tb->dirty_ = true;
@@ -263,15 +279,23 @@ bool tb_del_merge(text_buffer* tb) {
        return false;
     }
 
-    // This function is only called when we are the end of the line.
-    // If we are not the last, then we have a \r\n sequence.
+    // Only called at the end of a line, so what is under the cursor is the
+    // break -- and a break is as long as this document's breaks are. It used
+    // to delete two characters flat, on the reasoning that anything but the
+    // last line ends in a CRLF. That stopped being true when a document began
+    // keeping the breaks its file had: on one written with bare line feeds the
+    // second delete ate the first character of the line being joined on, and
+    // left the index a byte heavier than the text. tb_del_line then never
+    // finished, because it deletes until the index says the line is empty.
     //
-    // One record for the pair, for the same reason tb_newline groups its puts:
-    // half a line break is not a thing the line index can hold.
+    // One record for however many characters, for the same reason tb_newline
+    // groups its puts: half a line break is not a thing the line index can
+    // hold.
     const tb_pos at = tb_tell(tb);
     const bool was = undo_hold(tb->undo_);
-    tb_del(tb);
-    tb_del(tb);
+    for (int i = 0; i < eol_len(tb); i++) {
+        tb_del(tb);
+    }
     lb_merge_next(&tb->lb_);
     tb->dirty_ = true;
     undo_release(tb->undo_, was);
@@ -289,11 +313,18 @@ bool tb_bksp_merge(text_buffer* tb) {
     }
     // Straight to cb_bksp rather than tb_bksp, because the line bookkeeping
     // below is not what tb_bksp does -- so this is the one mutation that has to
-    // record for itself. The two bytes are the CRLF ending the previous line.
-    cb_bksp(&tb->cb_);
-    cb_bksp(&tb->cb_);
+    // record for itself.
+    //
+    // As many bytes as this document's break is. It took two flat, on the same
+    // reasoning tb_del_merge used: that what is behind the cursor is a CRLF.
+    // On a document written with bare line feeds that took the last character
+    // of the previous line with it, and left the index counting a byte the
+    // text no longer had.
+    for (int i = 0; i < eol_len(tb); i++) {
+        cb_bksp(&tb->cb_);
+    }
 
-    tb->x_ = lb_merge_prev(&tb->lb_);
+    tb->x_ = lb_merge_prev(&tb->lb_, eol_len(tb));
     tb->dirty_ = true;
     undo_delete(tb->undo_, tb_tell(tb), eol_len(tb) == 2 ? "\r\n" : "\n",
                 eol_len(tb));
@@ -398,6 +429,8 @@ static bool match_at(const char* hay, const char* needle, int nsz) {
 
 // Where `needle` sits in one line, or -1. `from` is the first index tried going
 // forward, or the last one going backward; negative means the whole line.
+#define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
+
 static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
                      int from, bool forward) {
     if (hay == NULL || nsz > hsz) {
@@ -435,7 +468,105 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
     return -1;
 }
 
-#define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
+/*
+ * The same scan, over a line that arrives in two pieces.
+ *
+ * Three places a match can be, and they are three disjoint ranges of starting
+ * position: wholly inside the first run, across the join, or wholly inside the
+ * second. The two runs are the contiguous scan again, unchanged -- the cost of
+ * a search is in those and they stay a tight loop over a flat buffer.
+ *
+ * Across the join there are at most nsz - 1 starting positions, because a match
+ * starting any earlier ends before the join and a match starting at the join is
+ * wholly in the second run. So the bytes either side are copied into a window
+ * and scanned there. That is the only copying a search does, and it is bounded
+ * by the needle rather than by the line: 126 bytes at the most.
+ *
+ * Positions in and out are indices into the line as a whole, the way the caller
+ * counts columns. `forward` decides which end the three ranges are tried from,
+ * and they are strictly ordered, so the first hit found is the nearest one.
+ */
+static int scan_split(const char* pre, int psz, const char* suf, int ssz,
+                      const char* needle, int nsz, int from, bool forward);
+
+int tb_scan_split(const char* pre, int psz, const char* suf, int ssz,
+                  const char* needle, int nsz, int from, bool forward) {
+    return scan_split(pre, psz, suf, ssz, needle, nsz, from, forward);
+}
+
+static int scan_split(const char* pre, int psz, const char* suf, int ssz,
+                      const char* needle, int nsz, int from, bool forward) {
+    if (psz <= 0) {
+        return scan_line(suf, ssz, needle, nsz, from, forward);
+    }
+    if (ssz <= 0) {
+        return scan_line(pre, psz, needle, nsz, from, forward);
+    }
+    if (nsz > psz + ssz) {
+        return -1;
+    }
+
+    // A negative `from` is the caller saying "anywhere on this line", which is
+    // a different thing from a position that happens to fall before one of the
+    // runs. Keeping the two apart is the whole of the bookkeeping below.
+    const bool anywhere = from < 0;
+
+    // Static because a frame is addressed with a signed byte on this machine
+    // and 126 of them would put every other local out of reach. A search is
+    // already non-reentrant -- see find_pass.
+    static char join[2 * (TB_FIND_MAX - 1)];
+
+    // As much of each side as a crossing match could possibly touch.
+    const int lead = (nsz - 1) < psz ? (nsz - 1) : psz;
+    const int tail = (nsz - 1) < ssz ? (nsz - 1) : ssz;
+    const int base = psz - lead;        // where the window starts in the line
+    memcpy(join, pre + base, (size_t) lead);
+    memcpy(join + lead, suf, (size_t) tail);
+
+    int hit = -1;
+    for (int part = 0; part < 3 && hit < 0; part++) {
+        // Forwards: first run, join, second run. Backwards: the reverse. The
+        // three ranges of starting position do not overlap and are in order,
+        // so the first hit found is the nearest one to `from`.
+        const int which = forward ? part : 2 - part;
+
+        if (which == 0) {
+            hit = scan_line(pre, psz, needle, nsz, anywhere ? -1 : from,
+                            forward);
+        } else if (which == 2) {
+            const int f = anywhere ? -1 : from - psz;
+            if (!anywhere && f < 0 && !forward) {
+                continue;       // the whole run is past where to look
+            }
+            const int in = scan_line(suf, ssz, needle, nsz,
+                                     (!anywhere && f < 0) ? 0 : f, forward);
+            hit = in < 0 ? -1 : psz + in;
+        } else {
+            // Only the starts that really cross count: the others belong to
+            // one of the two runs and are found there, in the right order.
+            for (int j = forward ? 0 : lead - 1;
+                 forward ? j < lead : j >= 0;
+                 forward ? j++ : j--) {
+                if (j + nsz <= lead) {
+                    continue;           // ends before the join
+                }
+                if (j + nsz > lead + tail) {
+                    continue;           // runs past what the line holds
+                }
+                const int line_at = base + j;
+                if (!anywhere && (forward ? line_at < from : line_at > from)) {
+                    continue;
+                }
+                if (match_at(join + j, needle, nsz)) {
+                    hit = line_at;
+                    break;
+                }
+            }
+        }
+    }
+
+    return hit;
+}
 
 // One of these, at file scope. On this machine a field of a file-scope object
 // is addressed absolutely -- the address is a constant in the instruction --
@@ -627,14 +758,18 @@ bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
     // One pass per line, plus one more for the part of the starting line the
     // first pass skipped over.
     for (int n = 0; n <= total; n++) {
-        int sz = 0;
-        const char* text = tb_suffix(&cp, &sz);
+        // The whole line, in the one or two runs it is held in. The walker's
+        // gap sits wherever the step left it, so from the second line on the
+        // line it is reading is split at that column -- which is why the scan
+        // takes a pair.
+        const split_line ln = tb_curr_line(&cp);
         // A caller searching backwards hands us x - 1, which is negative when
         // the cursor sits in column 0 -- and that means nothing on this line is
         // behind it, not that the whole line is fair game.
         const int hit = (first && !forward && start < 0)
             ? -1
-            : scan_line(text, sz, needle, nsz, first ? start : -1, forward);
+            : scan_split(ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_,
+                         needle, nsz, first ? start : -1, forward);
         first = false;
         if (hit >= 0) {
             at->line = line;
@@ -653,10 +788,8 @@ bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
             tb_seek(&cp, (tb_pos){next, 0});
         } else if (forward) {
             tb_down(&cp);
-            tb_home(&cp);
         } else {
             tb_up(&cp);
-            tb_home(&cp);
         }
         line = next;
     }
@@ -703,7 +836,83 @@ char tb_w_prev(text_buffer* tb, char from_ch) {
     return ch;
 }
 
+/*
+ * A walker's line, and the bytes of it.
+ *
+ * walk_bytes maps a run of the document onto the buffer. The live text is two
+ * runs, [lo_, curr_) and [cend_, hi_), and a document offset lands in one of
+ * them; a run that spans the boundary between them is the only one that comes
+ * back in two pieces, and at most one line in the buffer does.
+ *
+ * A single run is reported as the *suffix* with an empty prefix, which is the
+ * shape every single-run caller already reads -- scr_paint_row and the rest
+ * take a pair and an empty first half.
+ */
+static void walk_bytes(text_buffer* tb, int from, int n,
+                       char** pre, int* psz, char** suf, int* ssz) {
+    char_buffer* cb = &tb->cb_;
+    const int split = (int) (cb->curr_ - cb->lo_);
+
+    *pre = NULL;
+    *psz = 0;
+    *suf = NULL;
+    *ssz = 0;
+    if (n <= 0 || from < 0) {
+        return;
+    }
+    // Never past the live text. The byte after the last one is a position the
+    // cursor can legitimately be in -- the end of the last line -- and reading
+    // it is reading off the allocation, which is what cb_peek guards too.
+    const int used = split + (int) (cb->hi_ - cb->cend_);
+    if (from >= used) {
+        return;
+    }
+    if (from + n > used) {
+        n = used - from;
+    }
+    if (from >= split) {                // wholly above the gap
+        *suf = cb->cend_ + (from - split);
+        *ssz = n;
+
+        return;
+    }
+    if (from + n <= split) {            // wholly below it
+        *suf = cb->lo_ + from;
+        *ssz = n;
+
+        return;
+    }
+    *pre = cb->lo_ + from;              // the one line that spans it
+    *psz = split - from;
+    *suf = cb->cend_;
+    *ssz = n - *psz;
+}
+
+// The text of a walker's line, without the break. lb_at reads the length out
+// of the index by number; the last line in the buffer has no break to take off.
+static int walk_line_len(text_buffer* tb) {
+    const int sz = lb_at(&tb->lb_, tb->wline_);
+
+    return tb->wline_ + 1 >= lb_lines(&tb->lb_) ? sz : sz - eol_len(tb);
+}
+
 char tb_up(text_buffer* tb) {
+    if (tb->walker_) {
+        // By number. Nothing moves: the buffers stay exactly as the cursor
+        // that owns them left them, which is what lets the gap be whatever
+        // size prime_spare finds convenient rather than wider than a screen.
+        if (tb->wline_ <= 0) {
+            return 0;       // the top of the window, which a walker may not pass
+        }
+        tb->wline_--;
+        tb->woff_ -= lb_at(&tb->lb_, tb->wline_);
+        const int maxX = walk_line_len(tb);
+        if (tb->x_ > maxX) {
+            tb->x_ = maxX;
+        }
+
+        return tb_peek(tb);
+    }
     if (!lb_up(&tb->lb_)) {
         // The top of the *window*, which on a paged document is not the top of
         // the document. Settling brings the chunk above it in.
@@ -749,6 +958,19 @@ char tb_up(text_buffer* tb) {
 }
 
 char tb_down(text_buffer* tb) {
+    if (tb->walker_) {
+        if (tb->wline_ + 1 >= lb_lines(&tb->lb_)) {
+            return 0;       // the bottom of the window; see tb_up
+        }
+        tb->woff_ += lb_at(&tb->lb_, tb->wline_);
+        tb->wline_++;
+        const int maxX = walk_line_len(tb);
+        if (tb->x_ > maxX) {
+            tb->x_ = maxX;
+        }
+
+        return tb_peek(tb);
+    }
     int move = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_down(&tb->lb_)) {
         // The bottom of the window. See tb_up: settling is what gets past it,
@@ -780,6 +1002,11 @@ char tb_down(text_buffer* tb) {
 }
 
 char tb_home(text_buffer* tb) {
+    if (tb->walker_) {
+        tb->x_ = 0;
+
+        return tb_peek(tb);
+    }
     const int back = tb->x_;
     tb->x_ = 0;
     return cb_prev(&tb->cb_, back);
@@ -788,6 +1015,12 @@ char tb_home(text_buffer* tb) {
 char tb_goto_offset(text_buffer* tb, int off) {
     if (off < 0) {
         off = 0;
+    }
+    if (tb->walker_) {
+        const int maxX = walk_line_len(tb);
+        tb->x_ = off > maxX ? maxX : off;
+
+        return tb_peek(tb);
     }
     if (off < tb->x_) {
         cb_prev(&tb->cb_, tb->x_ - off);
@@ -800,6 +1033,11 @@ char tb_goto_offset(text_buffer* tb, int off) {
 }
 
 char tb_end(text_buffer* tb) {
+    if (tb->walker_) {
+        tb->x_ = walk_line_len(tb);
+
+        return 0;
+    }
     char ch = cb_peek(&tb->cb_);
     while (!IS_EOL(ch)) {
         ch = cb_next(&tb->cb_, 1);
@@ -820,7 +1058,8 @@ static int mem_lines(text_buffer* tb) {
 }
 
 int tb_ypos(text_buffer* tb) {
-    return tb->head_lines_ + lb_curr(&tb->lb_) + 1;
+    return tb->head_lines_
+        + (tb->walker_ ? tb->wline_ : lb_curr(&tb->lb_)) + 1;
 }
 
 int tb_ymax(text_buffer* tb) {
@@ -978,11 +1217,27 @@ static int prime_spare(text_buffer* tb) {
     // slide closed a quarter of a megabyte up against the wall. That was 71%
     // of what walking a large document cost.
     //
-    // A third of what this reserves ends up at the cursor, where it also has to
-    // outlast a paint walking the screen; see cb_rebalance in char_buffer.c.
+    // A quarter was for a while a floor rather than a choice: a walker read by
+    // moving the gap, so the gap had to outlast a repaint -- 12 KiB on the
+    // widest mode -- and cb_rebalance gave it a third of whatever this left.
+    // Anything under a seventh of the buffer put the gap below that and a
+    // repaint would corrupt the document it was painting. Walkers move by
+    // number now, and that floor is gone; see .internal/docs/WALKER.md.
+    //
+    // It stays a quarter because the measurements still say so, for reasons
+    // that have nothing to do with the old one. On slow.asm, 419 KB, MOS
+    // 3.0.2:
+    //
+    //              open    seek    3000 down
+    //     1/4      0.94s   2.32s   0.38s
+    //     1/8      1.04s   2.50s   0.34s
+    //     1/16     1.10s   2.84s   0.32s
+    //
+    // Opening and seeking both want the reserve; only scrolling wants it back,
+    // and it gains 0.06s where a seek loses 0.52. See docs/SIZING.md.
     //
     // The trade is fewer lines in memory, so a long scroll crosses more
-    // chunks. Each one is cheap enough now that it is worth it.
+    // chunks. Each one is cheap enough that it is worth it.
     return cb_size(&tb->cb_) / 4;
 }
 
@@ -1285,6 +1540,9 @@ void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
 
 // The line's text, not counting the CRLF that ends it. The last line has none.
 static int line_len(text_buffer* tb) {
+    if (tb->walker_) {
+        return walk_line_len(tb);
+    }
     const int sz = lb_csize(&tb->lb_);
 
     return lb_last(&tb->lb_) ? sz : sz - eol_len(tb);
@@ -1447,8 +1705,19 @@ static bool rp_char(range_pass* rp, char c) {
     return rp_take(rp, &c, 1);
 }
 
+/*
+ * A break is two bytes to a range, whatever the document keeps it as.
+ *
+ * The range stream emits CRLF by contract -- see range_sink -- so
+ * tb_range_size measures the CRLF-normalised text and not the bytes in the
+ * buffer. Anything that compares a count against what tb_range_size returned
+ * has to count in the same units, or the two drift apart on a document whose
+ * own breaks are one byte.
+ */
+#define TB_RANGE_EOL 2
+
 static bool range_sink(void* ctx, const char* buf, int sz) {
-    static const char crlf[2] = { '\r', '\n' };
+    static const char crlf[TB_RANGE_EOL] = { '\r', '\n' };
     range_pass* rp = (range_pass*) ctx;
 
     // A whole chunk inside the range, which is most of them on a select-all:
@@ -1522,7 +1791,7 @@ static bool range_sink(void* ctx, const char* buf, int sz) {
             // the store holds.
             rp->held_cr = false;
             if (rp->line >= rp->a.line && rp->line < rp->b.line
-                    && !rp_take(rp, crlf, 2)) {
+                    && !rp_take(rp, crlf, TB_RANGE_EOL)) {
                 return false;
             }
             rp->line++;
@@ -1669,7 +1938,12 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     while (left > 0) {
         const bool eol = tb_eol(tb);
         if (eol ? tb_del_merge(tb) : tb_del(tb)) {
-            left -= eol ? eol_len(tb) : 1;
+            // In the units tb_range_size handed over, which counts a break as
+            // CRLF however long this document's breaks are. Counting the
+            // document's own length here instead left one byte of the range
+            // unaccounted for on every break, and the loop deleted the first
+            // character of the following line to make it up.
+            left -= eol ? TB_RANGE_EOL : 1;
             stalls = 0;
             any = true;
             continue;
@@ -1811,6 +2085,11 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     // whole for that reason, and this list is the part that still has to be
     // kept by hand.
     dst->elen_ = src->elen_;
+    // Where the walk starts, in the numbers a walker moves by. The owner knows
+    // both: its line is what lb_curr reports, and its line began x_ bytes
+    // before the cursor.
+    dst->wline_ = lb_curr(&src->lb_);
+    dst->woff_ = (int) (src->cb_.curr_ - src->cb_.lo_) - src->x_;
     // Copies are walked, never written to -- refresh_screen and
     // cmd_repaint_rows only move and read. Carrying the log would mean a paint
     // could record an edit.
@@ -1823,13 +2102,41 @@ void tb_set_undo(text_buffer* tb, undo* u) {
 
 // Char read.
 char tb_peek(text_buffer* tb) {
+    if (tb->walker_) {
+        char* pre = NULL;
+        char* suf = NULL;
+        int psz = 0;
+        int ssz = 0;
+        // One byte, so it is never the run that spans the gap.
+        walk_bytes(tb, tb->woff_ + tb->x_, 1, &pre, &psz, &suf, &ssz);
+
+        return ssz > 0 ? *suf : 0;
+    }
     return cb_peek(&tb->cb_);
 }
 
 char* tb_prefix(text_buffer* tb, int* sz) {
+    if (tb->walker_) {
+        // A walker's line sits where the owner's gap left it, so the bytes
+        // before its column can be two runs and there is no one pointer to
+        // give. tb_curr_line is what reads a walker's line; nothing asks a
+        // walker for half of one.
+        *sz = 0;
+
+        return NULL;
+    }
     int psz = 0;
     char* prefix = cb_prefix(&tb->cb_, &psz);
     if (prefix == NULL) {
+        // Said out loud rather than left to the caller's own initialiser.
+        // cb_prefix reports an empty prefix through its own `sz`, not through
+        // this one, so returning here without writing it handed tb_curr_line
+        // an uninitialised psz_ every time the cursor was at the start of the
+        // buffer. Every caller happens to test the pointer before the size, so
+        // it never showed -- but it is a garbage length in a struct the view
+        // reads.
+        *sz = 0;
+
         return NULL;
     }
     prefix = prefix + (psz - tb->x_);
@@ -1838,6 +2145,11 @@ char* tb_prefix(text_buffer* tb, int* sz) {
 }
 
 char* tb_suffix(text_buffer* tb, int* sz) {
+    if (tb->walker_) {
+        *sz = 0;        // see tb_prefix
+
+        return NULL;
+    }
     char* suffix = cb_suffix(&tb->cb_, sz);
     if (suffix == NULL) {
         return NULL;
@@ -1853,6 +2165,17 @@ char* tb_suffix(text_buffer* tb, int* sz) {
 split_line tb_curr_line(text_buffer* tb) {
     split_line ln;
 
+    if (tb->walker_) {
+        // The whole line, in the one or two runs the buffer is holding it in.
+        // For the cursor the two happen to be "before" and "after" it, because
+        // the gap is where the cursor is; for a walker they are wherever the
+        // owner's gap falls, which is a different split of the same bytes and
+        // the same thing to paint.
+        walk_bytes(tb, tb->woff_, walk_line_len(tb),
+                   &ln.prefix_, &ln.psz_, &ln.suffix_, &ln.ssz_);
+
+        return ln;
+    }
     ln.prefix_ = tb_prefix(tb, &ln.psz_);
     ln.suffix_ = tb_suffix(tb, &ln.ssz_);
     return ln;

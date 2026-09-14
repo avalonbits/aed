@@ -177,6 +177,89 @@ int main(void) {
         free(edge);
     }
 
+    /* --- where a rebalance puts the free space --- */
+    {
+        /*
+         * Sliding one way eats the free space at one end and makes it at the
+         * other, and the only time the live text has to be moved is when an end
+         * runs dry. So the free space belongs at the ends: every byte there is
+         * another slide that costs a pointer move.
+         *
+         * The gap keeps a small share, for typing. It used to keep a third,
+         * because a walker read by moving the gap and had to be able to travel
+         * a screenful through it without catching the cursor's own cend_.
+         * Walkers move by number now -- see .internal/docs/WALKER.md -- so the
+         * gap is for inserts and nothing else.
+         */
+        char_buffer* cb = (char_buffer*) malloc(sizeof(char_buffer));
+        cb_init(cb, 8192);
+        for (int i = 0; i < 4096; i++) {
+            cb_put(cb, (char) ('a' + (i % 26)));
+        }
+        /* Take from the front until the end below the text runs dry, which is
+         * what asks for the spread. */
+        static char out[256];
+        for (int i = 0; i < 8; i++) {
+            cb_take_front(cb, out, 256);
+        }
+        static char in[256];
+        memset(in, 'z', sizeof(in));
+        check("giving to the back of a buffer works",
+              cb_give_back(cb, in, 256) ? 1 : 0, 1);
+
+        const int below = (int) (cb->lo_ - cb->buf_);
+        const int gap = (int) (cb->cend_ - cb->curr_);
+        const int above = (int) ((cb->buf_ + cb->size_) - cb->hi_);
+        check("  and the free space adds up", below + gap + above,
+              cb_available(cb));
+        check("  with most of it at the ends",
+              (below + above) > gap * 3 ? 1 : 0, 1);
+        check("  and some of it still at the cursor", gap > 0 ? 1 : 0, 1);
+
+        /* And the same spread when it is typing that asks for it. A run of
+         * slides leaves the free space at the ends and shuts the gap; cb_put
+         * takes a share of it back rather than reporting a full buffer, and
+         * the share it takes is small for the same reason. */
+        {
+            char_buffer* t = (char_buffer*) malloc(sizeof(char_buffer));
+            cb_init(t, 8192);
+            for (int i = 0; i < 4096; i++) {
+                cb_put(t, 'a');
+            }
+            cb_take_front(t, out, 256);     /* free space below the text */
+            cb_take_front(t, out, 256);
+            int put = 0;
+            while ((int) (t->cend_ - t->curr_) > 0 && cb_put(t, 'b')) {
+                put++;
+            }
+            check("  typing shuts the gap", (int) (t->cend_ - t->curr_), 0);
+            check("    and one more keystroke goes in", cb_put(t, 'c') ? 1 : 0, 1);
+            const int g = (int) (t->cend_ - t->curr_);
+            const int ends = (int) (t->lo_ - t->buf_)
+                + (int) ((t->buf_ + t->size_) - t->hi_);
+            check("      by taking a share of the ends back", g > 0 ? 1 : 0, 1);
+            check("      a small one, so the ends keep theirs",
+                  ends > g * 3 ? 1 : 0, 1);
+            cb_destroy(t);
+            free(t);
+        }
+
+        /* A small gap is still a working buffer: typing refills it when it
+         * finally shuts, and a span that will fit always goes in. */
+        int typed = 0;
+        while (typed < 4096 && cb_put(cb, 'q')) {
+            typed++;
+        }
+        check("  typing into it keeps working", typed, 4096);
+        static char span[1024];
+        memset(span, 'w', sizeof(span));
+        check("  and a span that fits still goes in whole",
+              cb_write(cb, span, 1024) ? 1 : 0, 1);
+        check("    all of it", cb_used(cb), 4096 - 2048 + 256 + 4096 + 1024);
+        cb_destroy(cb);
+        free(cb);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

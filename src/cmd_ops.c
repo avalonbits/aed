@@ -45,9 +45,8 @@ static void fill_screen(screen* scr, text_buffer* tb) {
     char ypos = scr->topY_;
     char tpos = tb_ypos(tb);
     for (; ypos < scr->bottomY_; ypos++) {
-        int sz = 0;
-        char* suffix = tb_suffix(tb, &sz);
-        scr_write_line(scr, ypos, suffix, sz);
+        const split_line ln = tb_curr_line(tb);
+        scr_paint_row(scr, ypos, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 
         tb_down(tb);
         const int npos = tb_ypos(tb);
@@ -99,10 +98,11 @@ static void fill_columns(screen* scr, text_buffer* tb, char sx, int count) {
 
     int tpos = tb_ypos(&cp);
     for (char ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
-        int sz = 0;
-        char* line = tb_suffix(&cp, &sz);
+        const split_line ln = tb_curr_line(&cp);
         for (int i = 0; i < count; i++) {
-            const char g = scr_glyph_at(scr, line, sz, scr->originX_ + sx + i);
+            const char g = scr_glyph_at_split(scr, ln.prefix_, ln.psz_,
+                                              ln.suffix_, ln.ssz_,
+                                              scr->originX_ + sx + i);
             scr_put_at(scr, (char)(sx + i), ypos, g);
         }
 
@@ -226,9 +226,9 @@ void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
     *to = b;
 }
 
-// The columns of `line` that the selection covers, as [from, to). Empty when
+// The columns of `ln` that the selection covers, as [from, to). Empty when
 // none of it does.
-static void row_selection(editor* ed, int line, const char* text, int len,
+static void row_selection(editor* ed, int line, const split_line* ln,
                           int* from, int* to) {
     *from = 0;
     *to = 0;
@@ -244,13 +244,18 @@ static void row_selection(editor* ed, int line, const char* text, int len,
         return;
     }
 
-    *from = (line == a.line) ? scr_column_of(scr, text, a.x) : 0;
+    const int len = ln->psz_ + ln->ssz_;
+    *from = (line == a.line)
+        ? scr_column_of_n(scr, ln->prefix_, ln->psz_, ln->suffix_, ln->ssz_, a.x)
+        : 0;
     if (line == b.line) {
-        *to = scr_column_of(scr, text, b.x);
+        *to = scr_column_of_n(scr, ln->prefix_, ln->psz_,
+                              ln->suffix_, ln->ssz_, b.x);
     } else {
         // Past the end of the text by one, so a line break inside the selection
         // shows as a highlighted cell rather than as nothing at all.
-        *to = scr_column_of(scr, text, len) + 1;
+        *to = scr_column_of_n(scr, ln->prefix_, ln->psz_,
+                              ln->suffix_, ln->ssz_, len) + 1;
     }
 }
 
@@ -287,12 +292,12 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
 
     char y = fromY;
     for (; y <= toY; y++) {
-        int sz = 0;
-        char* text = tb_suffix(&cp, &sz);
+        const split_line ln = tb_curr_line(&cp);
         int from = 0;
         int to = 0;
-        row_selection(ed, tb_ypos(&cp), text, sz, &from, &to);
-        scr_write_line_sel(scr, y, text, sz, from, to);
+        row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
+        scr_write_line_sel_split(scr, y, ln.prefix_, ln.psz_,
+                                 ln.suffix_, ln.ssz_, from, to);
 
         const int prev = tb_ypos(&cp);
         tb_down(&cp);
@@ -328,12 +333,12 @@ void cmd_repaint_span(editor* ed, char y, int from_col, int to_col) {
     start.x = 0;
     tb_seek(&cp, start);
 
-    int sz = 0;
-    char* text = tb_suffix(&cp, &sz);
+    const split_line ln = tb_curr_line(&cp);
     int from = 0;
     int to = 0;
-    row_selection(ed, tb_ypos(&cp), text, sz, &from, &to);
-    scr_write_line_span(scr, y, text, sz, from, to, from_col, to_col);
+    row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
+    scr_write_line_span_split(scr, y, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_,
+                              from, to, from_col, to_col);
     scr_sync_cursor(scr);
 }
 
@@ -1007,9 +1012,9 @@ void cmd_putc(editor* ed, key k) {
 }
 
 static void region_up(screen* scr, text_buffer* tb, char ch) {
-    int sz = 0;
-    char* line = tb_suffix(tb, &sz);
-    scr_scroll_up(scr, scr->currY_, scr->bottomY_-1, line, sz, ch);
+    split_line ln = tb_curr_line(tb);
+    scr_scroll_up_split(scr, scr->currY_, scr->bottomY_-1,
+                        ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_, ch);
 
     int diff = scr->bottomY_ - scr->currY_ - 1;
     int last = 0;
@@ -1021,8 +1026,9 @@ static void region_up(screen* scr, text_buffer* tb, char ch) {
             return;
         }
     }
-    line = tb_suffix(tb, &sz);
-    scr_overwrite_line(scr, scr->bottomY_-1, line, sz, 255);
+    ln = tb_curr_line(tb);
+    scr_overwrite_line_split(scr, scr->bottomY_-1,
+                             ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_show(editor* ed) {
@@ -1281,9 +1287,9 @@ void cmd_up(editor* ed) {
         text_buffer cp;
         tb_copy(&cp, tb);
         tb_home(&cp);
-        int sz = 0;
-        char* line = tb_suffix(&cp, &sz);
-        scr_scroll_down(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
+        const split_line cl = tb_curr_line(&cp);
+        scr_scroll_down_split(scr, scr->topY_, scr->bottomY_-1,
+                              cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
     }
 
@@ -1322,9 +1328,9 @@ void cmd_down(editor* ed) {
         text_buffer cp;
         tb_copy(&cp, tb);
         tb_home(&cp);
-        int sz = 0;
-        char* line = tb_suffix(&cp, &sz);
-        scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, line, sz, to_ch);
+        const split_line cl = tb_curr_line(&cp);
+        scr_scroll_up_split(scr, scr->topY_, scr->bottomY_-1,
+                            cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
     }
 

@@ -210,8 +210,20 @@ bool lb_del(line_buffer* lb) {
         return true;
     }
 
+    // The last line has nothing below it to pull up, so deleting it empties it
+    // rather than removing a slot -- a document always has a line, even when
+    // that line has nothing on it.
+    //
+    // This said `lb->curr_ = 0`, which sets the pointer rather than the length
+    // it points at. The index then had no current line at all, and lb_curr
+    // answered with the distance from the start of the buffer to address zero.
+    // Nothing reached it while tb_del_line emptied a line before asking for it
+    // -- the branch above ran instead -- so it sat here from the commit that
+    // added line deletion until a walk that indexes the buffer by number went
+    // looking for line minus four hundred million.
     if (*lb->curr_ > 0) {
-        lb->curr_ = 0;
+        *lb->curr_ = 0;
+
         return true;
     }
     return false;
@@ -227,14 +239,14 @@ bool lb_merge_next(line_buffer* lb) {
     return true;
 }
 
-int lb_merge_prev(line_buffer* lb) {
+int lb_merge_prev(line_buffer* lb, int eol) {
     if (lb->curr_ == lb->buf_) {
         return -1;
     }
 
     const int curr = *lb->curr_;
     lb->curr_--;
-    (*lb->curr_) -= 2;
+    (*lb->curr_) -= eol;
     const int next = *lb->curr_;
     (*lb->curr_) += curr;
 

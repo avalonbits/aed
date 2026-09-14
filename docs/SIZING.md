@@ -5,8 +5,8 @@ was picked against a measurement rather than a guess:
 
 | | where | value |
 |---|---|---|
-| how much RAM a document gets | [`main.c`](../src/main.c#L32) | 256 |
-| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L974) | a quarter |
+| how much RAM a document gets | [`AED_DOC_KB`](../src/editor.h#L79) | 256 |
+| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1213) | a quarter |
 | how far a slide moves | [`TB_CHUNK`](../src/text_buffer.h#L51) | 2 KiB |
 | how close the cursor may get to an end | [`TB_MARGIN`](../src/text_buffer.h#L52) | 16 KiB |
 
@@ -29,7 +29,7 @@ open document would cost. Read section 4 of that first.
 
 ## 1. What 256 buys
 
-`main` passes 256 to `ed_init`, which reaches
+`main` passes [`AED_DOC_KB`](../src/editor.h#L79) to `ed_init`, which reaches
 [`tb_init`](../src/text_buffer.c#L40), and that number is split two ways:
 
 ```c
@@ -78,94 +78,117 @@ below is an upper bound on what is really spare.
 downs" is the arrow key held down through 3,000 lines, which is the path a user
 feels; "seek" is a jump to the last line and back to the first.
 
-| `mem_kb` | reserve | in memory | gap at mid | open | 3000 downs | 3000 ups | seek | save |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 256 | 1/2 | 126,917 | 64,411 | 158 | 86 | 56 | 206 | 26 |
-| 256 | 1/3 | 169,299 | 42,874 | 222 | 52 | 42 | 216 | 22 |
-| **256** | **1/4** | **190,451** | **32,100** | 258 | **36** | **34** | 220 | 20 |
-| 256 | 1/8 | 222,208 | 16,034 | 326 | — | — | 238 | 16 |
-| 128 | 1/4 | 95,182 | 17,024 | 122 | 150 | 68 | 208 | 28 |
-| 128 | 1/8 | 111,080 | 8,834 | 140 | 144 | 70 | 224 | 28 |
-| 128 | 1/16 | 119,007 | 4,975 | 150 | — | — | 274 | 24 |
-| 64 | 1/4 | 47,602 | 9,451 | 86 | 120 | 66 | **wrong** | 30 |
+| `mem_kb` | reserve | in memory | open | 3000 downs | 3000 ups | seek | save |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| **256** | **1/4** | **190,451** | **94** | 38 | 36 | **232** | 22 |
+| 256 | 1/8 | 222,208 | 104 | 34 | 30 | 250 | 20 |
+| 256 | 1/16 | 238,037 | 110 | **32** | **30** | 284 | **16** |
+| 128 | 1/8 | 111,080 | **86** | 70 | 70 | 234 | 26 |
+| 128 | 1/16 | 119,007 | 88 | 82 | 82 | 256 | 26 |
+
+Taken before a walker stopped moving the gap, which is why the reserve could
+not go below about a seventh — see section 4:
+
+| `mem_kb` | reserve | in memory | gap at mid | open | 3000 downs | seek |
+|---:|---:|---:|---:|---:|---:|---:|
+| 256 | 1/2 | 126,917 | 64,411 | 158 | 86 | 206 |
+| 256 | 1/3 | 169,299 | 42,874 | 222 | 52 | 216 |
+| 256 | 1/4 | 190,451 | 32,100 | 258 | 36 | 220 |
+| 256 | 1/8 | 222,208 | 16,034 | 326 | — | 238 |
+| 128 | 1/4 | 95,182 | 17,024 | 122 | 150 | 208 |
+| 128 | 1/8 | 111,080 | 8,834 | 140 | 144 | 224 |
+| 64 | 1/4 | 47,602 | 9,451 | 86 | 120 | **wrong** |
 
 Every row saved the document back byte for byte, including the last one: saving
 streams the document and never asks where the cursor is.
 
+Opening a 419 KB file went from 2.58 seconds to 0.94 between those two tables,
+and none of it was the loader. `cb_room_back` used to leave exactly the `n`
+bytes it had been asked for above `hi_`, giving half the leftover to the gap
+instead -- so the next chunk of the load needed another full move of the live
+text, and every chunk after that did too. The gap gets an eighth now and the
+rest goes to the ends, which is where a slide spends it.
+
 Three effects pull in three directions.
 
-**Open** tracks how much text goes into the window, at about 1.2 ms per KiB of
+**Open** tracks how much text goes into the window, at about 0.4 ms per KiB of
 line indexing. Reserving more makes opening faster, because more of the file
 goes straight to the tail and is never indexed twice.
 
 **Arrow scrolling** tracks the window size. More text in memory means fewer
-crossings of `TB_MARGIN`, and each crossing is a slide. This is the sharpest
-axis in the table: 36 cs against 150 for the same 3,000 lines.
+crossings of `TB_MARGIN`, and each crossing is a slide. This is the axis that
+decides the buffer's size: 38 cs at 256 KiB against 70 at 128 for the same
+3,000 lines.
 
-**Seeking across the document** barely moves — 206 to 238 across the whole
-range. This is the axis everyone expects to dominate, and the amortisation
+**Seeking across the document** moves least of the three — 232 to 284 across
+the range. This is the axis everyone expects to dominate, and the amortisation
 described in `DESIGN.md` section 3 is why it does not.
 
 The 64 KiB row is worse than slow. After the arrow walk, a seek from line 7509
 back to line 1 left the cursor on 7509. Its window holds 47,602 bytes against
-`2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer.c#L915) has
-almost no room to work in and gives up. The same row seeked correctly in a run
-without the arrow walk first, which makes it a state-dependent failure.
+`2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer.c#L1154) has
+almost no room to work in. The same row seeked correctly in a run without the
+arrow walk first, which makes it a state-dependent failure -- and it still
+happens after the free space moved to the ends, so the room `tb_settle` has is
+not the whole of the story.
+
+The host tests hold the arithmetic that can be held there: from 40 KiB down the
+window is narrower than the two margins together and `test_paging` fails. They
+do not reproduce the 64 KiB case, which wants line lengths a synthetic document
+does not have. **The emulator is what says a size is usable.** 256 KiB is
+measured good on MOS 3.0.2 and Console8 both.
 
 ## 4. Why a quarter
 
-The reserve is not tuned for speed. If it were, it would be smaller: 1/8 at 256
-puts more text in memory, so it scrolls better than 1/4 and only opens slower.
+It used to be a floor rather than a choice, and it is worth saying what the
+floor was before saying what replaced it.
 
-It is a **safety floor**, and the thing it protects is the gap.
+[`cb_rebalance`](../src/char_buffer.c#L116) used to split free space three
+ways, so the gap held `free / 3`. A repaint walks a screenful through a walker
+— [`refresh_screen`](../src/cmd_ops.c#L66) — and a walker read by *moving* the
+gap. The copy's writes stay behind the original's `cend_` only while the gap is
+wider than the distance the copy has travelled; narrower, and the walker
+overwrites the document it is painting. `TB_MARGIN` names the worst case: 128 x
+96 is the widest mode the VDP offers, so a dense screenful is 12,288 bytes.
 
-[`cb_rebalance`](../src/char_buffer.c#L102) splits free space three ways, so
-after one the gap holds `free / 3`. A repaint walks a screenful through a
-walker — [`refresh_screen`](../src/cmd_ops.c#L67) — and a walker moves the gap
-as it reads. The copy's writes stay behind the original's `cend_` only while the
-gap is wider than the distance the copy has travelled. Narrower, and the walker
-overwrites the document it is painting.
-
-`TB_MARGIN` already names the worst case: 128 x 96 is the widest mode the VDP
-offers, so a dense screenful is 12,288 bytes.
-
-The gap column above is what the sweep observed with the cursor in the middle of
-the document, which is wider than the floor: a give at one end leaves half of
-what it did not need at the cursor. The floor is what a plain rebalance leaves,
-and that is the number the reserve has to be chosen against.
-
-| `char_buffer` | reserve | free pool | gap after a rebalance | against 12 KiB |
+| `char_buffer` | reserve | free pool | gap, old split | against 12 KiB |
 |---:|---:|---:|---:|---|
 | 253,952 | 1/4 | 63,488 | 21,163 | 1.72x |
-| 253,952 | 1/6 | 42,325 | 14,108 | 1.15x |
 | 253,952 | 1/7 | 36,279 | 12,093 | on the line |
 | 253,952 | 1/8 | 31,744 | 10,581 | short |
 | 126,976 | 1/4 | 31,744 | 10,581 | short |
-| 126,976 | 1/3 | 42,325 | 14,108 | 1.15x |
 
-**A quarter of 248 KiB is the tightest ratio that leaves real headroom over a
-worst-case repaint.** Anything past 1/7 is under it, and a document painted on a
-128-column screen would be corrupted rather than merely slow.
+So a quarter of 248 KiB was the tightest ratio with real headroom, and 128 KiB
+could not use a quarter at all. That is what stopped the buffer shrinking.
 
-The sweep's 1/8 and 1/16 rows pass because `slow.asm` has 52-byte lines: the
-walker moved 3,773 bytes for 60 rows, well inside even a 2,645-byte gap most of
-the time. They would fail on a wide screen full of long lines, which is exactly
-the failure this floor exists to rule out.
+**A walker moves by number now.** `wline_` is its line and `woff_` is the byte
+offset of that line's start, and the bytes are found where they lie rather than
+brought to the gap — see `.internal/docs/WALKER.md`. The gap has one job again,
+which is holding an insert, and `cb_rebalance` gives it an eighth and the ends
+the rest.
+
+The reserve stays a quarter, for reasons that have nothing to do with the old
+floor. The first table in section 3 is the whole argument: opening and seeking
+both want the reserve, and only scrolling wants it back. Going from 1/4 to 1/16
+gains 0.06 s on a 3,000 line scroll and loses 0.52 s on a seek and 0.16 s on an
+open.
+
+What changed is that it is now a number that can be argued with. Before, any
+answer below a seventh was silent corruption on a wide screen.
 
 ## 5. Why not a smaller buffer
 
-Halving `mem_kb` to 128 looks attractive in the table — open drops from 258 to
-122 — and it is the wrong trade twice over.
+Halving `mem_kb` to 128 is allowed now — the floor that forbade it is gone —
+and the measurements still say no, for one reason instead of two.
 
-**The reserve would have to grow.** At 126,976 bytes even a quarter
-leaves a 10,581-byte gap, already under the 12 KiB floor. Keeping the floor at
-128 KiB means reserving a third, which leaves an 84 KiB window for `2 *
-TB_MARGIN` of 32 KiB to sit in.
+**Arrow scrolling costs twice as much.** 70 cs against 38 for 3,000 lines. Open
+and seek are within a few centiseconds either way, so this is the whole of the
+trade, and it is on the emulator, where a slide's disk traffic is nearly free.
+On a real card the gap is wider. Opening a file happens once; scrolling happens
+all day.
 
-**Arrow scrolling costs four times as much.** 150 cs against 36 for 3,000 lines,
-and that is on the emulator, where a slide's disk traffic is nearly free. On a
-real card the gap is wider. Opening a file happens once; scrolling happens all
-day.
+What 128 KiB buys is 139 KB of heap, and nothing needs it yet. The reason to
+want it is a second open document, which section 7 costs out.
 
 ## 6. Why two scratch files rather than one
 
@@ -217,43 +240,28 @@ Heap is the constraint, by a factor of two:
 | 128 KiB — 140,100 | 329,608 | 12,757, minus the stack |
 | 96 KiB — 105,284 | 259,976 | 82,389 |
 
-So a second document means a smaller buffer, and section 5 says a smaller buffer
-means a bigger reserve, and a bigger reserve means a smaller window. The chain
-ends at 96 KiB per document with barely 57 KiB of window for two 16 KiB margins
-to sit inside.
+So a second document means a smaller buffer, and until recently a smaller
+buffer meant a bigger reserve, and a bigger reserve meant a smaller window. The
+chain ended at 96 KiB per document with barely 57 KiB of window for two 16 KiB
+margins to sit inside — and the 12 KiB gap floor was what held it up.
 
-**The 12 KiB floor is what holds the chain up, and it is an assumption.** It
-comes from the widest mode the VDP can be put in. AED knows its real geometry at
-runtime, and at 80 x 60 a dense screenful is 4,800 bytes.
+That floor is gone. It was never a fact about the machine: it came from the
+widest mode the VDP can be put in, and a walker having to travel a screenful
+through the gap without catching the cursor.
 
-Reading the floor from `rows_ * cols_` would let the reserve fall far enough to
-make 128 KiB per document work. It would also make how many documents can be
-open depend on the video mode, which is a strange thing for an editor to do: a
-user at 1024 x 768 would be told to lower their resolution before they could
-open a second file. That rules the idea out on its own.
+Sizing the floor from the real `rows_ * cols_` would have worked — at 80 x 60 a
+dense screenful is 4,800 bytes rather than 12,288 — and it would have made how
+many documents can be open depend on the video mode, which is a strange thing
+for an editor to do: a user at 1024 x 768 would be told to lower their
+resolution before they could open a second file. Removing the floor was the
+alternative, and it is what `.internal/docs/WALKER.md` describes and what the
+code now does.
 
-What is left is to remove the floor instead of sizing it.
-
-The floor exists because a walker moves the gap, and a read-only walker has no
-need of a gap at all. A line's bytes can be found from a byte offset: the prefix
-runs from `lo_` to `curr_`, the suffix from `cend_` to `hi_`, and at most one
-line straddles the boundary between them.
-[`split_line`](../src/text_buffer.h#L175) already hands a line back in two
-pieces, which is exactly what that one line needs.
-[`tb_copy`](../src/text_buffer.c#L1787) already marks a copy as read-only, and
-every mutator already refuses on that flag, so the walker is a distinct enough
-thing to give a different implementation to.
-
-A walker that carried an offset instead of moving the buffer would:
-
-* make painting pointer arithmetic rather than a `memmove` per line, which is
-  most of what a repaint costs today
-* remove the reserve's lower bound, letting `prime_spare` be chosen on the
-  amortisation curve in section 3 alone
-* let the buffer be sized from the heap budget, at any video mode
-
-That is the change a second document waits on. None of the constants above need
-to move until it lands.
+So the buffer can be any size the heap allows, at any video mode. What is left
+is the ordinary trade in section 5: at 128 KiB a long scroll costs twice what
+it costs at 256, and that buys 139 KB of heap. Whether a second open document
+is worth that is a product question rather than an arithmetic one, and nothing
+in the code decides it any more.
 
 ## 8. How these were measured
 
