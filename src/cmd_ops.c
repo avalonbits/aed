@@ -1027,8 +1027,8 @@ static void region_up(screen* scr, text_buffer* tb, char ch) {
         }
     }
     ln = tb_curr_line(tb);
-    scr_overwrite_line_split(scr, scr->bottomY_-1,
-                             ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
+    scr_paint_row(scr, scr->bottomY_-1,
+                  ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
 void cmd_show(editor* ed) {

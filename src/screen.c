@@ -28,6 +28,15 @@
 
 #define MAX_COLS 255
 
+// Painting a row, in the two shapes the rest of the file paints it in. Both are
+// internal: what leaves this file is the named jobs built on them --
+// scr_paint_row, scr_paint_tail, and the selection writers.
+static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
+                           const char* suf, int sufsz, int from_col,
+                           int to_col);
+static void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
+                           const char* suf, int sufsz, int from_col);
+
 // Characters on their way to the VDP, held back so they go in one call.
 //
 // putchar is `rst.lil $10` -- one entry into MOS per byte -- so painting a row
@@ -1152,7 +1161,7 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
 
 // Paints the row from document column `from_col` rightwards. Columns left of
 // the window, or left of from_col, are skipped rather than redrawn.
-void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
+static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
                     const char* suf, int sufsz, int from_col, int to_col) {
     const int edge = scr->originX_ + scr->cols_;
     const int from = from_col > scr->originX_ ? from_col : scr->originX_;
@@ -1187,7 +1196,7 @@ void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     scr_sync_cursor(scr);
 }
 
-void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
+static void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
                     const char* suf, int sufsz, int from_col) {
     scr_paint_span(scr, ypos, pre, presz, suf, sufsz, from_col,
                    scr->originX_ + scr->cols_);
@@ -1217,13 +1226,6 @@ void scr_write_line_span_split(screen* scr, char ypos,
     scr_paint_span(scr, ypos, pre, presz, suf, sufsz, paint_from, paint_to);
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
-}
-
-void scr_write_line_span(screen* scr, char ypos, char* buf, int sz,
-                         int from_col, int to_col, int paint_from,
-                         int paint_to) {
-    scr_write_line_span_split(scr, ypos, NULL, 0, buf, sz, from_col, to_col,
-                              paint_from, paint_to);
 }
 
 void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
@@ -1261,16 +1263,6 @@ int scr_move_cursor(screen* scr, char from_ch, char to_ch,
 
 void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
     scr_paint_row(scr, ypos, NULL, 0, buf, sz);
-}
-
-void scr_overwrite_line_split(screen* scr, char ypos, const char* pre,
-                              int presz, const char* suf, int sufsz) {
-    scr_paint_row(scr, ypos, pre, presz, suf, sufsz);
-}
-
-void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
-    (void) psz;   // scr_paint_row always pads to the full width
-    scr_overwrite_line_split(scr, ypos, NULL, 0, buf, sz);
 }
 
 void scr_tab(screen* scr, int col, char row) {
