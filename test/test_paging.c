@@ -26,6 +26,7 @@
 #include "char_buffer.h"
 #include "doc_store.h"
 #include "text_buffer.h"
+#include "line_buffer.h"
 #include "editor.h"
 
 static int failures = 0;
@@ -47,6 +48,71 @@ static int load_five(text_buffer* tb) {
     stub_file_set_content(FIVE, (int) sizeof(FIVE) - 1);
 
     return tb_init(tb, 4, "five.txt") != NULL;
+}
+
+/*
+ * Do head_lines_ and tail_lines_ still say what the store really holds?
+ *
+ * Both count whole lines, so each should be the number of line feeds on its
+ * side. Returns non-zero when either is out.
+ */
+static int store_breaks_differ(text_buffer* tb) {
+    static char blk[1024];
+    int head = 0;
+    int at = 0;
+    const int hn = store_head_bytes(tb->store_);
+    while (at < hn) {
+        const int got = store_head_read(tb->store_, at, blk, (int) sizeof(blk));
+        if (got <= 0) {
+            break;
+        }
+        for (int i = 0; i < got; i++) {
+            if (blk[i] == '\n') {
+                head++;
+            }
+        }
+        at += got;
+    }
+    int tail = 0;
+    at = store_tail_from(tb->store_);
+    const int end = at + store_tail_bytes(tb->store_);
+    while (at < end) {
+        const int got = store_tail_read(tb->store_, at, blk, (int) sizeof(blk));
+        if (got <= 0) {
+            break;
+        }
+        for (int i = 0; i < got; i++) {
+            if (blk[i] == '\n') {
+                tail++;
+            }
+        }
+        at += got;
+    }
+
+    return tb->head_lines_ != head || tb->tail_lines_ != tail;
+}
+
+/* Does every line length but the last land exactly on a line feed? */
+static int line_bounds_differ(text_buffer* tb) {
+    static char mem[65536];
+    int n = 0;
+    char_buffer* cb = &tb->cb_;
+    for (char* p = cb->lo_; p < cb->curr_ && n < (int) sizeof(mem); p++) {
+        mem[n++] = *p;
+    }
+    for (char* p = cb->cend_; p < cb->hi_ && n < (int) sizeof(mem); p++) {
+        mem[n++] = *p;
+    }
+    const int lines = lb_lines(&tb->lb_);
+    int at = 0;
+    for (int i = 0; i < lines - 1; i++) {
+        at += lb_at(&tb->lb_, i);
+        if (at < 1 || at > n || mem[at - 1] != '\n') {
+            return i + 1;
+        }
+    }
+
+    return 0;
 }
 
 int main(void) {
@@ -1873,6 +1939,85 @@ int main(void) {
             tb_destroy(&tb);
             free(doc);
         }
+    }
+
+    /* --- the counters for what is not in memory --- */
+    {
+        /*
+         * head_lines_ and tail_lines_ say how many whole lines sit either side
+         * of the window, and every line number in the editor is built on them.
+         * They are meant to be the breaks each side of the store really holds,
+         * and two slides used to leave them otherwise.
+         *
+         * Sliding down brings the rest of the line that was carrying on past
+         * memory. It used to append that as a line of its own and put the
+         * trailing entry back *after* it -- the rest of a line in front of its
+         * own beginning -- which left a line boundary in the middle of the
+         * text. The next slide shipped that miscounted line to the head, so
+         * the head ended part way through a line and counted one more line
+         * than it held.
+         *
+         * Sliding up takes the trailing entry off to measure what can go out.
+         * That only works while the entry is the empty placeholder it is meant
+         * to be: taking an index entry off does not take its bytes with it, so
+         * with text on that last line -- the document's own last line, nothing
+         * left in the tail -- it took *those* bytes and pushed a run with no
+         * break in it to the tail as a line. tail_lines_ counted a line the
+         * tail did not have, and has been seen negative.
+         */
+        stub_file_reset();
+        stub_file_set_content(DOC, DOC_BYTES);
+        check("a paged document to count", tb_init(&tb, DOC_KB, "/ct.txt") != NULL, 1);
+        check("  which pages", tb.paged_ ? 1 : 0, 1);
+
+        /* Walk the whole document and back, which is what slides it. Both
+         * counters have to stay the breaks each side really holds, and every
+         * index length has to land on a line feed. */
+        int counters_wrong = 0;
+        int bounds_wrong = 0;
+        int deepest = 1;
+        int y = 1;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < DOC_LINES + 10; i++) {
+                if (pass == 0) {
+                    tb_down(&tb);
+                } else {
+                    tb_up(&tb);
+                }
+                const int now = tb_ypos(&tb);
+                if (now == y) {
+                    break;
+                }
+                y = now;
+                if (y > deepest) {
+                    deepest = y;
+                }
+                if (!counters_wrong && store_breaks_differ(&tb)) {
+                    counters_wrong = y;
+                }
+                if (!bounds_wrong && line_bounds_differ(&tb)) {
+                    bounds_wrong = y;
+                }
+            }
+        }
+        /* DOC ends with a break, so there is an empty line after the last. */
+        check("  walking it reaches the end of the document", deepest, DOC_LINES + 1);
+        check("    and comes back to the first line", y, 1);
+        check("    with both counters the breaks the store holds",
+              counters_wrong, 0);
+        check("    and every line ending where a line feed is", bounds_wrong, 0);
+
+        /* The slide-up case wants text on the last line and an empty tail. */
+        tb_pos last = { DOC_LINES, 0 };
+        tb_seek(&tb, last);
+        check("  at the end of the document", tb_ypos(&tb), DOC_LINES);
+        check("    the tail is spent", store_tail_bytes(tb.store_), 0);
+        check("    and the last line has text on it",
+              tb_curr_line(&tb).ssz_ > 0, 1);
+        check("  sliding up from there keeps the counters honest",
+              (tb_slide_up(&tb), store_breaks_differ(&tb)), 0);
+        check("    and the line boundaries too", line_bounds_differ(&tb), 0);
+        tb_destroy(&tb);
     }
 
     /* --- a window emptied at the bottom of a document --- */

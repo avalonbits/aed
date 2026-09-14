@@ -202,10 +202,10 @@ only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
 [`tb_settle()`](../src/text_buffer.c#L1176) notices a margin has been crossed and
 slides until it has not: [`tb_slide_down()`](../src/text_buffer.c#L1379) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer.c#L1477) is the exact reverse.
+[`tb_slide_up()`](../src/text_buffer.c#L1494) is the exact reverse.
 
 Everything that moves the cursor settles —
-[`tb_seek`](../src/text_buffer.c#L1620), and `tb_up` and `tb_down` too, so the
+[`tb_seek`](../src/text_buffer.c#L1650), and `tb_up` and `tb_down` too, so the
 arrow keys and page up and down reach the whole document rather than the window.
 A read-only copy is the exception, for the reason section 5 gives.
 
@@ -228,9 +228,9 @@ one is protecting, and what a second open document would cost.
 
 Its longest line, rather than its size: a slide moves whole lines, so a line
 longer than the window can never be brought in.
-[`tb_open`](../src/text_buffer.c#L2783) reads the front of the file and refuses
+[`tb_open`](../src/text_buffer.c#L2813) reads the front of the file and refuses
 before discarding what is on screen, and
-[`tb_load`](../src/text_buffer.c#L2654) has nothing to lose so it catches the
+[`tb_load`](../src/text_buffer.c#L2684) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
 unreachable document rather than an open one.
 
@@ -247,7 +247,7 @@ the window under the cursor that owns it would turn a repaint into a scroll.
 Painting uses walkers, and painting only ever wants what is on screen.
 
 Everything else that has to see text outside the window **streams the document**.
-[`doc_stream()`](../src/text_buffer.c#L2924) walks HEAD, then memory, then what
+[`doc_stream()`](../src/text_buffer.c#L2954) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 
@@ -257,8 +257,8 @@ Four callers:
 |---|---|
 | saving | the sink writes what it is given, breaks and all |
 | [`tb_find`](../src/text_buffer.c#L752) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
-| [`tb_range_size`](../src/text_buffer.c#L1900) | counts the bytes in a range |
-| [`tb_range_walk`](../src/text_buffer.c#L1929) | feeds them somewhere |
+| [`tb_range_size`](../src/text_buffer.c#L1930) | counts the bytes in a range |
+| [`tb_range_walk`](../src/text_buffer.c#L1959) | feeds them somewhere |
 
 The last two share one pass, which is what stops them disagreeing about what a
 range is — they once did, and a select-all copy returned 37% of a document with

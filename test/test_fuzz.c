@@ -171,31 +171,10 @@ static void one_op(editor* ed, unsigned r) {
 int main(void) {
     stub_discard_output();
 
-    /*
-     * A document bigger than the buffer it is opened into, so it pages.
-     *
-     * Built but not yet in the list below, and the reason is worth writing
-     * down.
-     *
-     * With it, this finds a state where the window is empty and *both* ends of
-     * the store hold a partial line -- the head ending mid-line, the tail
-     * beginning mid-line, and nothing in memory between them to join the two.
-     * A line of the document is then split across the store with no part of it
-     * anywhere the line index can see, and the counters stop agreeing:
-     *
-     *     used=0  head=5911 tail=2  head_lines=337 mem_lines=1 tail_lines=0
-     *     head ends [uvwxyzbcdefghijklmno]   tail begins [cd]   -- one line
-     *     tb_ymax says 338, streaming the document counts 337
-     *
-     * and tail_lines_ has been seen at -1, which no count of lines should be.
-     *
-     * It is a different thing from anything this file has caught so far, which
-     * were all one buffer disagreeing with the other about a line. These are
-     * the two counters for the part of the document that is *not* in memory,
-     * and they want their own pass. Put `paged` in DOCS when they have had
-     * one; a 6,000 byte document in a 4 KiB buffer reaches it inside 400
-     * commands on most seeds.
-     */
+    /* A document bigger than the buffer it is opened into, so it pages: the
+     * window slides, the head and the tail fill, and the commands run against
+     * a document most of which is on disk. This is what found the two slides
+     * miscounting -- see tb_slide_down and tb_slide_up. */
     static char paged[6000];
     {
         int at = 0;
@@ -218,6 +197,7 @@ int main(void) {
         "\tindented\r\n\t\tdeeper\r\nplain\r\n\tmixed\ttabs\there\r\n",
         "no trailing newline",
         "a\r\n\r\n\r\nb\r\n",
+        paged,
     };
     const int ndocs = (int) (sizeof(DOCS) / sizeof(DOCS[0]));
     const int seeds = 4;
@@ -234,7 +214,7 @@ int main(void) {
             stub_file_reset();
             stub_file_set_content(DOCS[d], (int) strlen(DOCS[d]));
 
-            const int kb = DOCS[d] == paged ? 4 : 8;   /* paged is held out for now */
+            const int kb = DOCS[d] == paged ? 4 : 8;
             static editor ed;
             if (ed_init(&ed, kb, "/fuzz.txt") == NULL) {
                 fprintf(stderr, "FAIL  editor would not start\n");
@@ -280,9 +260,31 @@ int main(void) {
                 }
             }
 
-            /* Undo the lot. Whatever the run did, the document has to come
+            /*
+             * Undo the lot. Whatever the run did, the document has to come
              * back the way it was loaded -- the log either describes the edits
-             * exactly or it does not. */
+             * exactly or it does not.
+             *
+             * Asked of the documents that fit in memory. On the paged one it
+             * fails, and it is undo that is wrong rather than this:
+             *
+             *   * the same 6,000 byte document in a 64 KiB buffer, where it
+             *     does not page, undoes back to the byte
+             *   * in a 4 KiB buffer, where it does, the same commands with the
+             *     same seeds come back the same *length* and the wrong
+             *     *bytes*, starting with a zero at offset zero
+             *
+             * So it is not the undo ring dropping its oldest records, which it
+             * does by design and which would come back short rather than
+             * wrong. Something about a window that moves puts the text back in
+             * the wrong place, and it wants its own pass the way the two slide
+             * counters did. To see it: take the `DOCS[d] == paged` skip out
+             * below and run doc 5 seed 1.
+             */
+            if (DOCS[d] == paged) {
+                ed_destroy(&ed);
+                continue;
+            }
             for (int u = 0; u < ops * 4; u++) {
                 cmd_undo(&ed);
             }
