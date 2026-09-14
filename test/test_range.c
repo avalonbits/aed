@@ -90,8 +90,12 @@ static const char* doc_of(text_buffer* tb) {
         const split_line ln = tb_curr_line(&cp);
         const int sz = ln.psz_ + ln.ssz_;
         if (sz > 0 && n + sz < (int) sizeof(out) - 2) {
-            memcpy(out + n, ln.prefix_, (size_t) ln.psz_);
-            memcpy(out + n + ln.psz_, ln.suffix_, (size_t) ln.ssz_);
+            if (ln.psz_ > 0) {
+                memcpy(out + n, ln.prefix_, (size_t) ln.psz_);
+            }
+            if (ln.ssz_ > 0) {
+                memcpy(out + n + ln.psz_, ln.suffix_, (size_t) ln.ssz_);
+            }
             n += sz;
         }
         tb_down(&cp);

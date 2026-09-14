@@ -248,8 +248,22 @@ bool tb_del_line(text_buffer* tb) {
     }
 
     tb_home(tb);
-    while (lb_csize(&tb->lb_) > 0) {
-        tb_del(tb);
+    // Stopped by the delete refusing as well as by the count reaching zero.
+    // Those are the same question asked of the two buffers, and trusting only
+    // the index means that if it ever says a line is longer than the text
+    // really is, this spins for ever. That is what a hang on the last line of
+    // a document turned out to be -- see tb_del_merge and tb_bksp_merge, which
+    // both used to leave it a byte out on a document of bare line feeds.
+    while (lb_csize(&tb->lb_) > 0 && tb_del(tb)) {
+    }
+    if (lb_csize(&tb->lb_) > 0) {
+        // The text ran out before the index said it should. Keeping the entry
+        // leaves the two agreeing about what is still there, which the rest of
+        // the editor can carry on from; dropping it would lose the bytes that
+        // are out of the count but still in the buffer.
+        tb->dirty_ = true;
+
+        return true;
     }
     lb_del(&tb->lb_);
     tb->dirty_ = true;
@@ -265,15 +279,23 @@ bool tb_del_merge(text_buffer* tb) {
        return false;
     }
 
-    // This function is only called when we are the end of the line.
-    // If we are not the last, then we have a \r\n sequence.
+    // Only called at the end of a line, so what is under the cursor is the
+    // break -- and a break is as long as this document's breaks are. It used
+    // to delete two characters flat, on the reasoning that anything but the
+    // last line ends in a CRLF. That stopped being true when a document began
+    // keeping the breaks its file had: on one written with bare line feeds the
+    // second delete ate the first character of the line being joined on, and
+    // left the index a byte heavier than the text. tb_del_line then never
+    // finished, because it deletes until the index says the line is empty.
     //
-    // One record for the pair, for the same reason tb_newline groups its puts:
-    // half a line break is not a thing the line index can hold.
+    // One record for however many characters, for the same reason tb_newline
+    // groups its puts: half a line break is not a thing the line index can
+    // hold.
     const tb_pos at = tb_tell(tb);
     const bool was = undo_hold(tb->undo_);
-    tb_del(tb);
-    tb_del(tb);
+    for (int i = 0; i < eol_len(tb); i++) {
+        tb_del(tb);
+    }
     lb_merge_next(&tb->lb_);
     tb->dirty_ = true;
     undo_release(tb->undo_, was);
@@ -291,11 +313,18 @@ bool tb_bksp_merge(text_buffer* tb) {
     }
     // Straight to cb_bksp rather than tb_bksp, because the line bookkeeping
     // below is not what tb_bksp does -- so this is the one mutation that has to
-    // record for itself. The two bytes are the CRLF ending the previous line.
-    cb_bksp(&tb->cb_);
-    cb_bksp(&tb->cb_);
+    // record for itself.
+    //
+    // As many bytes as this document's break is. It took two flat, on the same
+    // reasoning tb_del_merge used: that what is behind the cursor is a CRLF.
+    // On a document written with bare line feeds that took the last character
+    // of the previous line with it, and left the index counting a byte the
+    // text no longer had.
+    for (int i = 0; i < eol_len(tb); i++) {
+        cb_bksp(&tb->cb_);
+    }
 
-    tb->x_ = lb_merge_prev(&tb->lb_);
+    tb->x_ = lb_merge_prev(&tb->lb_, eol_len(tb));
     tb->dirty_ = true;
     undo_delete(tb->undo_, tb_tell(tb), eol_len(tb) == 2 ? "\r\n" : "\n",
                 eol_len(tb));
@@ -1676,8 +1705,19 @@ static bool rp_char(range_pass* rp, char c) {
     return rp_take(rp, &c, 1);
 }
 
+/*
+ * A break is two bytes to a range, whatever the document keeps it as.
+ *
+ * The range stream emits CRLF by contract -- see range_sink -- so
+ * tb_range_size measures the CRLF-normalised text and not the bytes in the
+ * buffer. Anything that compares a count against what tb_range_size returned
+ * has to count in the same units, or the two drift apart on a document whose
+ * own breaks are one byte.
+ */
+#define TB_RANGE_EOL 2
+
 static bool range_sink(void* ctx, const char* buf, int sz) {
-    static const char crlf[2] = { '\r', '\n' };
+    static const char crlf[TB_RANGE_EOL] = { '\r', '\n' };
     range_pass* rp = (range_pass*) ctx;
 
     // A whole chunk inside the range, which is most of them on a select-all:
@@ -1751,7 +1791,7 @@ static bool range_sink(void* ctx, const char* buf, int sz) {
             // the store holds.
             rp->held_cr = false;
             if (rp->line >= rp->a.line && rp->line < rp->b.line
-                    && !rp_take(rp, crlf, 2)) {
+                    && !rp_take(rp, crlf, TB_RANGE_EOL)) {
                 return false;
             }
             rp->line++;
@@ -1898,7 +1938,12 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     while (left > 0) {
         const bool eol = tb_eol(tb);
         if (eol ? tb_del_merge(tb) : tb_del(tb)) {
-            left -= eol ? eol_len(tb) : 1;
+            // In the units tb_range_size handed over, which counts a break as
+            // CRLF however long this document's breaks are. Counting the
+            // document's own length here instead left one byte of the range
+            // unaccounted for on every break, and the loop deleted the first
+            // character of the following line to make it up.
+            left -= eol ? TB_RANGE_EOL : 1;
             stalls = 0;
             any = true;
             continue;

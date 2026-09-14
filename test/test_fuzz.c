@@ -146,25 +146,11 @@ static void one_op(editor* ed, unsigned r) {
 int main(void) {
     stub_discard_output();
 
-    /*
-     * A document of bare line feeds belongs here and is not here yet.
-     *
-     * With one, this finds a state where the line index says a line is a byte
-     * longer than the text actually is -- the index counts a break the text
-     * does not have. tb_del_line then loops forever, because it deletes until
-     * lb_csize reaches zero and lb_csize never gets there. That is a hang, on
-     * the last line of a document, reachable from the keyboard.
-     *
-     * It reproduces byte for byte on the commit before any of the walker work,
-     * so it is older than this file and is not what this file was written to
-     * catch. Put the document back when it is fixed:
-     *
-     *     "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n"
-     *
-     * and the sequence is doc 1, seed 1, op 111 -- a CTRL+D on the last line.
-     */
     static const char* DOCS[] = {
         "alpha\r\nbeta\r\ngamma\r\ndelta\r\nepsilon\r\n",
+        // Bare line feeds. This is the one that found tb_del_merge deleting
+        // two characters for a one-byte break -- and the hang that came of it.
+        "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n",
         "\tindented\r\n\t\tdeeper\r\nplain\r\n\tmixed\ttabs\there\r\n",
         "no trailing newline",
         "a\r\n\r\n\r\nb\r\n",

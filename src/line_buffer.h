@@ -169,7 +169,17 @@ int lb_back_fit(const line_buffer* lb, int max_bytes, int* lines);
 
 bool lb_new(line_buffer* lb, int size);
 bool lb_del(line_buffer* lb);
+// Joins the line below onto the cursor's. The bytes of the break have already
+// gone from the index, one lb_cdec at a time, so this only adds the lengths.
 bool lb_merge_next(line_buffer* lb);
-int lb_merge_prev(line_buffer* lb);
+
+// Joins the cursor's line onto the one above and returns the column the cursor
+// lands in, which is where the line above used to end.
+//
+// `eol` is how many bytes the break between them took. Unlike lb_merge_next,
+// the caller here removes the break straight from the character buffer without
+// telling the index, so this is what takes it off the count. It used to take
+// two, from when every break was a CRLF.
+int lb_merge_prev(line_buffer* lb, int eol);
 
 #endif  // _LINE_BUFFER_H_
