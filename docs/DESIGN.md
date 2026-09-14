@@ -4,6 +4,26 @@ AED edits text on a machine with **512 KB of RAM, no cache, and a screen at the
 far end of a serial link**. Those three facts explain most of the design; this
 document describes the parts and how they fit together.
 
+## Contents
+
+* [1. The shape of a run](#1-the-shape-of-a-run)
+* [2. Model, view, controller](#2-model-view-controller)
+    * [2a. What the loop does before the command](#2a-what-the-loop-does-before-the-command)
+* [3. The document in memory](#3-the-document-in-memory)
+    * [3a. Line numbers](#3a-line-numbers)
+* [4. A document bigger than memory](#4-a-document-bigger-than-memory)
+    * [4a. What makes a file too large](#4a-what-makes-a-file-too-large)
+* [5. Reading past the window](#5-reading-past-the-window)
+* [6. Keys, and the screen](#6-keys-and-the-screen)
+    * [6a. Keys](#6a-keys)
+    * [6b. Painting](#6b-painting)
+* [7. Selection, undo and the clipboard](#7-selection-undo-and-the-clipboard)
+* [8. Settings, and fonts](#8-settings-and-fonts)
+* [9. How it is checked](#9-how-it-is-checked)
+* [10. Adding something](#10-adding-something)
+
+---
+
 The editor is fifteen files. Each has a header holding what the other parts need
 from it, and the sections below follow them:
 
