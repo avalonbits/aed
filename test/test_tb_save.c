@@ -104,6 +104,31 @@ int main(void) {
     check("open failure -> nothing written", stub_file_size(), 0);
     check("open failure -> still dirty", tb_changed(&tb) ? 1 : 0, 1);
 
+    /* A card that fills up mid-write is the other way a save fails, and the
+     * one that reports success if the sink ignores what mos_fwrite returned.
+     * The document is long enough to need more than one write, so the short
+     * one lands partway through. */
+    stub_file_reset();
+    stub_file_fail_open(0);
+    tb_end(&tb);
+    for (int i = 0; i < 40; i++) {
+        put_str(&tb, "padding");
+    }
+    stub_file_short_write(8);
+    check("a card that fills up -> tb_save fails", tb_save(&tb) ? 1 : 0, 0);
+    check("  and leaves the buffer dirty", tb_changed(&tb) ? 1 : 0, 1);
+
+    /* And again with the cursor at the top, so the document is all suffix:
+     * the second of the two writes is the one that comes up short. */
+    tb_pos top = { 1, 0 };
+    tb_seek(&tb, top);
+    stub_file_reset();
+    stub_file_short_write(8);
+    check("  the same when the suffix is what fills it",
+          tb_save(&tb) ? 1 : 0, 0);
+    check("    and it is still dirty", tb_changed(&tb) ? 1 : 0, 1);
+    stub_file_short_write(-1);
+
     tb_destroy(&tb);
 
     if (failures > 0) {

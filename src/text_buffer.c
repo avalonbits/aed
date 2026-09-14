@@ -31,6 +31,12 @@
 // other place a document stops needing it.
 static void tb_drop_store(text_buffer* tb);
 
+// How many bytes this document's line break takes in the buffer. The last line
+// of a document has no break after it, which is what lb_last distinguishes.
+static int eol_len(const text_buffer* tb) {
+    return tb->elen_;
+}
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
@@ -50,7 +56,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->x_ = 0;
     tb->fname_[0] = 0;
     tb->dirty_ = false;
-    tb->eol_ = TB_EOL_CRLF;
+    tb->elen_ = 2;
     tb->undo_ = NULL;
     tb->load_dirty_ = false;
     tb->head_lines_ = 0;
@@ -194,7 +200,7 @@ bool tb_newline(text_buffer* tb) {
     }
     // Both halves of the CRLF must fit, or the line index and the text would
     // disagree about where the line ends.
-    if (cb_available(&tb->cb_) < 2) {
+    if (cb_available(&tb->cb_) < eol_len(tb)) {
         return false;
     }
     // And the line index must have room for the line the break starts. It is
@@ -214,7 +220,9 @@ bool tb_newline(text_buffer* tb) {
     // which the line index, built on a two-byte CRLF, cannot represent.
     const tb_pos at = tb_tell(tb);
     const bool was = undo_hold(tb->undo_);
-    tb_put(tb, '\r');
+    if (eol_len(tb) == 2) {
+        tb_put(tb, '\r');
+    }
     tb_put(tb, '\n');
     const bool ok = lb_new(&tb->lb_, tb->x_);
     if (ok) {
@@ -222,7 +230,8 @@ bool tb_newline(text_buffer* tb) {
     }
     undo_release(tb->undo_, was);
     if (ok) {
-        undo_insert(tb->undo_, at, "\r\n", 2);
+        undo_insert(tb->undo_, at, eol_len(tb) == 2 ? "\r\n" : "\n",
+                    eol_len(tb));
     }
 
     return ok;
@@ -266,7 +275,7 @@ bool tb_del_merge(text_buffer* tb) {
     lb_merge_next(&tb->lb_);
     tb->dirty_ = true;
     undo_release(tb->undo_, was);
-    undo_delete(tb->undo_, at, "\r\n", 2);
+    undo_delete(tb->undo_, at, eol_len(tb) == 2 ? "\r\n" : "\n", eol_len(tb));
 
     return true;
 }
@@ -286,7 +295,8 @@ bool tb_bksp_merge(text_buffer* tb) {
 
     tb->x_ = lb_merge_prev(&tb->lb_);
     tb->dirty_ = true;
-    undo_delete(tb->undo_, tb_tell(tb), "\r\n", 2);
+    undo_delete(tb->undo_, tb_tell(tb), eol_len(tb) == 2 ? "\r\n" : "\n",
+                eol_len(tb));
     return true;
 }
 
@@ -712,7 +722,7 @@ char tb_up(text_buffer* tb) {
     }
 
     const int  sz = lb_csize(&tb->lb_);
-    const int maxX = sz - 2;
+    const int maxX = sz - eol_len(tb);
     int back = sz + tb->x_;
     if (maxX < tb->x_) {
         tb->x_ = maxX;
@@ -755,7 +765,7 @@ char tb_down(text_buffer* tb) {
     }
     int cend = lb_csize(&tb->lb_);
     if (!lb_last(&tb->lb_)) {
-        cend -= 2;
+        cend -= eol_len(tb);
     }
     if (tb->x_ > cend) {
         tb->x_ = cend;
@@ -1277,7 +1287,7 @@ void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
 static int line_len(text_buffer* tb) {
     const int sz = lb_csize(&tb->lb_);
 
-    return lb_last(&tb->lb_) ? sz : sz - 2;
+    return lb_last(&tb->lb_) ? sz : sz - eol_len(tb);
 }
 
 tb_pos tb_tell(text_buffer* tb) {
@@ -1659,7 +1669,7 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     while (left > 0) {
         const bool eol = tb_eol(tb);
         if (eol ? tb_del_merge(tb) : tb_del(tb)) {
-            left -= eol ? 2 : 1;
+            left -= eol ? eol_len(tb) : 1;
             stalls = 0;
             any = true;
             continue;
@@ -1749,11 +1759,11 @@ bool tb_insert(text_buffer* tb, const char* buf, int sz) {
     int breaks = 0;
     for (int i = 0; i < sz; i++) {
         if (buf[i] == '\r' && i + 1 < sz && buf[i + 1] == '\n') {
-            needed += 2;
+            needed += eol_len(tb);
             breaks++;
             i++;
         } else if (buf[i] == '\n' || buf[i] == '\r') {
-            needed += 2;
+            needed += eol_len(tb);
             breaks++;
         } else {
             needed += 1;
@@ -1795,7 +1805,12 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     dst->fname_ = NULL;
     dst->dirty_ = false;
     dst->load_dirty_ = false;
-    dst->eol_ = src->eol_;
+    // Every piece of line arithmetic subtracts this, so a walker without it
+    // reads every line at the wrong length. Third time a field added to one of
+    // these structs has been missed here; the two buffers above are assigned
+    // whole for that reason, and this list is the part that still has to be
+    // kept by hand.
+    dst->elen_ = src->elen_;
     // Copies are walked, never written to -- refresh_screen and
     // cmd_repaint_rows only move and read. Carrying the log would mean a paint
     // could record an edit.
@@ -1830,7 +1845,7 @@ char* tb_suffix(text_buffer* tb, int* sz) {
 
     *sz = lb_csize(&tb->lb_) - tb->x_;
     if (!lb_last(&tb->lb_)) {
-        *sz -= 2;
+        *sz -= eol_len(tb);
     }
     return suffix;
 }
@@ -1890,7 +1905,11 @@ static int ensure_newline(char_buffer* cb, line_buffer* lb) {
 // `full` is set when the load stopped because the line index ran out rather
 // than because anything went wrong with the file. The caller starts again with
 // the paged loader, which has somewhere to put the lines that will not fit.
-static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
+// See tb_load_paged_pass: `normalise` false takes the file's breaks as they
+// are and lets the first one say how long a break is in this document; a file
+// with both kinds says so in `mixed` and is read again with it set.
+static bool tb_read_pass(char fh, text_buffer* tb, int sz, bool* full,
+                         bool normalise, bool* mixed) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
     char_buffer* cb = &tb->cb_;
@@ -1907,11 +1926,11 @@ static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
     }
 
     //  Now update the line buffer. Tabs are kept as-is -- they are one byte in
-    //  the document and the view decides how wide they render. Only line
-    //  endings are normalised, since the line index assumes a two-byte CRLF.
-    // `added` counts the CRs put in front of a bare LF, `crlf` the breaks that
-    // already had one. Together they say what the file's endings were, which is
-    // what decides how it goes back out.
+    //  the document and the view decides how wide they render. Line endings are
+    //  kept as they are too, unless this is the second pass over a file that
+    //  had both kinds.
+    // `added` counts the CRs put in front of a bare LF, which is how a
+    // normalising pass knows whether it changed the file.
     //
     // The walk is written out here rather than made of calls to cb_peek,
     // cb_next and lb_cinc. Those are three external calls for every byte of the
@@ -1923,8 +1942,11 @@ static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
     // The cursor is put back into the buffer around ensure_newline, which works
     // on the structure and is reached once a line rather than once a byte.
     int added = 0;
-    int crlf = 0;
+    int seen = 0;           // the break length this document turned out to have
     char* curr = cb->curr_;
+
+    *mixed = false;
+    tb->elen_ = 2;
     char* cend = cb->cend_;
     int* lcur = tb->lb_.curr_;
     int llen = *lcur;
@@ -1954,16 +1976,31 @@ static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
         cb->curr_ = curr;
         cb->cend_ = cend;
         *lcur = llen;
-        const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        int n = 0;
+        if (normalise) {
+            n = ensure_newline(&tb->cb_, &tb->lb_);
+            added += n;
+        } else {
+            // The byte in front of the line feed has already been copied, so
+            // whether this break is one byte or two is whether that byte is a
+            // carriage return. An empty first line has no byte in front of it,
+            // which makes it a bare feed, correctly.
+            const int len = (curr > cb->buf_ && curr[-1] == '\r') ? 2 : 1;
+            if (seen == 0) {
+                seen = len;
+                tb->elen_ = len;
+            } else if (seen != len) {
+                *mixed = true;
+
+                return false;
+            }
+            n = lb_new(&tb->lb_, lb_csize(&tb->lb_)) ? 0 : -1;
+        }
         if (n < 0) {
             *full = true;
 
             return false;
         }
-        if (n == 0) {
-            crlf++;
-        }
-        added += n;
         curr = cb->curr_;
         cend = cb->cend_;
         lcur = tb->lb_.curr_;
@@ -1983,9 +2020,6 @@ static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
 
             return false;
         }
-        if (n == 0) {
-            crlf++;
-        }
         added += n;
     }
 
@@ -1999,12 +2033,10 @@ static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
     // A file with both kinds cannot have that. It goes back out as CRLF, which
     // rewrites its LF-only lines -- a real change to the file, so it opens
     // dirty and the exit prompt is telling the truth.
-    if (added > 0 && crlf == 0) {
-        tb->eol_ = TB_EOL_LF;
-        tb->dirty_ = false;
-    } else {
-        tb->eol_ = TB_EOL_CRLF;
+    if (normalise) {
         tb->dirty_ = added != 0;
+    } else {
+        tb->dirty_ = false;
     }
     // Remembered separately from dirty_: this one cannot be undone away, since
     // the rewrite happened before there was a log to record it.
@@ -2015,18 +2047,47 @@ static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
     return true;
 }
 
+static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
+    bool mixed = false;
+    if (tb_read_pass(fh, tb, sz, full, false, &mixed)) {
+        return true;
+    }
+    if (*full || !mixed) {
+        return false;
+    }
 
-// Reads a document too big for memory into the store, normalising its line
-// endings on the way.
-//
-// The same normalisation tb_read does, but streaming: a chunk at a time, with
-// the one piece of state that cannot live inside a chunk -- whether the last
-// byte of the previous one was a carriage return, which decides whether the
-// line feed opening this one already has its pair.
-//
-// The output can be twice the input, in a file of nothing but bare line feeds,
-// which is why there are two buffers rather than one.
-static bool tb_load_paged(text_buffer* tb, char fh, int size) {
+    // Both kinds of break. Start again from the top of the file, converting.
+    tb_clear(tb);
+    if (mos_flseek(fh, 0) != 0) {
+        return false;
+    }
+
+    return tb_read_pass(fh, tb, sz, full, true, &mixed);
+}
+
+
+/*
+ * One read of a document too big for memory into the window and the store.
+ *
+ * The same walk tb_read does, streaming: a chunk at a time, with the one piece
+ * of state that cannot live inside a chunk -- whether the last byte of the
+ * previous one was a carriage return, which decides whether the line feed
+ * opening this one already has its pair.
+ *
+ * `normalise` false is the ordinary way: the bytes go in exactly as they are,
+ * and the first line break says whether this document's breaks are one byte or
+ * two. That is what lets a file of bare line feeds be opened, edited and saved
+ * without a byte of it being converted either way.
+ *
+ * A file with both kinds of break cannot be held that way, because the line
+ * index keeps one break length for the whole document. The pass gives up when
+ * it meets the second kind and says so in `mixed`, and the caller reads it
+ * again with `normalise` set, which turns every break into a CRLF -- the one
+ * case that still costs a conversion, and the one that has always opened dirty
+ * because saving really does rewrite it.
+ */
+static bool tb_load_paged_pass(text_buffer* tb, char fh, int size,
+                               bool normalise, bool* mixed) {
     static char in[TB_CHUNK];
     // A chunk, doubled because every bare line feed gains a carriage return,
     // and a chunk again for the half line held over from the round before.
@@ -2052,7 +2113,10 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
     int left = size;
     bool pending_cr = false;
     int added = 0;
-    int crlf = 0;
+    int seen = 0;           // the break length this document turned out to have
+
+    *mixed = false;
+    tb->elen_ = 2;
 
     while (left > 0) {
         const int want = left < TB_CHUNK ? left : TB_CHUNK;
@@ -2089,11 +2153,25 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
             if (nl == NULL) {
                 break;
             }
-            if (pending_cr) {
-                crlf++;             // it already had its carriage return
+            if (normalise) {
+                if (!pending_cr) {
+                    out[n++] = '\r';
+                    added++;
+                }
             } else {
-                out[n++] = '\r';
-                added++;
+                // Taken as it is. Whether this break is one byte or two is
+                // whether the byte already copied in front of it is a carriage
+                // return -- which works across a chunk boundary too, because a
+                // break split by one is held over in `out` with its return.
+                const int len = (n > 0 && out[n - 1] == '\r') ? 2 : 1;
+                if (seen == 0) {
+                    seen = len;
+                    tb->elen_ = len;
+                } else if (seen != len) {
+                    *mixed = true;
+
+                    return false;
+                }
             }
             out[n++] = '\n';
             pending_cr = false;
@@ -2169,20 +2247,35 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
         return false;
     }
 
-    // A file whose breaks were all bare line feeds goes back out the same way,
-    // so opening and saving it leaves it byte for byte as it was -- which is
-    // what lets it be clean on open. One with both kinds cannot have that, and
-    // opens dirty because a save really will rewrite it.
-    if (added > 0 && crlf == 0) {
-        tb->eol_ = TB_EOL_LF;
-        tb->dirty_ = false;
-    } else {
-        tb->eol_ = TB_EOL_CRLF;
+    // Nothing was changed on the way in unless this was the second pass, so the
+    // document is clean and saving it gives the file back byte for byte. The
+    // normalised one is dirty, because a save really will rewrite its breaks.
+    if (normalise) {
         tb->dirty_ = added != 0;
+    } else {
+        tb->dirty_ = false;
     }
     tb->load_dirty_ = tb->dirty_;
 
     return true;
+}
+
+static bool tb_load_paged(text_buffer* tb, char fh, int size) {
+    bool mixed = false;
+    if (tb_load_paged_pass(tb, fh, size, false, &mixed)) {
+        return true;
+    }
+    if (!mixed) {
+        return false;
+    }
+
+    // Both kinds of break. Start again from the top of the file, converting.
+    tb_clear(tb);
+    if (mos_flseek(fh, 0) != 0) {
+        return false;
+    }
+
+    return tb_load_paged_pass(tb, fh, size, true, &mixed);
 }
 
 tb_result tb_load(text_buffer* tb, const char* fname) {
@@ -2311,7 +2404,7 @@ void tb_clear(text_buffer* tb) {
     undo_clear(tb->undo_);
     // An emptied document has no endings to preserve, so it takes the platform
     // default rather than keeping the last file's.
-    tb->eol_ = TB_EOL_CRLF;
+    tb->elen_ = 2;
 }
 
 tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
@@ -2436,136 +2529,6 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     return TB_OK;
 }
 
-// Writes the document with the CR of every CRLF dropped, so a file that came in
-// with bare LFs goes back out with them. Buffered because doing it a byte at a
-// time would be one MOS call per character.
-//
-// Only a CR that is immediately followed by an LF is dropped. A lone CR is text
-// as far as this editor is concerned -- an LF-only file can still contain one,
-// and it survives the round trip.
-typedef struct _lf_writer {
-    char fh;
-    int n;
-    char buf[256];
-} lf_writer;
-
-static void lfw_flush(lf_writer* w) {
-    if (w->n > 0) {
-        mos_fwrite(w->fh, w->buf, (unsigned) w->n);
-        w->n = 0;
-    }
-}
-
-static void lfw_put(lf_writer* w, char c) {
-    if (w->n == (int) sizeof(w->buf)) {
-        lfw_flush(w);
-    }
-    w->buf[w->n++] = c;
-}
-
-// The document is two segments with the gap between them, at wherever the cursor
-// happens to be. This walks them as one stream so that where the split fell is
-// not something the CR test has to care about.
-//
-// Cursor movement steps over a break two bytes at a time, so the gap is not
-// thought to be able to land between a CR and its LF -- a test that breaks only
-// that case fails nothing. The lookahead spans the segments anyway: it costs one
-// comparison, and the alternative is this staying correct only for as long as
-// that remains true of every edit path.
-static void tb_write_lf(char fh, const char* pre, int psz,
-                        const char* suf, int ssz) {
-    // Static: an lf_writer is a 256-byte buffer, and on the stack it puts this
-    // frame past the 128 bytes an ix displacement reaches -- which is charged
-    // to every local the function has, not just the buffer. One save at a time.
-    static lf_writer w;
-    w.fh = fh;
-    w.n = 0;
-
-    const int total = psz + ssz;
-    for (int i = 0; i < total; i++) {
-        const char c = i < psz ? pre[i] : suf[i - psz];
-        if (c == '\r') {
-            const int j = i + 1;
-            const char nx = j < psz ? pre[j] : (j < total ? suf[j - psz] : 0);
-            if (nx == '\n') {
-                continue;
-            }
-        }
-        lfw_put(&w, c);
-    }
-    lfw_flush(&w);
-}
-
-// Saves a paged document: the head, then memory, then what is left of the tail.
-//
-// Through a temp file and a rename, because the document's own name is where
-// the head and the tail were read from -- opening it with FA_CREATE_ALWAYS
-// would truncate what the save is still reading. That is pitfall 4, and it is
-// why the floor needs mos_ren.
-//
-// The scratch files are left as they are. The document is still open when this
-// returns, the window has not moved, and the cursor is where it was.
-// Writes a run out, turning CRLF back into a bare line feed when that is what
-// the file came in with. A carriage return at the very end of a run is held
-// back rather than written, because whether it is dropped depends on the byte
-// after it -- which is in the next run.
-typedef struct _lf_out {
-    char fh;
-    bool lf;            // the document wants bare line feeds
-    bool held_cr;       // a carriage return waiting to see what follows
-    bool ok;
-} lf_out;
-
-static void lf_put(lf_out* o, const char* buf, int n) {
-    static char out[TB_CHUNK + 1];
-
-    if (!o->ok || n <= 0) {
-        return;
-    }
-    if (!o->lf) {
-        o->ok = mos_fwrite(o->fh, (char*) buf, (unsigned) n) == (unsigned) n;
-
-        return;
-    }
-    // In slices, because this is handed memory's prefix and suffix whole and
-    // those are the size of the buffer -- a hundred times a chunk. The
-    // conversion can add a byte for a held carriage return, so a slice is one
-    // short of what `out` holds.
-    int at = 0;
-    while (o->ok && at < n) {
-        int take = n - at;
-        if (take > TB_CHUNK - 1) {
-            take = TB_CHUNK - 1;
-        }
-        int k = 0;
-        for (int i = 0; i < take; i++) {
-            const char c = buf[at + i];
-            if (o->held_cr) {
-                o->held_cr = false;
-                if (c != '\n') {
-                    out[k++] = '\r';   // a lone carriage return is text
-                }
-            }
-            if (c == '\r') {
-                o->held_cr = true;      // decided when the next byte arrives
-                continue;
-            }
-            out[k++] = c;
-        }
-        if (k > 0) {
-            o->ok = mos_fwrite(o->fh, out, (unsigned) k) == (unsigned) k;
-        }
-        at += take;
-    }
-}
-
-static void lf_end(lf_out* o) {
-    if (o->ok && o->held_cr) {
-        char cr = '\r';
-        o->ok = mos_fwrite(o->fh, &cr, 1) == 1;
-        o->held_cr = false;
-    }
-}
 
 /*
  * The whole document, in order, to a sink: HEAD, then what memory holds, then
@@ -2577,10 +2540,10 @@ static void lf_end(lf_out* o) {
  * window comes through here instead. Saving was the first, and find and the
  * range operations are the rest.
  *
- * The text arrives exactly as it is held: CRLF line endings whatever the file
- * had, and the gap in the middle of memory skipped rather than sent. Nothing
- * here converts; a caller that wants bare line feeds puts a converting sink in
- * front, which is what saving does.
+ * The text arrives exactly as it is held, with the gap in the middle of memory
+ * skipped rather than sent. The breaks are the file's own -- a document loaded
+ * from bare line feeds streams bare line feeds -- so a sink can write what it
+ * is given straight out.
  *
  * Reads only. The window does not move and the cursor does not either, so a
  * caller can stream the document and carry on from where it was.
@@ -2635,10 +2598,25 @@ static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx) {
     return true;
 }
 
-// doc_stream's sink for saving: the line-ending conversion, and the file.
+// doc_stream's sink for saving: the file, and whether it is still going.
+//
+// There is no conversion here any more. A document is held with the breaks its
+// file had -- see tb_load_paged_pass -- so what the buffer holds is what the
+// file wants, and the 135 lines that used to turn CRLF back into bare line
+// feeds on the way out went with that. Saving slow.asm, 419 KB of bare line
+// feeds, went from 2.06 seconds to 0.18.
+typedef struct _save_out {
+    char fh;
+    bool ok;
+} save_out;
+
 static bool save_sink(void* ctx, const char* buf, int sz) {
-    lf_out* o = (lf_out*) ctx;
-    lf_put(o, buf, sz);
+    save_out* o = (save_out*) ctx;
+
+    if (o->ok && sz > 0
+            && mos_fwrite(o->fh, (char*) buf, (unsigned) sz) != (unsigned) sz) {
+        o->ok = false;
+    }
 
     return o->ok;
 }
@@ -2664,16 +2642,13 @@ static bool tb_save_paged(text_buffer* tb) {
     // in with bare line feeds has to be converted on the way out -- otherwise
     // opening and saving it adds a byte to every line, which is what a 419 KiB
     // file growing by exactly its line count looks like.
-    lf_out o;
+    save_out o;
     o.fh = fh;
-    o.lf = tb->eol_ == TB_EOL_LF;
-    o.held_cr = false;
     o.ok = true;
 
     if (!doc_stream(tb, save_sink, &o)) {
         o.ok = false;
     }
-    lf_end(&o);
     const bool ok = o.ok;
     mos_fclose(fh);
 
@@ -2720,19 +2695,20 @@ bool tb_save(text_buffer* tb) {
     int ssz = 0;
     tb_content(tb, &prefix, &psz, &suffix, &ssz);
 
-    if (tb->eol_ == TB_EOL_LF) {
-        tb_write_lf(fh, prefix, prefix != NULL ? psz : 0,
-                    suffix, suffix != NULL ? ssz : 0);
-    } else {
-        if (prefix != NULL && psz > 0) {
-            mos_fwrite(fh, prefix, psz);
-        }
-        if (suffix != NULL && ssz > 0) {
-            mos_fwrite(fh, suffix, ssz);
-        }
+    bool ok = true;
+    if (prefix != NULL && psz > 0) {
+        ok = mos_fwrite(fh, prefix, (unsigned) psz) == (unsigned) psz;
+    }
+    if (ok && suffix != NULL && ssz > 0) {
+        ok = mos_fwrite(fh, suffix, (unsigned) ssz) == (unsigned) ssz;
     }
 
     mos_fclose(fh);
+    // A card that filled up partway leaves a short file behind, and the buffer
+    // stays dirty so the user is told the save did not happen.
+    if (!ok) {
+        return false;
+    }
     tb_saved(tb);
 
     return true;
