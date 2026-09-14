@@ -121,7 +121,7 @@ It is a **safety floor**, and the thing it protects is the gap.
 
 [`cb_rebalance`](../src/char_buffer.c#L102) splits free space three ways, so
 after one the gap holds `free / 3`. A repaint walks a screenful through a
-walker — [`refresh_screen`](../src/cmd_ops.c#L67) — and a walker moves the gap
+walker — [`refresh_screen`](../src/cmd_ops.c#L66) — and a walker moves the gap
 as it reads. The copy's writes stay behind the original's `cend_` only while the
 gap is wider than the distance the copy has travelled. Narrower, and the walker
 overwrites the document it is painting.

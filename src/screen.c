@@ -705,15 +705,17 @@ char scr_bg(screen* scr) {
 // advances to the next multiple of the tab width; every other byte is one
 // column wide. With no tabs in the line this is simply `len`, which is why this
 // is behaviour-preserving today.
-int scr_column_of(screen* scr, const char* line, int len) {
-    if (line == NULL || len <= 0) {
-        return 0;
+// One run of bytes, from the column it starts at to the column it ends at. A
+// tab's width depends on where it lands, so the running column has to be
+// carried between the two runs of a split line rather than added afterwards.
+static int cols_over(screen* scr, const char* buf, int sz, int col) {
+    if (buf == NULL || sz <= 0) {
+        return col;
     }
 
     const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
-    int col = 0;
-    for (int i = 0; i < len; i++) {
-        if (line[i] == '\t') {
+    for (int i = 0; i < sz; i++) {
+        if (buf[i] == '\t') {
             col += tab - (col % tab);
         } else {
             col++;
@@ -721,6 +723,28 @@ int scr_column_of(screen* scr, const char* line, int len) {
     }
 
     return col;
+}
+
+int scr_column_of_n(screen* scr, const char* pre, int presz,
+                    const char* suf, int sufsz, int n) {
+    // A negative `n` needs no floor of its own: it makes `lead` negative too,
+    // `rest` zero, and cols_over answers zero for a run of no bytes.
+    const int lead = presz < n ? presz : n;
+    int rest = n - lead;
+    if (rest > sufsz) {
+        rest = sufsz;
+    }
+
+    return cols_over(scr, suf, rest, cols_over(scr, pre, lead, 0));
+}
+
+int scr_column_of_split(screen* scr, const char* pre, int presz,
+                        const char* suf, int sufsz) {
+    return scr_column_of_n(scr, pre, presz, suf, sufsz, presz + sufsz);
+}
+
+int scr_column_of(screen* scr, const char* line, int len) {
+    return scr_column_of_split(scr, NULL, 0, line, len);
 }
 
 int scr_byte_at(screen* scr, const char* line, int len, int column) {
@@ -1169,20 +1193,37 @@ void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
                    scr->originX_ + scr->cols_);
 }
 
+void scr_write_line_sel_split(screen* scr, char ypos,
+                              const char* pre, int presz,
+                              const char* suf, int sufsz,
+                              int from_col, int to_col) {
+    scr_write_line_span_split(scr, ypos, pre, presz, suf, sufsz,
+                              from_col, to_col,
+                              scr->originX_, scr->originX_ + scr->cols_);
+}
+
 void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
                         int from_col, int to_col) {
-    scr_write_line_span(scr, ypos, buf, sz, from_col, to_col,
-                        scr->originX_, scr->originX_ + scr->cols_);
+    scr_write_line_sel_split(scr, ypos, NULL, 0, buf, sz, from_col, to_col);
+}
+
+void scr_write_line_span_split(screen* scr, char ypos,
+                               const char* pre, int presz,
+                               const char* suf, int sufsz,
+                               int from_col, int to_col, int paint_from,
+                               int paint_to) {
+    scr->selFrom_ = from_col;
+    scr->selTo_ = to_col;
+    scr_paint_span(scr, ypos, pre, presz, suf, sufsz, paint_from, paint_to);
+    scr->selFrom_ = 0;
+    scr->selTo_ = 0;
 }
 
 void scr_write_line_span(screen* scr, char ypos, char* buf, int sz,
                          int from_col, int to_col, int paint_from,
                          int paint_to) {
-    scr->selFrom_ = from_col;
-    scr->selTo_ = to_col;
-    scr_paint_span(scr, ypos, NULL, 0, buf, sz, paint_from, paint_to);
-    scr->selFrom_ = 0;
-    scr->selTo_ = 0;
+    scr_write_line_span_split(scr, ypos, NULL, 0, buf, sz, from_col, to_col,
+                              paint_from, paint_to);
 }
 
 void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
@@ -1222,9 +1263,14 @@ void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
     scr_paint_row(scr, ypos, NULL, 0, buf, sz);
 }
 
+void scr_overwrite_line_split(screen* scr, char ypos, const char* pre,
+                              int presz, const char* suf, int sufsz) {
+    scr_paint_row(scr, ypos, pre, presz, suf, sufsz);
+}
+
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz) {
     (void) psz;   // scr_paint_row always pads to the full width
-    scr_paint_row(scr, ypos, NULL, 0, buf, sz);
+    scr_overwrite_line_split(scr, ypos, NULL, 0, buf, sz);
 }
 
 void scr_tab(screen* scr, int col, char row) {
@@ -1255,11 +1301,11 @@ void scr_sync_cursor(screen* scr) {
 // character row. Direction 2 is down, 3 is up.
 static void scroll_region(
         screen* scr, char topY, char bottomY, const char* vdu, char sz,
-        char* line, int lsz, char ch) {
+        const char* pre, int presz, const char* suf, int sufsz, char ch) {
     define_viewport(scr->textX_, bottomY, (char) (scr->textX_ + scr->cols_ - 1), topY);
     mos_puts((char*) vdu, sz, 0);
     reset_viewport();
-    scr_paint_row(scr, scr->currY_, NULL, 0, line, lsz);
+    scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, ch);
 }
@@ -1288,23 +1334,50 @@ void scr_scroll_h(screen* scr, int cols) {
     reset_viewport();
 }
 
-char scr_glyph_at(screen* scr, const char* line, int len, int col) {
-    if (line == NULL || len <= 0 || col < 0) {
-        return ' ';
+// Looks for `col` in one run, carrying the running column in *at. True when it
+// was in this run, with the glyph in *out -- a flag rather than a sentinel
+// because a document may hold any byte, including the one a sentinel would be.
+static bool glyph_in(screen* scr, const char* buf, int sz, int col, int* at,
+                     char* out) {
+    if (buf == NULL || sz <= 0) {
+        return false;
     }
 
     const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
-    int at = 0;
-    for (int i = 0; i < len; i++) {
-        const int width = line[i] == '\t' ? tab - (at % tab) : 1;
-        if (col < at + width) {
+    for (int i = 0; i < sz; i++) {
+        const int width = buf[i] == '\t' ? tab - (*at % tab) : 1;
+        if (col < *at + width) {
             // Inside a tab's expansion, or past the start of a normal cell.
-            return (line[i] == '\t' || col > at) ? ' ' : line[i];
+            *out = (buf[i] == '\t' || col > *at) ? ' ' : buf[i];
+
+            return true;
         }
-        at += width;
+        *at += width;
+    }
+
+    return false;
+}
+
+char scr_glyph_at_split(screen* scr, const char* pre, int presz,
+                        const char* suf, int sufsz, int col) {
+    if (col < 0) {
+        return ' ';
+    }
+
+    int at = 0;
+    char g = ' ';
+    if (glyph_in(scr, pre, presz, col, &at, &g)) {
+        return g;
+    }
+    if (glyph_in(scr, suf, sufsz, col, &at, &g)) {
+        return g;
     }
 
     return ' ';
+}
+
+char scr_glyph_at(screen* scr, const char* line, int len, int col) {
+    return scr_glyph_at_split(scr, NULL, 0, line, len, col);
 }
 
 void scr_put_at(screen* scr, char sx, char sy, char ch) {
@@ -1339,15 +1412,29 @@ void scr_scroll_rows_down(screen* scr, char topY, char bottomY, int rows) {
     reset_viewport();
 }
 
+void scr_scroll_down_split(screen* scr, char topY, char bottomY,
+                           const char* pre, int presz,
+                           const char* suf, int sufsz, char ch) {
+    const char down[] = {23, 7, 0, 2, scr->charH_};
+    scroll_region(scr, topY, bottomY, down, sizeof(down),
+                  pre, presz, suf, sufsz, ch);
+}
+
 void scr_scroll_down(
         screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
-    const char down[] = {23, 7, 0, 2, scr->charH_};
-    scroll_region(scr, topY, bottomY, down, sizeof(down), line, sz, ch);
+    scr_scroll_down_split(scr, topY, bottomY, NULL, 0, line, sz, ch);
+}
+
+void scr_scroll_up_split(screen* scr, char topY, char bottomY,
+                         const char* pre, int presz,
+                         const char* suf, int sufsz, char ch) {
+    const char up[] = {23, 7, 0, 3, scr->charH_};
+    scroll_region(scr, topY, bottomY, up, sizeof(up),
+                  pre, presz, suf, sufsz, ch);
 }
 
 void scr_scroll_up(
         screen* scr, char topY, char bottomY, char* line, int sz, char ch) {
-    const char up[] = {23, 7, 0, 3, scr->charH_};
-    scroll_region(scr, topY, bottomY, up, sizeof(up), line, sz, ch);
+    scr_scroll_up_split(scr, topY, bottomY, NULL, 0, line, sz, ch);
 }
 

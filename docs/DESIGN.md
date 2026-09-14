@@ -77,7 +77,7 @@ flowchart TD
 [`ctrlCmds()`](../src/editor.c#L460) ·
 [`editCmds()`](../src/editor.c#L555) ·
 [`ed_selection_for()`](../src/editor.c#L242) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L257)
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L262)
 
 `main` asks for **256 KB** and that single number sizes the document: `tb_init`
 splits it into a character buffer and a line index, one index slot per 32 bytes
@@ -295,7 +295,7 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L257) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L262) takes a range, and most commands
 pass a single row.
 
 [`screen`](../src/screen.h#L25) derives its geometry from the font's cell size,

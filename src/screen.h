@@ -190,6 +190,13 @@ int scr_down(screen* scr, char from_ch, char to_ch, const char* pre, int presz);
 // Column projection. `line` is the current line from its start and `len` is how
 // many of its bytes precede the cursor.
 int  scr_column_of(screen* scr, const char* line, int len);
+int  scr_column_of_split(screen* scr, const char* pre, int presz,
+                         const char* suf, int sufsz);
+// The width of the first `n` bytes of one, which is what a selection column
+// is: everything before the byte the selection starts at. `n` past the end
+// measures the whole line.
+int  scr_column_of_n(screen* scr, const char* pre, int presz,
+                     const char* suf, int sufsz, int n);
 
 // Inverse projection: the byte offset in `line` that renders at or after
 // `column`. Clamped to `len`.
@@ -214,6 +221,22 @@ void scr_scroll_h(screen* scr, int cols);
 // The glyph rendered at document column `col` of `line`, or a space when that
 // column falls past the end or inside a tab's expansion.
 char scr_glyph_at(screen* scr, const char* line, int len, int col);
+
+/*
+ * The same, for a line that arrives in two pieces.
+ *
+ * A line is two runs whenever the gap falls inside it -- the cursor's own line
+ * always is, and a walker reading without moving the gap meets one more. The
+ * pieces are the line in order, so anything that walks bytes has to carry its
+ * running column from the first into the second: a tab's width depends on
+ * where it lands, so the two cannot be measured apart and added.
+ *
+ * scr_paint_span has taken a pair since the cursor's line first had to be
+ * painted. These are the rest of the paths that walk a line, given the same
+ * shape. The single-run forms are kept, and are the empty-prefix case.
+ */
+char scr_glyph_at_split(screen* scr, const char* pre, int presz,
+                        const char* suf, int sufsz, int col);
 
 // Prints one character at a screen cell without disturbing the recorded cursor.
 void scr_put_at(screen* scr, char sx, char sy, char ch);
@@ -279,6 +302,12 @@ void scr_scroll_rows_down(screen* scr, char topY, char bottomY, int rows);
 
 void scr_scroll_up(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
 void scr_scroll_down(screen* scr, char topY, char bottomY, char* line, int sz, char ch);
+void scr_scroll_up_split(screen* scr, char topY, char bottomY,
+                         const char* pre, int presz,
+                         const char* suf, int sufsz, char ch);
+void scr_scroll_down_split(screen* scr, char topY, char bottomY,
+                           const char* pre, int presz,
+                           const char* suf, int sufsz, char ch);
 
 // Moves the hardware cursor to the position the screen already records.
 void scr_sync_cursor(screen* scr);
@@ -292,6 +321,15 @@ void scr_write_line(screen* scr, char ypos, char* buf, int sz);
 // scr_write_line_sel over a bounded range of columns. The selection is still
 // described in whole-row terms -- [from_col, to_col) is where the highlight is
 // -- and [paint_from, paint_to) says how much of the row to send.
+void scr_write_line_sel_split(screen* scr, char ypos,
+                              const char* pre, int presz,
+                              const char* suf, int sufsz,
+                              int from_col, int to_col);
+void scr_write_line_span_split(screen* scr, char ypos,
+                               const char* pre, int presz,
+                               const char* suf, int sufsz,
+                               int from_col, int to_col, int paint_from,
+                               int paint_to);
 void scr_write_line_span(screen* scr, char ypos, char* buf, int sz,
                          int from_col, int to_col, int paint_from,
                          int paint_to);
@@ -299,6 +337,8 @@ void scr_write_line_span(screen* scr, char ypos, char* buf, int sz,
 void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
                         int from_col, int to_col);
 void scr_overwrite_line(screen* scr, char ypos, char* buf, int sz, int psz);
+void scr_overwrite_line_split(screen* scr, char ypos, const char* pre,
+                              int presz, const char* suf, int sufsz);
 
 void scr_show_cursor_ch(screen* scr, char ch);
 void scr_hide_cursor_ch(screen* scr, char ch);
