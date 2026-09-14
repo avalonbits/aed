@@ -175,16 +175,61 @@ int main(void) {
     check("open: back to a known document", tb_open(&tb, "first.txt", 9), TB_OK);
     check("  which is loaded", doc_is(&tb, "alpha\nbeta\n\n"), 1);
 
-    /* Too large: bigger than the whole buffer, not merely bigger than what is
-     * free. The check has to be made against the empty buffer, since the
-     * document about to be discarded is not in the way. */
+    /* Bigger than the buffer is not a refusal: it pages, the same as it does
+     * at startup. What cannot be opened is a file whose *first line* is longer
+     * than the window, because a slide moves whole lines and there is no whole
+     * line to move -- 200 KB of 'z' with no break in it anywhere.
+     *
+     * It used to open: an empty-looking buffer holding a file the user could
+     * not see, one keystroke from being edited at the wrong end, which saved
+     * all 204,800 bytes back and so looked like it had worked.
+     *
+     * And the refusal has to come before anything is discarded, which is why
+     * the front of the file is read first. */
     static char huge[200 * 1024];
     memset(huge, 'z', sizeof(huge));
     stub_file_reset();
     stub_file_set_content(huge, (int) sizeof(huge));
-    check("an oversized file is refused", tb_open(&tb, "huge.txt", 8), TB_TOO_LARGE);
+    check("a file that is one line from end to end is refused",
+          tb_open(&tb, "huge.txt", 8), TB_TOO_LARGE);
     check("  the document is untouched", doc_is(&tb, "alpha\nbeta\n\n"), 1);
     check("  and so is its name", strcmp(tb_fname(&tb), "first.txt"), 0);
+
+    /* The same size, with line breaks in it, opens. CTRL+O used to be the one
+     * way into the editor that could not open a large file: `aed big.asm`
+     * worked and opening the same file from inside did not. */
+    #define BIG_LINES 8000
+    #define BIG_LEN   25
+    static char broken[BIG_LINES * BIG_LEN];
+    for (int i = 0; i < BIG_LINES; i++) {
+        for (int k = 0; k < BIG_LEN - 2; k++) {
+            broken[i * BIG_LEN + k] = (char) ('a' + ((i + k) % 26));
+        }
+        broken[i * BIG_LEN + BIG_LEN - 2] = '\r';
+        broken[i * BIG_LEN + BIG_LEN - 1] = '\n';
+    }
+    stub_file_reset();
+    stub_file_set_content(broken, (int) sizeof(broken));
+    check("a large file with lines in it opens",
+          tb_open(&tb, "big.txt", 7), TB_OK);
+    check("  with all of its lines", tb_ymax(&tb), BIG_LINES + 1);
+    check("  and not all of it in memory", tb_used(&tb) < (int) sizeof(broken), 1);
+    check("  its name taken", strcmp(tb_fname(&tb), "big.txt"), 0);
+
+    /* Including the far end, which only a slide reaches. */
+    tb_pos last = { BIG_LINES, 0 };
+    tb_seek(&tb, last);
+    check("  its last line reachable", tb_ypos(&tb), BIG_LINES);
+    check("    and reading as itself",
+          tb_curr_line(&tb).ssz_ == BIG_LEN - 2
+          && memcmp(tb_curr_line(&tb).suffix_,
+                    broken + (BIG_LINES - 1) * BIG_LEN,
+                    (size_t) (BIG_LEN - 2)) == 0, 1);
+
+    /* And back to a small one, so the cases below start where they expect. */
+    stub_file_reset();
+    stub_file_set_content(first, (int) sizeof(first) - 1);
+    check("  and a small file opens over it", tb_open(&tb, "first.txt", 9), TB_OK);
 
     /* The check has to be against the whole buffer, not the free space: the
      * common case is opening a file about the size of the one already loaded,

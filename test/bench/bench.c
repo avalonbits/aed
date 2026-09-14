@@ -97,6 +97,9 @@ static void report(char fh, const char* name, clock_t ticks, int reps) {
 int main(int argc, char** argv) {
     const char* corpus = argc > 1 ? argv[1] : "/bench.txt";
     const int reps = argc > 2 ? atoi(argv[2]) : 0;
+    /* An optional second corpus, one too big for memory. Skipped when absent so
+     * that the original cases still run on their own. */
+    const char* big = argc > 3 ? argv[3] : NULL;
 
     static text_buffer tb;
     static undo u;
@@ -123,6 +126,64 @@ int main(int argc, char** argv) {
         }
     }
     report(fh, "load", clock() - t0, load_reps);
+
+    /* --- load-paged: the same, on a document too big for memory ---
+     *
+     * Which is a different path start to finish: the loader converts and
+     * indexes a chunk at a time and hands the rest to the store, and every
+     * byte of the document goes through it rather than every byte of a buffer.
+     * The card being free here is the point -- what is left is AED's own work,
+     * and on a 419 KiB file that turned out to be most of the open. */
+    if (big != NULL) {
+        tb_destroy(&tb);
+        int big_reps = reps > 0 ? reps : 2;
+        t0 = clock();
+        for (int i = 0; i < big_reps; i++) {
+            if (tb_init(&tb, MEM_KB, big) == NULL) {
+                say("cannot open the big corpus");
+                if (fh != 0) {
+                    mos_fclose(fh);
+                }
+
+                return 1;
+            }
+            if (i + 1 < big_reps) {
+                tb_destroy(&tb);
+            }
+        }
+        report(fh, "load-paged", clock() - t0, big_reps);
+
+        /* Walking it end to end and back, which is every slide the document
+         * has in it, both ways. */
+        t0 = clock();
+        for (int i = 0; i < big_reps; i++) {
+            tb_pos bottom = { tb_ymax(&tb) - 1, 0 };
+            tb_seek(&tb, bottom);
+            tb_pos top = { 1, 0 };
+            tb_seek(&tb, top);
+        }
+        report(fh, "slide-both-ways", clock() - t0, big_reps);
+
+        /* And a streaming pass over the whole of it, which is what find and a
+         * select-all measure now cost. */
+        t0 = clock();
+        for (int i = 0; i < big_reps; i++) {
+            tb_pos a = { 1, 0 };
+            tb_pos b = { tb_ymax(&tb), 0 };
+            tb_range_size(&tb, a, b);
+        }
+        report(fh, "stream-whole", clock() - t0, big_reps);
+
+        tb_destroy(&tb);
+        if (tb_init(&tb, MEM_KB, corpus) == NULL) {
+            say("cannot reopen the corpus");
+            if (fh != 0) {
+                mos_fclose(fh);
+            }
+
+            return 1;
+        }
+    }
 
     const int used = tb_used(&tb);
     const int lines = tb_ymax(&tb);

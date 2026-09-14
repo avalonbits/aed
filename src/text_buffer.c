@@ -27,6 +27,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Lets go of the store, if there is one. Defined with tb_clear, which is the
+// other place a document stops needing it.
+static void tb_drop_store(text_buffer* tb);
+
 text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     int line_count = mem_kb << 5;
     int char_count = (mem_kb << 10) - line_count;
@@ -52,6 +56,8 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
     tb->head_lines_ = 0;
     tb->tail_lines_ = 0;
     tb->walker_ = false;
+    tb->paged_ = false;
+    tb->store_ = NULL;
 
     if (fname != NULL && tb_load(tb, fname) != TB_OK) {
         free(tb->fname_);
@@ -64,6 +70,7 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
 }
 
 void tb_destroy(text_buffer* tb) {
+    tb_drop_store(tb);
     cb_destroy(&tb->cb_);
     lb_destroy(&tb->lb_);
     free(tb->fname_);
@@ -316,6 +323,28 @@ static bool isstop(char ch) {
     return false;
 }
 
+// How many line feeds are in a run. The same CPIR, for the counters that do not
+// want the lengths.
+static int count_lines(const char* buf, int n) {
+    int lines = 0;
+    while (n > 0) {
+        const char* nl = (const char*) memchr(buf, '\n', (size_t) n);
+        if (nl == NULL) {
+            break;
+        }
+        lines++;
+        n -= (int) (nl - buf) + 1;
+        buf = nl + 1;
+    }
+
+    return lines;
+}
+
+// The whole document to a sink, in order: head, memory, tail. Defined down with
+// the paged save, which was the first thing that needed it; find and the range
+// operations are the rest.
+static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx);
+
 // ASCII case folding. The Agon's character set beyond 127 is not a case-mapped
 // alphabet, so anything else is left alone rather than guessed at.
 static char fold(char ch) {
@@ -371,10 +400,193 @@ static int scan_line(const char* hay, int hsz, const char* needle, int nsz,
     return -1;
 }
 
+/*
+ * Finding in a paged document.
+ *
+ * The in-memory search walks a line at a time on a tb_copy, and a walker cannot
+ * slide, so it searches the window and stops. On a 160,000 byte document paged
+ * into 64 KiB, a match planted a hundred lines from the end reported "not
+ * found" -- and reported it the same way a real absence does.
+ *
+ * So a paged document is searched by streaming it, once, from the beginning.
+ * One pass answers all four questions a search can ask, because forwards and
+ * backwards differ only in which match is kept:
+ *
+ *   forward  -- the first match at or after `from`, else the first anywhere
+ *   backward -- the last match at or before `from`, else the last anywhere
+ *
+ * which is what "wrapping once around the document" means. Collecting all four
+ * costs nothing over collecting one, and saves the second pass a wrap would
+ * otherwise need.
+ *
+ * Knuth-Morris-Pratt rather than the in-memory scan, because there is no line
+ * to back up over: the bytes arrive once, in order, and a partial match has to
+ * survive between chunks. The failure table is built from the needle each time
+ * -- 64 bytes of work against a document's worth of reading.
+ */
+#define TB_FIND_MAX 64      // editor.find_ is char[64]; nothing longer exists
+
+typedef struct _find_pass {
+    const char* needle;
+    int nsz;
+    int fail[TB_FIND_MAX];
+
+    tb_pos from;
+    int m;              // needle characters matched so far
+    int line;           // the line the next byte belongs to
+    int x;              // its column
+    bool held_cr;
+
+    tb_pos at_from;     // first match at or after `from`
+    bool has_at_from;
+    tb_pos first;       // first match anywhere
+    bool has_first;
+    tb_pos to_from;     // last match at or before `from`
+    bool has_to_from;
+    tb_pos last;        // last match anywhere
+    bool has_last;
+} find_pass;
+
+static void fp_build(find_pass* fp) {
+    fp->fail[0] = 0;
+    for (int i = 1; i < fp->nsz; i++) {
+        int k = fp->fail[i - 1];
+        while (k > 0 && fold(fp->needle[i]) != fold(fp->needle[k])) {
+            k = fp->fail[k - 1];
+        }
+        if (fold(fp->needle[i]) == fold(fp->needle[k])) {
+            k++;
+        }
+        fp->fail[i] = k;
+    }
+}
+
+static void fp_hit(find_pass* fp, tb_pos p) {
+    if (!fp->has_first) {
+        fp->first = p;
+        fp->has_first = true;
+    }
+    fp->last = p;
+    fp->has_last = true;
+
+    // At or after `from`, for a forward search. Only the first one counts.
+    if (!fp->has_at_from
+            && (p.line > fp->from.line
+                || (p.line == fp->from.line && p.x >= fp->from.x))) {
+        fp->at_from = p;
+        fp->has_at_from = true;
+    }
+    // At or before it, for a backward one. The last such is the answer, so
+    // this keeps overwriting until the positions run past `from`.
+    if (p.line < fp->from.line
+            || (p.line == fp->from.line && p.x <= fp->from.x)) {
+        fp->to_from = p;
+        fp->has_to_from = true;
+    }
+}
+
+static void fp_char(find_pass* fp, char c) {
+    const char f = fold(c);
+    while (fp->m > 0 && f != fold(fp->needle[fp->m])) {
+        fp->m = fp->fail[fp->m - 1];
+    }
+    if (f == fold(fp->needle[fp->m])) {
+        fp->m++;
+    }
+    if (fp->m == fp->nsz) {
+        const tb_pos p = { fp->line, fp->x - fp->nsz + 1 };
+        fp_hit(fp, p);
+        fp->m = fp->fail[fp->m - 1];
+    }
+    fp->x++;
+}
+
+static bool find_sink(void* ctx, const char* buf, int sz) {
+    find_pass* fp = (find_pass*) ctx;
+
+    for (int i = 0; i < sz; i++) {
+        const char c = buf[i];
+        if (c == '\r' && !fp->held_cr) {
+            fp->held_cr = true;
+            continue;
+        }
+        if (c == '\n') {
+            // A match never spans a break, so nothing carries across one.
+            fp->held_cr = false;
+            fp->m = 0;
+            fp->line++;
+            fp->x = 0;
+            continue;
+        }
+        if (fp->held_cr) {
+            fp->held_cr = false;    // a stray carriage return is a character
+            fp_char(fp, '\r');
+        }
+        fp_char(fp, c);
+    }
+
+    return true;
+}
+
+static bool find_paged(text_buffer* tb, const char* needle, int nsz,
+                       tb_pos from, bool forward, tb_pos* at) {
+    if (nsz > TB_FIND_MAX) {
+        return false;
+    }
+    static find_pass fp;    // 64 ints of failure table: too big for a frame
+    fp.needle = needle;
+    fp.nsz = nsz;
+    fp.from = from;
+    fp.m = 0;
+    fp.line = 1;
+    fp.x = 0;
+    fp.held_cr = false;
+    fp.has_at_from = false;
+    fp.has_first = false;
+    fp.has_to_from = false;
+    fp.has_last = false;
+    fp_build(&fp);
+
+    if (!doc_stream(tb, find_sink, &fp)) {
+        return false;
+    }
+    if (forward) {
+        if (fp.has_at_from) {
+            *at = fp.at_from;
+
+            return true;
+        }
+        if (fp.has_first) {
+            *at = fp.first;     // wrapped
+
+            return true;
+        }
+
+        return false;
+    }
+    if (fp.has_to_from) {
+        *at = fp.to_from;
+
+        return true;
+    }
+    if (fp.has_last) {
+        *at = fp.last;          // wrapped
+
+        return true;
+    }
+
+    return false;
+}
+
 bool tb_find(text_buffer* tb, const char* needle, int nsz, tb_pos from,
              bool forward, tb_pos* at) {
     if (needle == NULL || nsz <= 0 || at == NULL) {
         return false;
+    }
+    if (tb->paged_) {
+        // Always, not only when `from` is outside memory: a match can be
+        // anywhere in the document wherever the search starts from.
+        return find_paged(tb, needle, nsz, from, forward, at);
     }
 
     // On a copy, which is safe because moving a gap duplicates rather than
@@ -548,6 +760,446 @@ int tb_ymax(text_buffer* tb) {
     return tb->head_lines_ + mem_lines(tb) + tb->tail_lines_;
 }
 
+bool tb_page_open(text_buffer* tb, const char* base) {
+    if (tb == NULL || tb->walker_ || tb->paged_) {
+        return false;
+    }
+    tb->store_ = (doc_store*) malloc(sizeof(doc_store));
+    if (tb->store_ == NULL) {
+        return false;
+    }
+    if (!store_init(tb->store_, base)) {
+        free(tb->store_);
+        tb->store_ = NULL;
+
+        return false;
+    }
+    tb->paged_ = true;
+
+    return true;
+}
+
+bool tb_page_fill(text_buffer* tb, const char* buf, int n) {
+    if (tb == NULL || !tb->paged_ || buf == NULL || n < 0) {
+        return false;
+    }
+    if (!store_tail_append(tb->store_, buf, n)) {
+        return false;
+    }
+    // Complete lines, each ending in the break that closes it, which is what
+    // both counters hold -- see head_lines_ in text_buffer.h.
+    tb->tail_lines_ += count_lines(buf, n);
+
+    return true;
+}
+
+/*
+ * Sliding the window the document is seen through.
+ *
+ * Whole lines only, both ways. Memory then always holds complete lines, and
+ * neither the index nor anything reading it needs a case for a line that
+ * straddles the edge -- at the cost of a documented limit, that a line longer
+ * than a chunk cannot be moved at all.
+ *
+ * The buffers used here are file-scope rather than frames. A chunk is 2 KiB and
+ * the line entries for one are a few hundred bytes more, which is twenty times
+ * what an ix displacement reaches; on the stack they would make every local in
+ * this file cost an address computation. See test/frames.sh.
+ */
+// One byte over a chunk: sliding up reads a byte of lookbehind in front of the
+// run it wants, to tell a chunk that landed on a line boundary from one that
+// did not.
+static char slide_bytes[TB_CHUNK + 1];
+static int  slide_lens[TB_CHUNK / 2 + 1];   // the shortest possible line is "\r\n"
+
+// Splits a run of bytes into the lengths of the whole lines in it, each ending
+// in the line feed that closes it. Returns how many, and how many bytes they
+// account for -- which is less than `n` when the run ends mid-line.
+// memchr rather than a loop over the bytes: it reaches CPIR, which the eZ80 does
+// in a handful of cycles a byte against the twenty-odd a C comparison costs, and
+// every byte of a document passes through here on the way in and again on every
+// slide. See .internal/docs/PAGING.md for what that was worth.
+static int run_lines(const char* buf, int n, int* lens, int max, int* bytes) {
+    int lines = 0;
+    int used = 0;
+    while (lines < max && used < n) {
+        const char* nl = (const char*) memchr(buf + used, '\n',
+                                              (size_t) (n - used));
+        if (nl == NULL) {
+            break;
+        }
+        const int at = (int) (nl - buf);
+        lens[lines++] = at - used + 1;
+        used = at + 1;
+    }
+    *bytes = used;
+
+    return lines;
+}
+
+// Whether this buffer may move its own window. A walker shares the cursor's
+// buffers, so sliding one would take the window out from under the cursor that
+// owns it -- the other half of pitfall 1, and what the walker flag was put
+// there for.
+static bool may_slide(text_buffer* tb) {
+    return tb != NULL && tb->paged_ && !tb->walker_;
+}
+
+bool tb_settle(text_buffer* tb) {
+    if (!may_slide(tb)) {
+        return false;
+    }
+    bool moved = false;
+
+    // Bounded because each slide moves a chunk and a margin is several of them,
+    // so a cursor dropped into the middle of a document needs a handful. The
+    // bound is what stops a slide that keeps failing from spinning here.
+    int guard = TB_MARGIN / TB_CHUNK + 2;
+    while (guard-- > 0) {
+        int psz = 0;
+        int ssz = 0;
+        cb_prefix(&tb->cb_, &psz);
+        cb_suffix(&tb->cb_, &ssz);
+
+        if (ssz < TB_MARGIN && store_tail_bytes(tb->store_) > 0) {
+            if (!tb_slide_down(tb)) {
+                break;
+            }
+            moved = true;
+            continue;
+        }
+        if (psz < TB_MARGIN && store_head_bytes(tb->store_) > 0) {
+            if (!tb_slide_up(tb)) {
+                break;
+            }
+            moved = true;
+            continue;
+        }
+        break;
+    }
+
+    return moved;
+}
+
+// Keeps at most `room` of the lines a run was split into, and says how many
+// bytes those are. The index can run out before the buffer does -- it has one
+// slot per 32 bytes of buffer, so a document of short lines fills it first --
+// and a slide that took in more lines than there are slots for would put bytes
+// in memory with nothing describing them.
+static int fit_lines(const int* lens, int lines, int room, int* bytes) {
+    if (lines > room) {
+        lines = room > 0 ? room : 0;
+    }
+    int n = 0;
+    for (int i = 0; i < lines; i++) {
+        n += lens[i];
+    }
+    *bytes = n;
+
+    return lines;
+}
+
+// Room kept back when memory is filled at open, so the first slide has
+// somewhere to put what it brings in, and so the margins have something to be
+// margins of. A share of the buffer rather than a fixed amount: two chunks is
+// right for the 248 KiB the editor runs with and larger than the whole of a
+// small one, and a reserve bigger than the buffer fills nothing at all.
+static int prime_spare(text_buffer* tb) {
+    int spare = cb_size(&tb->cb_) / 4;
+
+    return spare > TB_CHUNK * 2 ? TB_CHUNK * 2 : spare;
+}
+
+// Puts the front of a run of bytes into memory, whole lines only, and says how
+// many bytes it took. Zero means there is no room -- in the buffer or in the
+// index -- or the run does not hold a whole line; either way the rest of it is
+// the caller's to put somewhere else.
+static int mem_give_back(text_buffer* tb, const char* buf, int n, int spare,
+                         int* took_lines) {
+    *took_lines = 0;
+    const int room = cb_available(&tb->cb_) - spare;
+    if (n <= 0 || room <= 0) {
+        return 0;
+    }
+    if (n > room) {
+        n = room;
+    }
+    int bytes = 0;
+    // One slot held back for the trailing entry the fill puts on at the end.
+    int lines = run_lines(buf, n, slide_lens,
+                          (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                          &bytes);
+    lines = fit_lines(slide_lens, lines, lb_room(&tb->lb_) - 1, &bytes);
+    if (lines == 0) {
+        return 0;
+    }
+    // Checked before either is touched. Doing one and finding the other will
+    // not go leaves bytes in memory with no entry describing them, which is a
+    // document that reads as gibberish from there on.
+    if (!cb_give_back(&tb->cb_, buf, bytes)) {
+        return 0;
+    }
+    lb_give_back(&tb->lb_, slide_lens, lines);
+    *took_lines = lines;
+
+    return bytes;
+}
+
+// An empty buffer is not nothing: it is one line, of no length, and that line
+// belongs at the *end* of what gets filled in -- it is the line the document's
+// last break opens, or the one that carries on into the tail. Entries given at
+// the back arrive after it, which leaves it in front of the first real line and
+// every line number one out.
+//
+// So it is moved to the back once the filling is done: one empty entry is
+// appended and lb_del pulls the first real line into the slot the cursor is on.
+// The count comes out the same, which is the point -- dropping the empty line
+// instead loses a line from the document.
+static void mem_close_empty(text_buffer* tb) {
+    static const int trailing = 0;
+    if (lb_give_back(&tb->lb_, &trailing, 1)) {
+        lb_del(&tb->lb_);   // the first real line becomes the cursor's
+    }
+}
+
+bool tb_page_prime(text_buffer* tb) {
+    if (tb == NULL || !tb->paged_ || tb->walker_) {
+        return false;
+    }
+    const int spare = prime_spare(tb);
+
+    const bool was_empty = cb_used(&tb->cb_) == 0;
+    bool gave = false;
+
+    while (store_tail_bytes(tb->store_) > 0 && cb_available(&tb->cb_) > spare) {
+        // Never more than will fit: a buffer smaller than a chunk would take
+        // nothing at all otherwise, because the give would be refused and the
+        // filling would stop before it started.
+        int want = cb_available(&tb->cb_) - spare;
+        if (want > TB_CHUNK) {
+            want = TB_CHUNK;
+        }
+        const int got = store_tail_pop(tb->store_, slide_bytes, want);
+        if (got <= 0) {
+            break;
+        }
+        int lines = 0;
+        const int bytes = mem_give_back(tb, slide_bytes, got, spare, &lines);
+        if (bytes == 0) {
+            // Either a line longer than a chunk, which nothing can hold a
+            // chunk at a time, or the index is full. Both stop the filling
+            // rather than fail it: what is in memory is sound either way.
+            store_tail_rewind(tb->store_, got);
+            break;
+        }
+        if (got > bytes) {
+            store_tail_rewind(tb->store_, got - bytes);
+        }
+        tb->tail_lines_ -= lines;
+        gave = true;
+    }
+    if (was_empty && gave) {
+        mem_close_empty(tb);
+    }
+
+    return true;
+}
+
+bool tb_slide_down(text_buffer* tb) {
+    if (!may_slide(tb)) {
+        return false;
+    }
+    if (store_tail_bytes(tb->store_) == 0) {
+        return false;       // nothing below to bring in
+    }
+
+    // Out of the front, into the head. Whole lines, and never the line the
+    // cursor is on -- lb_front_fit only counts the ones before it.
+    int out_lines = 0;
+    const int out_bytes = lb_front_fit(&tb->lb_, TB_CHUNK, &out_lines);
+    if (out_lines == 0 && cb_used(&tb->cb_) > 0) {
+        return false;       // the first line is longer than a chunk
+    }
+    // Nothing in front of the cursor and nothing behind it either: the window
+    // has been emptied. Deleting a range larger than memory does that, and
+    // used to leave the rest of the document sitting in the store with no way
+    // back -- a select-all cut on a 160,000 byte document copied all of it and
+    // left 2,516 lines behind.
+    //
+    // Bringing text in without sending any out is safe exactly here. What
+    // bounds memory is the room in it, and an empty buffer is all room; the
+    // cap below stands in for that everywhere else, where there is something
+    // to send and sending it is what makes the room.
+
+    // Sent before anything is brought in, so that the room it frees -- in the
+    // index as much as in the buffer -- is there to bring into.
+    static int out_lens[TB_CHUNK / 2 + 1];
+    static char out_buf[TB_CHUNK];
+    lb_take_front(&tb->lb_, out_lens, out_lines);
+    cb_take_front(&tb->cb_, out_buf, out_bytes);
+
+    if (!store_head_push(tb->store_, out_buf, out_bytes)) {
+        cb_give_front(&tb->cb_, out_buf, out_bytes);
+        lb_give_front(&tb->lb_, out_lens, out_lines);
+
+        return false;
+    }
+    tb->head_lines_ += out_lines;
+
+    // No more comes in than went out, so memory holds what it held. Without
+    // that a slide near the top of a document -- where there is barely anything
+    // in front of the cursor to send -- would take in a whole chunk against a
+    // line or two going out, and memory would grow until it burst.
+    const int got = store_tail_pop(tb->store_, slide_bytes,
+                                   out_bytes > 0 ? out_bytes : TB_CHUNK);
+    if (got <= 0) {
+        return true;        // the front went out; there was nothing to replace it
+    }
+    int in_bytes = 0;
+    int in_lines = run_lines(slide_bytes, got, slide_lens,
+                             (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                             &in_bytes);
+    // The index's last entry is the line that carries on past memory, and it
+    // stays last -- so it comes off here and goes back on at the end. Lines
+    // appended after it instead would leave an empty line in the middle of the
+    // document, and every line number past it one further out with every slide.
+    int trailing = 0;
+    const bool had_trailing = lb_take_back(&tb->lb_, &trailing, 1) == 1;
+
+    // One slot short of the room: an entry for whatever carries on past
+    // memory goes back after these -- either the one just taken off, or a
+    // fresh one when the line being completed is the cursor's own.
+    in_lines = fit_lines(slide_lens, in_lines, lb_room(&tb->lb_) - 1, &in_bytes);
+    if (in_lines == 0 || !cb_give_back(&tb->cb_, slide_bytes, in_bytes)) {
+        store_tail_rewind(tb->store_, got);
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return true;        // still a slide: the front is in the head
+    }
+    if (got > in_bytes) {
+        store_tail_rewind(tb->store_, got - in_bytes);
+    }
+
+    // The first line to arrive completes the line that was carrying on past
+    // memory -- that is what it *is*, the rest of it. The others follow, and a
+    // fresh empty entry goes last for whatever carries on now.
+    //
+    // When the cursor is on that line there was nothing after it to take off,
+    // so it is still the cursor's own entry and has to be grown in place.
+    // Appending after it instead leaves it stranded in the middle of the
+    // document, with no bytes, and a later slide ships it to the head as a line
+    // that is not there -- which is a head counting one more line than it holds
+    // and every line number past it wrong.
+    static const int fresh = 0;
+    if (had_trailing) {
+        lb_give_back(&tb->lb_, slide_lens, in_lines);
+        lb_give_back(&tb->lb_, &trailing, 1);
+    } else {
+        lb_cadd(&tb->lb_, slide_lens[0]);
+        if (in_lines > 1) {
+            lb_give_back(&tb->lb_, slide_lens + 1, in_lines - 1);
+        }
+        lb_give_back(&tb->lb_, &fresh, 1);
+    }
+    tb->tail_lines_ -= in_lines;
+
+    return true;
+}
+
+bool tb_slide_up(text_buffer* tb) {
+    if (!may_slide(tb)) {
+        return false;
+    }
+    if (store_head_bytes(tb->store_) == 0) {
+        return false;       // nothing above to bring in
+    }
+
+    // Off with the trailing entry first, for the same reason as sliding down:
+    // it is the line that carries on past memory and it stays last. Measuring
+    // without taking it off would count it as a line of no length and send out
+    // a line that is not there.
+    int trailing = 0;
+    const bool had_trailing = lb_take_back(&tb->lb_, &trailing, 1) == 1;
+
+    int out_lines = 0;
+    const int out_bytes = lb_back_fit(&tb->lb_, TB_CHUNK, &out_lines);
+    if (out_lines == 0 || !store_tail_has_room(tb->store_, out_bytes)) {
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return false;       // nothing to send, or the headroom is spent
+    }
+
+    static int out_lens[TB_CHUNK / 2 + 1];
+    static char out_buf[TB_CHUNK];
+    lb_take_back(&tb->lb_, out_lens, out_lines);
+    cb_take_back(&tb->cb_, out_buf, out_bytes);
+
+    if (!store_tail_push(tb->store_, out_buf, out_bytes)) {
+        cb_give_back(&tb->cb_, out_buf, out_bytes);
+        lb_give_back(&tb->lb_, out_lens, out_lines);
+        if (had_trailing) {
+            lb_give_back(&tb->lb_, &trailing, 1);
+        }
+
+        return false;
+    }
+    if (had_trailing) {
+        lb_give_back(&tb->lb_, &trailing, 1);
+    }
+    tb->tail_lines_ += out_lines;
+
+    // Bounded by what goes out, as sliding down is, plus one byte of lookbehind.
+    //
+    // A chunk taken off the head's end starts wherever the arithmetic puts it,
+    // which is usually part way through a line -- those bytes belong to a line
+    // whose start is still in the head and have to go back. But it sometimes
+    // lands exactly on a boundary, and then nothing needs giving back.
+    //
+    // The two cannot be told apart from the chunk alone: a run starting mid
+    // line and a run starting at one look identical. The extra byte is what
+    // distinguishes them. Without it, a chunk that landed on a boundary lost
+    // its first line every time -- stranded in the head for good.
+    const int got = store_head_pop(tb->store_, slide_bytes, out_bytes + 1);
+    if (got <= 0) {
+        return true;
+    }
+    int keep_at = 0;
+    if (store_head_bytes(tb->store_) > 0) {
+        keep_at = 1;                    // the lookbehind byte itself goes back
+        if (slide_bytes[0] != '\n') {
+            while (keep_at < got && slide_bytes[keep_at] != '\n') {
+                keep_at++;
+            }
+            if (keep_at >= got) {
+                store_head_rewind(tb->store_, got);
+
+                return true;            // no break in the whole chunk
+            }
+            keep_at++;      // the line feed closes the line before, not after
+        }
+        store_head_rewind(tb->store_, keep_at);
+    }
+    int in_bytes = 0;
+    int in_lines = run_lines(slide_bytes + keep_at, got - keep_at, slide_lens,
+                             (int) (sizeof(slide_lens) / sizeof(slide_lens[0])),
+                             &in_bytes);
+    in_lines = fit_lines(slide_lens, in_lines, lb_room(&tb->lb_), &in_bytes);
+    if (in_lines == 0 || in_bytes != got - keep_at
+            || !cb_give_front(&tb->cb_, slide_bytes + keep_at, in_bytes)) {
+        store_head_rewind(tb->store_, got - keep_at);
+
+        return true;        // still a slide: the back is in the tail
+    }
+    lb_give_front(&tb->lb_, slide_lens, in_lines);
+    tb->head_lines_ -= in_lines;
+
+    return true;
+}
+
 void tb_set_offscreen(text_buffer* tb, int head_lines, int tail_lines) {
     tb->head_lines_ = head_lines;
     tb->tail_lines_ = tail_lines;
@@ -594,23 +1246,51 @@ void tb_seek(text_buffer* tb, tb_pos p) {
     // lb_curr inside it is another, and the loop asked for it twice in the
     // condition on top of the copy kept to notice standing still. A seek across
     // a document was paying six calls a line to answer the same question.
+    // Running out of memory is not running out of document. When the step
+    // stops making progress and the line wanted is further on, the rest of the
+    // document is on disk -- so slide and carry on. A seek is the one movement
+    // that has to be able to reach anywhere.
     int y = tb_ypos(tb);
     while (y < p.line) {
         tb_down(tb);
-        const int now = tb_ypos(tb);
+        int now = tb_ypos(tb);
         if (now == y) {
-            break;              // the end of the document; nothing below it
+            if (!tb_slide_down(tb)) {
+                break;          // the end of the document; nothing below it
+            }
+            tb_down(tb);
+            now = tb_ypos(tb);
+            if (now == y) {
+                break;
+            }
         }
         y = now;
     }
     while (y > p.line) {
         tb_up(tb);
-        const int now = tb_ypos(tb);
+        int now = tb_ypos(tb);
         if (now == y) {
-            break;
+            if (!tb_slide_up(tb)) {
+                break;
+            }
+            tb_up(tb);
+            now = tb_ypos(tb);
+            if (now == y) {
+                break;
+            }
         }
         y = now;
     }
+
+    // A seek lands somewhere usable. Without this the cursor can come to rest
+    // on the index's last entry -- the line that carries on past memory --
+    // and read it as empty, because its text is still in the tail. Callers
+    // should not have to know that: find and the range walkers all seek.
+    //
+    // On a walker this is a no-op, which is right. A walker sees what is in
+    // memory and may not move the window; reaching past it is what the
+    // streaming range operations are for.
+    tb_settle(tb);
 
     const int len = line_len(tb);
     int x = p.x;
@@ -631,6 +1311,197 @@ static void order(tb_pos* a, tb_pos* b) {
     }
 }
 
+/*
+ * Streaming a range out of a paged document.
+ *
+ * The walker the in-memory path uses cannot leave MEM, so a range with an end
+ * outside the window came back short -- and came back short quietly, which is
+ * how a select-all copy on a 160,000 byte document returned 59,324 bytes with
+ * tb_range_size agreeing with it the whole way.
+ *
+ * doc_stream gives the document from the beginning, in order, so this counts
+ * lines and columns as the bytes go past and keeps the ones inside the range.
+ * A byte at (line, x) is in [a, b) when it is at or after `a` and before `b`;
+ * the two bytes of the break that ends a line belong to that line, so they are
+ * in when the line is at or after a.line and before b.line. That is the same
+ * arithmetic tb_range_size does in memory -- the rest of the first line, two
+ * for each break crossed, whole lines in between, and b.x of the last.
+ *
+ * A break counts as two whatever it is stored as, because the contract says a
+ * range carries CRLF. Nothing else has to agree with the store's bytes.
+ */
+typedef struct _range_pass {
+    tb_pos a;
+    tb_pos b;
+    int line;           // the document line the next byte belongs to
+    int x;              // its column
+    bool held_cr;       // the last byte was a carriage return, still undecided
+    int count;          // bytes taken so far
+    tb_sink out;        // where they go, or NULL to count them only
+    void* ctx;
+    bool done;          // past the end of the range; stop the stream
+    bool stopped;       // the sink said stop, which is not an error either
+} range_pass;
+
+static bool rp_take(range_pass* rp, const char* buf, int n) {
+    rp->count += n;
+    if (rp->out == NULL) {
+        return true;
+    }
+    if (!rp->out(rp->ctx, buf, n)) {
+        rp->stopped = true;
+
+        return false;
+    }
+
+    return true;
+}
+
+// One ordinary character, at the position the pass is sitting on.
+static bool rp_char(range_pass* rp, char c) {
+    const bool after_a = rp->line > rp->a.line
+                         || (rp->line == rp->a.line && rp->x >= rp->a.x);
+    const bool before_b = rp->line < rp->b.line
+                          || (rp->line == rp->b.line && rp->x < rp->b.x);
+    rp->x++;
+    if (!after_a || !before_b) {
+        return true;
+    }
+
+    return rp_take(rp, &c, 1);
+}
+
+static bool range_sink(void* ctx, const char* buf, int sz) {
+    static const char crlf[2] = { '\r', '\n' };
+    range_pass* rp = (range_pass*) ctx;
+
+    // A whole chunk inside the range, which is most of them on a select-all:
+    // every byte of it is taken, so the only thing the walk really does is
+    // count line feeds, and memchr does that in CPIR. Per byte the slow path
+    // below is a call to rp_char, two position comparisons and a call to
+    // rp_take.
+    //
+    // Only when the chunk cannot straddle either end of the range. The first
+    // line of it and the last need the column arithmetic, and a break lands in
+    // the middle of a chunk as often as not, so the test is on lines: every
+    // line this chunk touches has to be strictly inside.
+    if (!rp->held_cr && rp->line > rp->a.line && sz > 0) {
+        // One pass for how many breaks there are and where the last one is.
+        //
+        // This sends the store's own bytes where the slow path sends a CRLF of
+        // its own for each break, so the two agree only because every break in
+        // the document is a CRLF: the loader converts on the way in, and every
+        // other way a break is made goes through tb_newline, which writes the
+        // pair. There was a check here that each break really was one, and it
+        // could not fire -- but it was catching the chunk whose first byte is
+        // the line feed of a break split across the boundary, and so hiding
+        // the held_cr test above, which is the thing that actually handles it.
+        int lines = 0;
+        const char* last = NULL;
+        for (const char* p = buf; p < buf + sz; ) {
+            const char* nl = (const char*) memchr(p, '\n',
+                                                  (size_t) (buf + sz - p));
+            if (nl == NULL) {
+                break;
+            }
+            lines++;
+            last = nl;
+            p = nl + 1;
+        }
+        if (rp->line + lines < rp->b.line) {
+            // A break split across the chunk boundary -- its carriage return
+            // the last byte here, its line feed the first byte of the next --
+            // leaves the return for the next chunk, which is what the slow
+            // path does: a return is not emitted until a feed says it was a
+            // break. Emitting it here and the pair there would send three
+            // bytes for a two byte break.
+            const int take = buf[sz - 1] == '\r' ? sz - 1 : sz;
+            if (take > 0 && !rp_take(rp, buf, take)) {
+                return false;
+            }
+            rp->held_cr = take < sz;
+            rp->line += lines;
+            // Whatever follows the last break is the start of a line, and the
+            // column is how far into it the taken bytes reach. `take`, not
+            // `sz`, so a deferred carriage return is not counted as a column.
+            //
+            // Nothing can currently see the difference: a deferred return is
+            // always followed by the line feed that completes it, and handling
+            // that break sets the column back to zero before anything reads
+            // it. This is the value being right rather than merely unused.
+            rp->x = last != NULL ? (int) (buf + take - last - 1) : rp->x + take;
+
+            return true;
+        }
+    }
+
+    for (int i = 0; i < sz; i++) {
+        const char c = buf[i];
+        if (c == '\r' && !rp->held_cr) {
+            rp->held_cr = true;     // a break, or a stray -- the next byte says
+            continue;
+        }
+        if (c == '\n') {
+            // The break that ends this line. Two bytes by contract, whatever
+            // the store holds.
+            rp->held_cr = false;
+            if (rp->line >= rp->a.line && rp->line < rp->b.line
+                    && !rp_take(rp, crlf, 2)) {
+                return false;
+            }
+            rp->line++;
+            rp->x = 0;
+            if (rp->line > rp->b.line) {
+                rp->done = true;    // nothing after this can be in the range
+
+                return false;
+            }
+            continue;
+        }
+        if (rp->held_cr) {
+            // Not a break after all: a carriage return on its own is a
+            // character like any other.
+            rp->held_cr = false;
+            if (!rp_char(rp, '\r')) {
+                return false;
+            }
+        }
+        if (!rp_char(rp, c)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Runs a pass over the whole document. Returns false only on a real failure --
+// running off the end of the range and a sink that asked to stop are both
+// ordinary ways to finish early.
+static bool range_stream(text_buffer* tb, tb_pos a, tb_pos b,
+                         tb_sink out, void* ctx, int* count) {
+    range_pass rp;
+    rp.a = a;
+    rp.b = b;
+    rp.line = 1;
+    rp.x = 0;
+    rp.held_cr = false;
+    rp.count = 0;
+    rp.out = out;
+    rp.ctx = ctx;
+    rp.done = false;
+    rp.stopped = false;
+
+    const bool ok = doc_stream(tb, range_sink, &rp);
+    if (count != NULL) {
+        *count = rp.count;
+    }
+    if (rp.stopped) {
+        return false;
+    }
+
+    return ok || rp.done;
+}
+
 int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b) {
     order(&a, &b);
     if (a.line == b.line) {
@@ -639,69 +1510,34 @@ int tb_range_size(text_buffer* tb, tb_pos a, tb_pos b) {
         return n > 0 ? n : 0;
     }
 
-    // Walked on a copy: tb_copy aliases the same buffers, so this reads the
-    // document without disturbing where the real cursor is.
-    text_buffer cp;
-    tb_copy(&cp, tb);
-    tb_seek(&cp, a);
-
-    int total = line_len(&cp) - a.x + 2;   // the rest of the line, and its CRLF
-    int prev = -1;
-    while (tb_ypos(&cp) < b.line && tb_ypos(&cp) != prev) {
-        prev = tb_ypos(&cp);
-        tb_down(&cp);
-        if (tb_ypos(&cp) >= b.line) {
-            break;
-        }
-        total += line_len(&cp) + 2;
+    // Streamed, always, rather than walked on a tb_copy down from `a`.
+    //
+    // The walk was wrong. On a 6,000 line document it gave the wrong answer for
+    // 3,130 ranges of the 6,000 tried -- every one from line 2,194 on, by a
+    // little more each time -- and what it gave depended on where the real
+    // cursor happened to be sitting, because a copy shares the buffers and
+    // moving one moves the other's gap. The streaming pass gets all 6,000
+    // right, and a grid of 324 ranges on top of that, against an oracle worked
+    // out from the document rather than from a second implementation.
+    //
+    // It is not obviously slower either: the walk moved the character gap a
+    // line at a time, where this is a memchr over what memory holds, and a
+    // chunk lying wholly inside the range is taken whole.
+    int n = 0;
+    if (!range_stream(tb, a, b, NULL, NULL, &n)) {
+        return 0;
     }
-    total += b.x;
 
-    return total > 0 ? total : 0;
+    return n;
 }
 
 bool tb_range_walk(text_buffer* tb, tb_pos a, tb_pos b, tb_sink sink, void* ctx) {
-    static const char crlf[2] = { '\r', '\n' };
-
     order(&a, &b);
-    int left = tb_range_size(tb, a, b);
-    if (left <= 0) {
-        return true;    // nothing to send is not a failure
-    }
 
-    // Walked on a copy: tb_copy aliases the same buffers, so the real cursor
-    // does not move.
-    text_buffer cp;
-    tb_copy(&cp, tb);
-    tb_seek(&cp, a);
-
-    while (left > 0) {
-        int sz = 0;
-        const char* line = tb_suffix(&cp, &sz);
-        const int take = sz < left ? sz : left;
-        if (take > 0 && !sink(ctx, line, take)) {
-            return false;
-        }
-        left -= take;
-
-        if (left <= 0) {
-            break;
-        }
-        // What is left of the range runs past this line, so the break goes in.
-        if (!sink(ctx, crlf, 2)) {
-            return false;
-        }
-        left -= 2;
-
-        const int prev = tb_ypos(&cp);
-        tb_down(&cp);
-        if (tb_ypos(&cp) == prev) {
-            break;      // ran out of document
-        }
-        tb_home(&cp);
-    }
-
-    return true;
+    // The same streaming pass tb_range_size counts with, so the two cannot
+    // disagree about what a range is -- which is the failure that made a
+    // select-all copy come back with 37% of a document and nothing notice.
+    return range_stream(tb, a, b, sink, ctx, NULL);
 }
 
 // cb_put is what enforces the destination's size. Running out stops the walk,
@@ -744,20 +1580,41 @@ bool tb_range_del(text_buffer* tb, tb_pos a, tb_pos b) {
     // Deleted one character at a time through the same primitives the DELETE
     // key uses, so the line index is maintained by code that already gets it
     // right rather than by a second implementation that has to agree with it.
+    // A paged document runs out of memory part way through: the deleting
+    // empties the window and the rest of the range is still in the store.
+    // Settling pulls the next chunk in, so the loop only has to notice that a
+    // delete failed and try once more.
+    //
+    // Only on failure, because a settle on every character would be a pair of
+    // buffer measurements per byte deleted -- and on a document that is not
+    // paged it can never do anything at all.
     bool any = false;
+    int stalls = 0;
     while (left > 0) {
-        if (tb_eol(tb)) {
-            if (!tb_del_merge(tb)) {
-                break;   // last line: nothing left to join to
-            }
-            left -= 2;
-        } else {
-            if (!tb_del(tb)) {
-                break;
-            }
-            left -= 1;
+        const bool eol = tb_eol(tb);
+        if (eol ? tb_del_merge(tb) : tb_del(tb)) {
+            left -= eol ? 2 : 1;
+            stalls = 0;
+            any = true;
+            continue;
         }
-        any = true;
+
+        // A paged document runs out of memory part way through: the deleting
+        // empties the window and the rest of the range is still in the store.
+        // Settling brings the next chunk in, and then the loop starts over
+        // rather than retrying what just failed -- the window has moved, so
+        // the cursor that was at the end of the last line in memory is now in
+        // the middle of one and wants tb_del rather than tb_del_merge.
+        //
+        // Bounded, because settling says whether it moved anything and not
+        // whether that helped. Each move consumes the store, so this ends
+        // either way; a handful of passes with nothing deleted is enough to
+        // know the rest of the range is not coming.
+        if (stalls++ < 4 && tb_settle(tb)) {
+            continue;
+        }
+
+        break;
     }
 
     return any;
@@ -864,6 +1721,8 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
 
     dst->x_ = src->x_;
     dst->walker_ = true;
+    dst->paged_ = src->paged_;
+    dst->store_ = src->store_;      // shared, and a walker may not slide it
     // A walker reports the same line numbers the cursor does, so it needs the
     // same idea of how much of the document is not in memory.
     dst->head_lines_ = src->head_lines_;
@@ -951,12 +1810,22 @@ static int ensure_newline(char_buffer* cb, line_buffer* lb) {
         added++;
     }
 
-    lb_new(lb, lb_csize(lb));
+    if (!lb_new(lb, lb_csize(lb))) {
+        // The index is full. Every line from here on would be merged into the
+        // one the cursor is on -- silently, because the bytes are all still
+        // there and only the structure describing them is missing. A 200 KB
+        // file of 10,000 short lines opened saying it had 8,192 and put the
+        // last 1,809 into a single 36,180 byte line.
+        return -1;
+    }
 
     return added;
 }
 
-static bool tb_read(char fh, text_buffer* tb, int sz) {
+// `full` is set when the load stopped because the line index ran out rather
+// than because anything went wrong with the file. The caller starts again with
+// the paged loader, which has somewhere to put the lines that will not fit.
+static bool tb_read(char fh, text_buffer* tb, int sz, bool* full) {
     // In order to read the file to the text buffer, we move cend_ sz postions and then
     // pass it + sz as the buffer to read.
     char_buffer* cb = &tb->cb_;
@@ -1021,6 +1890,11 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
         cb->cend_ = cend;
         *lcur = llen;
         const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n < 0) {
+            *full = true;
+
+            return false;
+        }
         if (n == 0) {
             crlf++;
         }
@@ -1039,6 +1913,11 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
 
     if (cb_peek(cb) == '\n') {
         const int n = ensure_newline(&tb->cb_, &tb->lb_);
+        if (n < 0) {
+            *full = true;
+
+            return false;
+        }
         if (n == 0) {
             crlf++;
         }
@@ -1071,6 +1950,154 @@ static bool tb_read(char fh, text_buffer* tb, int sz) {
     return true;
 }
 
+
+// Reads a document too big for memory into the store, normalising its line
+// endings on the way.
+//
+// The same normalisation tb_read does, but streaming: a chunk at a time, with
+// the one piece of state that cannot live inside a chunk -- whether the last
+// byte of the previous one was a carriage return, which decides whether the
+// line feed opening this one already has its pair.
+//
+// The output can be twice the input, in a file of nothing but bare line feeds,
+// which is why there are two buffers rather than one.
+static bool tb_load_paged(text_buffer* tb, char fh, int size) {
+    static char in[TB_CHUNK];
+    // A chunk, doubled because every bare line feed gains a carriage return,
+    // and a chunk again for the half line held over from the round before.
+    static char out[TB_CHUNK * 3];
+
+    if (!tb_page_open(tb, tb->fname_)) {
+        return false;
+    }
+
+    // Memory is filled from the read itself, not from the tail afterwards.
+    // Writing the whole document out and reading the window straight back in
+    // is a buffer's worth of each -- half a megabyte of pointless card traffic
+    // on a 419 KiB file, and the largest single piece of what was left of the
+    // open cost after the handle was held. Once memory is full the rest goes
+    // to the tail, and it stays that way for the remainder of the read: going
+    // back would put later text in front of earlier.
+    const int spare = prime_spare(tb);
+    const bool was_empty = cb_used(&tb->cb_) == 0;
+    bool filling = true;
+    bool gave = false;
+    int carry = 0;
+
+    int left = size;
+    bool pending_cr = false;
+    int added = 0;
+    int crlf = 0;
+
+    while (left > 0) {
+        const int want = left < TB_CHUNK ? left : TB_CHUNK;
+        const int got = (int) mos_fread(fh, in, (unsigned) want);
+        if (got <= 0) {
+            tb_drop_store(tb);
+
+            return false;
+        }
+        int n = carry;      // the converted bytes land after what was held over
+        carry = 0;
+        for (int i = 0; i < got; i++) {
+            const char c = in[i];
+            if (c == '\n') {
+                if (pending_cr) {
+                    crlf++;         // it already had its carriage return
+                } else {
+                    out[n++] = '\r';
+                    added++;
+                }
+                pending_cr = false;
+            } else {
+                pending_cr = (c == '\r');
+            }
+            out[n++] = c;
+        }
+        int at = 0;
+        if (filling) {
+            int lines = 0;
+            at = mem_give_back(tb, out, n, spare, &lines);
+            gave = gave || at > 0;
+            const int rest = n - at;
+            if (at > 0 && rest <= (int) sizeof(out) - TB_CHUNK * 2) {
+                // Memory takes whole lines, and a chunk ends in the middle of
+                // one as often as not. The half line is held over for the next
+                // round rather than given to the tail: giving it away would
+                // put later text in front of earlier, so the filling would
+                // have to stop, and it would stop after the very first chunk.
+                //
+                // What is held over has no break in it, by construction, so
+                // the last break in `out` is always inside the chunk just
+                // converted and the half line is at most a chunk less one --
+                // which is what `out` is sized for and why this test cannot
+                // actually fail. It is written against the buffer rather than
+                // against a constant so that the size and the bound cannot
+                // drift apart.
+                memmove(out, out + at, (size_t) rest);
+                carry = rest;
+                at = n;         // nothing for the tail this time round
+            } else {
+                // No room, or a single line longer than two chunks. Either way
+                // memory is done and everything from here goes to the tail,
+                // starting with what is held over -- which is still at the
+                // front of `out`, in front of the chunk just converted.
+                filling = false;
+            }
+        }
+        if (at < n && !tb_page_fill(tb, out + at, n - at)) {
+            tb_drop_store(tb);
+
+            return false;
+        }
+        left -= got;
+    }
+    // The last half line, if the read ended while memory was still filling.
+    if (carry > 0 && !tb_page_fill(tb, out, carry)) {
+        tb_drop_store(tb);
+
+        return false;
+    }
+
+    // Whatever memory did not take off the read, in case it has room left --
+    // a buffer bigger than the document's first chunks, or an index that ran
+    // out and freed slots. Nothing to do in the ordinary case.
+    tb_page_prime(tb);
+    if (was_empty && gave) {
+        mem_close_empty(tb);
+    }
+
+    // Nothing in memory and a document in the store is not an open document,
+    // it is an unreachable one: a single line longer than memory can hold
+    // cannot be brought in, because a slide moves whole lines and there is no
+    // whole line to move. It looked like success -- a 200 KB file of one line
+    // opened as an empty buffer, said it had one line of no length, and saved
+    // all 204,800 bytes back. So the file is there, invisible, and one
+    // keystroke away from being edited at the wrong end.
+    //
+    // Refused instead, which is what it said before large files were openable
+    // at all. The limit is a line longer than the window, not a file.
+    if (cb_used(&tb->cb_) == 0 && store_tail_bytes(tb->store_) > 0) {
+        tb_drop_store(tb);
+
+        return false;
+    }
+
+    // A file whose breaks were all bare line feeds goes back out the same way,
+    // so opening and saving it leaves it byte for byte as it was -- which is
+    // what lets it be clean on open. One with both kinds cannot have that, and
+    // opens dirty because a save really will rewrite it.
+    if (added > 0 && crlf == 0) {
+        tb->eol_ = TB_EOL_LF;
+        tb->dirty_ = false;
+    } else {
+        tb->eol_ = TB_EOL_CRLF;
+        tb->dirty_ = added != 0;
+    }
+    tb->load_dirty_ = tb->dirty_;
+
+    return true;
+}
 
 tb_result tb_load(text_buffer* tb, const char* fname) {
     if (fname == NULL) {
@@ -1109,22 +2136,82 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
     // Compared before narrowing: objsize is 32 bits and the eZ80's int is 24,
     // so a file over 8MB would arrive here as a small or negative number and
     // walk straight past a signed check.
-    if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
+    //
+    // Too big for memory is no longer too big to open. It goes to the store
+    // instead and memory holds a window on it -- which is the whole of what
+    // .internal/docs/PAGING.md is for. What is still refused is a file too big
+    // for the arithmetic: 8 MB is where a size stops fitting in this machine's
+    // int, and nothing below that line can be trusted about it.
+    if (fil->obj.objsize > (uint32_t) 0x7FFFFF) {
         mos_fclose(fh);
         tb->fname_[0] = 0;
 
         return TB_TOO_LARGE;
     }
+    if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
+        const bool paged = tb_load_paged(tb, fh, (int) fil->obj.objsize);
+        mos_fclose(fh);
+        if (!paged) {
+            tb->fname_[0] = 0;
+
+            return TB_TOO_LARGE;
+        }
+
+        return TB_OK;
+    }
     const int sz = (int) fil->obj.objsize;
+    bool full = false;
     if (sz > 0) {
-       ok = tb_read(fh, tb, sz);
+       ok = tb_read(fh, tb, sz, &full);
+    }
+    if (full) {
+        // It fits in memory and its lines do not fit in the index. The index
+        // has one slot per 32 bytes of buffer, so 8,192 of them at the size the
+        // editor runs with, and a 200 KB file of short lines has more lines
+        // than that while being nothing out of the ordinary.
+        //
+        // Paging is what has somewhere to put them: it holds a window on the
+        // document and the rest in the store, and the index only ever has to
+        // describe the window. So the load starts again, from the top of the
+        // file, down the path a file too big for memory takes.
+        tb_clear(tb);
+        if (mos_flseek(fh, 0) != 0) {
+            mos_fclose(fh);
+            tb->fname_[0] = 0;
+
+            return TB_NO_FILE;
+        }
+        const bool paged = tb_load_paged(tb, fh, sz);
+        mos_fclose(fh);
+        if (!paged) {
+            tb->fname_[0] = 0;
+
+            return TB_TOO_LARGE;
+        }
+
+        return TB_OK;
     }
     mos_fclose(fh);
 
     return ok ? TB_OK : TB_NO_FILE;
 }
 
+// Lets go of the store, if there is one. A document that is being replaced or
+// emptied has no use for it, and its two scratch files should not outlive it --
+// nor should paged_ stay set, because tb_page_open refuses on a buffer that is
+// already paged and the next document would silently fail to page.
+static void tb_drop_store(text_buffer* tb) {
+    if (tb == NULL || !tb->paged_ || tb->walker_) {
+        return;
+    }
+    store_destroy(tb->store_);
+    free(tb->store_);
+    tb->store_ = NULL;
+    tb->paged_ = false;
+}
+
 void tb_clear(text_buffer* tb) {
+    tb_drop_store(tb);
     cb_clear(&tb->cb_);
     lb_clear(&tb->lb_);
     tb->x_ = 0;
@@ -1177,12 +2264,47 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     // 32 bits wide and the eZ80's int is 24, so a file over 8MB narrows to a
     // small or negative number and sails past a signed comparison -- taking the
     // document with it, since the clear happens next.
-    if (fil->obj.objsize > (uint32_t) cb_size(&tb->cb_)) {
+    if (fil->obj.objsize > (uint32_t) 0x7FFFFF) {
         mos_fclose(fh);
 
         return TB_TOO_LARGE;
     }
+    // Bigger than the buffer is no longer a refusal, here as in tb_load: it
+    // pages. CTRL+O used to be the one way into the editor that could not open
+    // a large file, so `aed big.asm` worked and opening the same file from
+    // inside did not.
+    //
+    // Measured against the whole buffer rather than what is free in it: the
+    // document on screen is about to be discarded, so its bytes are not in the
+    // way of the one replacing them.
+    const bool big = fil->obj.objsize > (uint32_t) cb_size(&tb->cb_);
     const int fsz = (int) fil->obj.objsize;
+
+    // A line longer than the window cannot be paged: a slide moves whole lines
+    // and there is no whole line to move. Checked here, on the front of the
+    // file, because everything below this discards the document on screen and
+    // a file that cannot be opened has to leave the editor as it was.
+    //
+    // One chunk of lookahead. A first line longer than that but still shorter
+    // than memory gets past this and is caught after the load instead, by
+    // which time the old document is gone -- but that is a line of thousands
+    // of characters, where this catches the file that is one line from end to
+    // end, which is what a minified anything looks like.
+    if (big) {
+        static char probe[TB_CHUNK];
+        const int want = fsz < TB_CHUNK ? fsz : TB_CHUNK;
+        const int got = (int) mos_fread(fh, probe, (unsigned) want);
+        if (got <= 0 || memchr(probe, '\n', (size_t) got) == NULL) {
+            mos_fclose(fh);
+
+            return TB_TOO_LARGE;
+        }
+        if (mos_flseek(fh, 0) != 0) {
+            mos_fclose(fh);
+
+            return TB_NO_FILE;
+        }
+    }
 
     tb_clear(tb);
     memcpy(tb->fname_, name, (size_t) sz + 1);
@@ -1193,13 +2315,39 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     // unpick the file's own CRLFs.
     const bool was = undo_hold(tb->undo_);
     bool ok = true;
-    if (fsz > 0) {
-        ok = tb_read(fh, tb, fsz);
+    bool full = false;
+    if (big) {
+        // Nothing to roll back to if this fails: the document it would have
+        // been rolled back to has already been cleared, because the store's
+        // scratch files are named after the one being opened and there is no
+        // way to find out whether they can be made without trying. A failure
+        // here leaves an empty buffer, which is what the caller reports.
+        ok = tb_load_paged(tb, fh, fsz);
+    } else if (fsz > 0) {
+        ok = tb_read(fh, tb, fsz, &full);
     }
     undo_release(tb->undo_, was);
-    mos_fclose(fh);
+    if (full) {
+        // It fits by size and its lines do not fit the index, as in tb_load.
+        // Start again down the paged path, which only has to describe the
+        // window.
+        tb_clear(tb);
+        if (mos_flseek(fh, 0) != 0) {
+            mos_fclose(fh);
 
-    return ok ? TB_OK : TB_NO_FILE;
+            return TB_NO_FILE;
+        }
+        ok = tb_load_paged(tb, fh, fsz);
+        mos_fclose(fh);
+
+        return ok ? TB_OK : TB_TOO_LARGE;
+    }
+    mos_fclose(fh);
+    if (!ok) {
+        return big ? TB_TOO_LARGE : TB_NO_FILE;
+    }
+
+    return TB_OK;
 }
 
 // Writes the document with the CR of every CRLF dropped, so a file that came in
@@ -1262,12 +2410,215 @@ static void tb_write_lf(char fh, const char* pre, int psz,
     lfw_flush(&w);
 }
 
+// Saves a paged document: the head, then memory, then what is left of the tail.
+//
+// Through a temp file and a rename, because the document's own name is where
+// the head and the tail were read from -- opening it with FA_CREATE_ALWAYS
+// would truncate what the save is still reading. That is pitfall 4, and it is
+// why the floor needs mos_ren.
+//
+// The scratch files are left as they are. The document is still open when this
+// returns, the window has not moved, and the cursor is where it was.
+// Writes a run out, turning CRLF back into a bare line feed when that is what
+// the file came in with. A carriage return at the very end of a run is held
+// back rather than written, because whether it is dropped depends on the byte
+// after it -- which is in the next run.
+typedef struct _lf_out {
+    char fh;
+    bool lf;            // the document wants bare line feeds
+    bool held_cr;       // a carriage return waiting to see what follows
+    bool ok;
+} lf_out;
+
+static void lf_put(lf_out* o, const char* buf, int n) {
+    static char out[TB_CHUNK + 1];
+
+    if (!o->ok || n <= 0) {
+        return;
+    }
+    if (!o->lf) {
+        o->ok = mos_fwrite(o->fh, (char*) buf, (unsigned) n) == (unsigned) n;
+
+        return;
+    }
+    // In slices, because this is handed memory's prefix and suffix whole and
+    // those are the size of the buffer -- a hundred times a chunk. The
+    // conversion can add a byte for a held carriage return, so a slice is one
+    // short of what `out` holds.
+    int at = 0;
+    while (o->ok && at < n) {
+        int take = n - at;
+        if (take > TB_CHUNK - 1) {
+            take = TB_CHUNK - 1;
+        }
+        int k = 0;
+        for (int i = 0; i < take; i++) {
+            const char c = buf[at + i];
+            if (o->held_cr) {
+                o->held_cr = false;
+                if (c != '\n') {
+                    out[k++] = '\r';   // a lone carriage return is text
+                }
+            }
+            if (c == '\r') {
+                o->held_cr = true;      // decided when the next byte arrives
+                continue;
+            }
+            out[k++] = c;
+        }
+        if (k > 0) {
+            o->ok = mos_fwrite(o->fh, out, (unsigned) k) == (unsigned) k;
+        }
+        at += take;
+    }
+}
+
+static void lf_end(lf_out* o) {
+    if (o->ok && o->held_cr) {
+        char cr = '\r';
+        o->ok = mos_fwrite(o->fh, &cr, 1) == 1;
+        o->held_cr = false;
+    }
+}
+
+/*
+ * The whole document, in order, to a sink: HEAD, then what memory holds, then
+ * what is left of TAIL.
+ *
+ * This is the only way to read a paged document end to end. A walker cannot do
+ * it -- walkers must not slide, or painting would move the window out from
+ * under the cursor that owns it -- so anything that has to see text outside the
+ * window comes through here instead. Saving was the first, and find and the
+ * range operations are the rest.
+ *
+ * The text arrives exactly as it is held: CRLF line endings whatever the file
+ * had, and the gap in the middle of memory skipped rather than sent. Nothing
+ * here converts; a caller that wants bare line feeds puts a converting sink in
+ * front, which is what saving does.
+ *
+ * Reads only. The window does not move and the cursor does not either, so a
+ * caller can stream the document and carry on from where it was.
+ */
+static bool doc_stream(text_buffer* tb, tb_sink sink, void* ctx) {
+    static char buf[TB_CHUNK];
+
+    // The head, front to back.
+    for (int at = 0; at < store_head_bytes(tb->store_); ) {
+        const int got = store_head_read(tb->store_, at, buf, TB_CHUNK);
+        if (got <= 0) {
+            return false;
+        }
+        if (!sink(ctx, buf, got)) {
+            return false;
+        }
+        at += got;
+    }
+
+    // Memory: the prefix and the suffix, in order. The gap between them holds
+    // no live text.
+    {
+        char* prefix = NULL;
+        char* suffix = NULL;
+        int psz = 0;
+        int ssz = 0;
+        tb_content(tb, &prefix, &psz, &suffix, &ssz);
+        if (prefix != NULL && psz > 0 && !sink(ctx, prefix, psz)) {
+            return false;
+        }
+        if (suffix != NULL && ssz > 0 && !sink(ctx, suffix, ssz)) {
+            return false;
+        }
+    }
+
+    // And whatever the tail still holds, from where its live text starts.
+    {
+        int at = store_tail_from(tb->store_);
+        const int end = at + store_tail_bytes(tb->store_);
+        while (at < end) {
+            const int got = store_tail_read(tb->store_, at, buf, TB_CHUNK);
+            if (got <= 0) {
+                return false;
+            }
+            if (!sink(ctx, buf, got)) {
+                return false;
+            }
+            at += got;
+        }
+    }
+
+    return true;
+}
+
+// doc_stream's sink for saving: the line-ending conversion, and the file.
+static bool save_sink(void* ctx, const char* buf, int sz) {
+    lf_out* o = (lf_out*) ctx;
+    lf_put(o, buf, sz);
+
+    return o->ok;
+}
+
+static bool tb_save_paged(text_buffer* tb) {
+    static const char TMP_SUFFIX[] = ".aeds";
+    static char tmp[TB_FNAME_MAX + sizeof(TMP_SUFFIX)];
+
+    const int nlen = (int) strlen(tb->fname_);
+    if (nlen + (int) sizeof(TMP_SUFFIX) > (int) sizeof(tmp)) {
+        return false;
+    }
+    memcpy(tmp, tb->fname_, (size_t) nlen);
+    memcpy(tmp + nlen, TMP_SUFFIX, sizeof(TMP_SUFFIX));
+
+    const char fh = mos_fopen(tmp, FA_WRITE | FA_CREATE_ALWAYS);
+    if (fh == 0) {
+        return false;
+    }
+
+    // Line endings go back out the way they came in. The document is held in
+    // memory and in the store as CRLF whatever the file had, so one that came
+    // in with bare line feeds has to be converted on the way out -- otherwise
+    // opening and saving it adds a byte to every line, which is what a 419 KiB
+    // file growing by exactly its line count looks like.
+    lf_out o;
+    o.fh = fh;
+    o.lf = tb->eol_ == TB_EOL_LF;
+    o.held_cr = false;
+    o.ok = true;
+
+    if (!doc_stream(tb, save_sink, &o)) {
+        o.ok = false;
+    }
+    lf_end(&o);
+    const bool ok = o.ok;
+    mos_fclose(fh);
+
+    if (!ok) {
+        mos_del(tmp);
+
+        return false;
+    }
+    if (mos_ren(tmp, tb->fname_) != 0) {
+        mos_del(tmp);
+
+        return false;
+    }
+
+    return true;
+}
+
 bool tb_save(text_buffer* tb) {
     if (tb->walker_) {
         return false;       // a copy shares the original's buffers
     }
     if (!tb_valid_file(tb)) {
         return false;
+    }
+    if (tb->paged_) {
+        if (!tb_save_paged(tb)) {
+            return false;
+        }
+        tb_saved(tb);
+
+        return true;
     }
 
     char fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
