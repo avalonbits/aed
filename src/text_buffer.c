@@ -78,6 +78,18 @@ text_buffer* tb_init(text_buffer* tb, int mem_kb, const char* fname) {
 }
 
 void tb_destroy(text_buffer* tb) {
+    if (tb->walker_) {
+        // A walker owns nothing. Its buffers, and its store, are the ones it
+        // was copied from -- see tb_copy -- so freeing them here frees them
+        // out from under the cursor that does own them, and the next thing to
+        // read the document reads memory that has been handed back.
+        //
+        // Nothing in the editor destroys a walker today: every one of them is
+        // a local that goes out of scope. This is the contract holding rather
+        // than a bug being fixed, and it is the one that has teeth, because it
+        // fails as a use-after-free instead of as a wrong answer.
+        return;
+    }
     tbi_drop_store(tb);
     cb_destroy(&tb->cb_);
     lb_destroy(&tb->lb_);

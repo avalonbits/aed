@@ -558,7 +558,10 @@ void tb_copy(text_buffer* dst, text_buffer* src) {
     // carries on with whatever was on the stack in the field nobody copied.
     //
     // They alias the original's memory either way; what makes a copy a walker
-    // is the flag below, and every mutator refuses on it.
+    // is the flag below. Everything that would write to those buffers refuses
+    // on it -- the edits, the slides, saving, loading, clearing, and
+    // tb_destroy, which would otherwise hand the original's memory back while
+    // the cursor that owns it is still reading.
     dst->lb_ = src->lb_;
     dst->cb_ = src->cb_;
 
