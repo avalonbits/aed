@@ -437,6 +437,73 @@ int main(void) {
         }
     }
 
+    /* --- documents whose shape the buffer cannot hold --- */
+    {
+        /*
+         * A document is paged by keeping part of it in memory and the rest in
+         * a store, and the part in memory is whole lines. So a *single line*
+         * larger than the buffer cannot be held at all, however large the
+         * store is -- there is no line boundary to split it on.
+         *
+         * That is a real file: anything minified, a long row of data, a log
+         * written without breaks. What the editor owes is to say so rather
+         * than to open it half way or misbehave, and TB_TOO_LARGE is what the
+         * caller turns into a message. Nothing tested it.
+         *
+         * The line either side of the limit is checked too, so the refusal is
+         * pinned to the size of the buffer rather than to any line being long.
+         */
+        static char ONE[130000];
+        static text_buffer big;
+
+        memset(ONE, 'x', 40000);
+        ONE[40000] = '\r';
+        ONE[40001] = '\n';
+        stub_file_reset();
+        stub_file_set_content(ONE, 40002);
+        check("a 40,000 byte line in a 48 KiB buffer",
+              tb_init(&big, 48, NULL) != NULL, 1);
+        check("  opens", tb_load(&big, "/long.txt"), TB_OK);
+        check("    as one line and the empty one after it", tb_ymax(&big), 2);
+        tb_destroy(&big);
+
+        memset(ONE, 'x', 120000);
+        stub_file_reset();
+        stub_file_set_content(ONE, 120000);
+        check("a 120,000 byte line with no break at all",
+              tb_init(&big, 48, NULL) != NULL, 1);
+        check("  is refused", tb_load(&big, "/huge.txt"), TB_TOO_LARGE);
+        tb_destroy(&big);
+
+        /* And through tb_init, which is how the editor opens a file: it
+         * reports the refusal by handing back nothing. */
+        stub_file_reset();
+        stub_file_set_content(ONE, 120000);
+        check("  and opening it outright gives nothing back",
+              tb_init(&big, 48, "/huge.txt") == NULL ? 1 : 0, 1);
+    }
+
+    /* --- an empty document --- */
+    {
+        /* Saving nothing writes nothing, and the file is still created. An
+         * editor that dropped the file instead would lose a deliberate
+         * emptying of one. */
+        stub_file_reset();
+        stub_file_set_content("", 0);
+        static text_buffer e;
+        check("an empty document opens", tb_init(&e, 8, "/e.txt") != NULL, 1);
+        check("  with one line in it", tb_ymax(&e), 1);
+        check("  and nothing in that line", tb_used(&e), 0);
+
+        tb_set_fname(&e, "/eo.txt", 7);
+        check("  saving it works", tb_save(&e) ? 1 : 0, 1);
+        int sz = -1;
+        stub_file_content("/eo.txt", &sz);
+        check("    writing no bytes", sz, 0);
+        check("    to a file that is there", stub_file_exists("/eo.txt") ? 1 : 0, 1);
+        tb_destroy(&e);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

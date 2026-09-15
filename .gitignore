@@ -6,3 +6,8 @@ obj/
 bin/*.map
 bin/*.noname.bin
 aed-*.zip
+
+# Coverage output, written into the tree by gcov.
+*.gcov
+*.gcda
+*.gcno

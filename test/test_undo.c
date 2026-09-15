@@ -168,6 +168,23 @@ static void put_str(text_buffer* tb, const char* s) {
     }
 }
 
+
+/* The document's first line, compared against `want` for `n` bytes. */
+static int line_is(text_buffer* tb, const char* want, int n) {
+    tb_pos top = { 1, 0 };
+    tb_seek(tb, top);
+    const split_line ln = tb_curr_line(tb);
+    const char* got = ln.ssz_ > 0 ? ln.suffix_ : NULL;
+    if (ln.psz_ > 0) {
+        got = ln.prefix_;       /* the cursor sits inside the line */
+    }
+
+    return ln.psz_ + ln.ssz_ == n && got != NULL
+           && memcmp(got, want, (size_t) (n < ln.psz_ ? n : ln.psz_)) == 0;
+}
+
+static void check_silent(bool ok) { (void) ok; }
+
 int main(void) {
     stub_discard_output();
     if (freopen("/tmp/aed_undo_capture", "w+", stdout) == NULL) {
@@ -753,6 +770,79 @@ int main(void) {
         check_txt("  and undoing it all puts it back",
                   line_text(&e.buf_, 1), "the quick brown fox");
         ed_destroy(&e);
+    }
+
+    /* --- text that wraps the end of the ring --- */
+    {
+        /*
+         * The text of every record lives in one circular buffer. A run that
+         * starts near the end is written in two pieces: as much as fits before
+         * the end, then the rest at the start. append_text does that second
+         * memcpy, and no test had reached it -- every run in the suite happened
+         * to fit in one piece.
+         *
+         * What the wrap owes is that the bytes come back in the order they went
+         * in. It does not owe one record per run: when the ring has to drop the
+         * oldest record to make room, a run being typed is split, and the 20
+         * characters below come back as 6 and then 14. That is the ring working
+         * rather than the wrap failing, so what is checked is the records read
+         * end to end, which is the thing a bad wrap gets wrong.
+         *
+         * Checked through undo_text_of, which reads a record's bytes back out
+         * of the ring one at a time. Going through the document instead only
+         * shows that undo removed *something*, which a wrap copying the wrong
+         * half still does -- the first version of this test did that, and both
+         * mutations of append_text walked straight through it.
+         */
+        static undo u;
+        check("a log whose text ring is 32 bytes",
+              undo_init(&u, 32, 8) != NULL, 1);
+
+        /* 26 characters, typed one at a time so they grow one record. */
+        static const char RUN[] = "abcdefghijklmnopqrstuvwxyz";
+        tb_pos at = { 1, 0 };
+        for (int i = 0; i < 26; i++) {
+            at.x = i;
+            undo_insert(&u, at, RUN + i, 1);
+        }
+        check("  one record, grown by typing", undo_count(&u), 1);
+        check("    holding all of it", undo_text_used(&u), 26);
+
+        static char back[64];
+        memset(back, '?', sizeof(back));
+        check("    reading back", undo_text_of(&u, 0, back, 64) ? 1 : 0, 1);
+        check("      as what was typed", memcmp(back, RUN, 26) == 0 ? 1 : 0, 1);
+
+        /* 20 more. The ring holds 32, so this starts at offset 26 and wraps:
+         * six bytes before the end of the ring, fourteen at the start. */
+        static const char OVER[] = "0123456789ABCDEFGHIJ";
+        tb_pos at2 = { 2, 0 };
+        for (int i = 0; i < 20; i++) {
+            at2.x = i;
+            undo_insert(&u, at2, OVER + i, 1);
+        }
+        check("  and twenty more that run past the end of the ring",
+              undo_text_used(&u), 20);
+        check("    which fits", undo_text_used(&u) <= 32, 1);
+
+        /* Every record, end to end, is what was typed most recently. */
+        static char all[128];
+        int n = 0;
+        int readable = 1;
+        for (int r = 0; r < undo_count(&u); r++) {
+            memset(back, '?', sizeof(back));
+            if (!undo_text_of(&u, r, back, 64)) {
+                readable = 0;
+                break;
+            }
+            for (int k = 0; k < 64 && back[k] != '?' && n < 128; k++) {
+                all[n++] = back[k];
+            }
+        }
+        check("    every record reads back", readable, 1);
+        check("      and end to end they are the bytes that were typed",
+              n == 20 && memcmp(all, OVER, 20) == 0 ? 1 : 0, 1);
+        undo_destroy(&u);
     }
 
     if (failures > 0) {
