@@ -388,7 +388,19 @@ bool syn_load(syntax* g, const char* path) {
     if (g == NULL || path == NULL) {
         return false;
     }
-    static char buf[2048];
+    /*
+     * The whole file, read before a line of it is parsed. So this bounds the
+     * *file* rather than the grammar: every byte in it counts, comments and
+     * blank lines included, while what the rules themselves may hold is
+     * bounded separately by SYN_MAX_RULES, SYN_WORDS_MAX and SYN_WORDOFF_MAX.
+     *
+     * The two are easy to confuse and were. The grammar that ships for BASIC
+     * uses 631 of its 1,024 bytes of keyword text, and its file sat 7 bytes
+     * under a 2 KB buffer -- so a comment added to it overflowed the buffer
+     * while the grammar was barely half full, the rules past the cut were
+     * dropped, and the language half worked.
+     */
+    static char buf[4096];
     const char fh = mos_fopen(path, FA_READ);
     if (fh == 0) {
         return false;
@@ -396,6 +408,20 @@ bool syn_load(syntax* g, const char* path) {
     const unsigned got = mos_fread(fh, buf, (unsigned) sizeof(buf) - 1);
     mos_fclose(fh);
     if (got == 0) {
+        return false;
+    }
+    if (got >= (unsigned) sizeof(buf) - 1) {
+        /*
+         * The file is at least as long as there is room for, so there may be
+         * more of it and this is only the front. Half a grammar is worse than
+         * none: it colours some of a language and not the rest, which reads as
+         * a bug in the grammar rather than a file that did not fit. Refused,
+         * so the answer is "no highlighting" and the cause is findable.
+         *
+         * A file that cannot fit is a file, not a grammar that is too big.
+         * Parsing it a chunk at a time would cost documentation nothing and
+         * leave only the rules bounded, and is a change of its own.
+         */
         return false;
     }
     const int len = (int) got;
