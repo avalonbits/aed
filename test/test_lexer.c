@@ -36,7 +36,7 @@ static const char* lexed(const syntax* g, const char* line) {
     static tok_run runs[96];
     static char map[256];
     const int len = (int) strlen(line);
-    const int n = syn_lex(g, line, len, runs, 96);
+    const int n = syn_lex(g, line, len, SYN_STATE_NONE, NULL, runs, 96);
     int c = 0;
     for (int i = 0; i < n; i++) {
         while (c < runs[i].end && c < (int) sizeof(map) - 1) {
@@ -46,6 +46,54 @@ static const char* lexed(const syntax* g, const char* line) {
     map[c] = 0;
 
     return map;
+}
+
+/* The same map, for a line that begins part way through something. */
+static const char* lexed_in(const syntax* g, const char* line, int in,
+                            int* out_state) {
+    static tok_run runs[96];
+    static char map[256];
+    const int len = (int) strlen(line);
+    const int n = syn_lex(g, line, len, in, out_state, runs, 96);
+    int c = 0;
+    for (int i = 0; i < n; i++) {
+        while (c < runs[i].end && c < (int) sizeof(map) - 1) {
+            map[c++] = CLS[(int) runs[i].cls];
+        }
+    }
+    map[c] = 0;
+
+    return map;
+}
+
+static void check_map(const char* what, const char* got, const char* want) {
+    if (strcmp(got, want) == 0) {
+        fprintf(stderr, "PASS  %-42s %s\n", what, got);
+    } else {
+        fprintf(stderr, "FAIL  %-42s %s\n%*swant %s\n", what, got, 44, "",
+                want);
+        failures++;
+    }
+}
+
+/* A document as an array, for the lookback. */
+static const char** doc_lines = NULL;
+static int doc_n = 0;
+static int doc_reads = 0;
+
+static int doc_get(void* ctx, int y, char* buf, int max) {
+    (void) ctx;
+    if (y < 0 || y >= doc_n) {
+        return -1;
+    }
+    doc_reads++;
+    int n = (int) strlen(doc_lines[y]);
+    if (n > max) {
+        n = max;
+    }
+    memcpy(buf, doc_lines[y], (size_t) n);
+
+    return n;
 }
 
 static void check_lex(const char* line, const syntax* g, const char* want) {
@@ -182,9 +230,9 @@ int main(void) {
          */
         static tok_run runs[96];
         check("  four text tokens in a row are one run",
-              syn_lex(&g, "a, b", 4, runs, 96), 1);
+              syn_lex(&g, "a, b", 4, SYN_STATE_NONE, NULL, runs, 96), 1);
         check("  and alternating ones are not merged",
-              syn_lex(&g, "if if if", 8, runs, 96), 5);
+              syn_lex(&g, "if if if", 8, SYN_STATE_NONE, NULL, runs, 96), 5);
     }
 
     /* --- a word rule will not match half of a word --- */
@@ -230,6 +278,233 @@ int main(void) {
         check("  a grammar with no rules at all is refused",
               syn_load(&g, "/empty.cfg") ? 1 : 0, 0);
         check("    leaving the last good one", strcmp(g.name, "keep") == 0 ? 1 : 0, 1);
+    }
+
+    /* --- a block comment crosses a line, and a string does not --- */
+    {
+        /*
+         * The whole of what step 4 adds. A `span` marked `multiline` that does
+         * not close leaves a state behind; the next line starts inside it and
+         * the rules never see those columns.
+         *
+         * The string rule in the same grammar is deliberately not multiline,
+         * so the two cases sit side by side: one stray quote colours one line,
+         * one stray slash-star colours until it is closed.
+         */
+        check("a grammar with a multiline span",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "comment.block = span '/*' '*/' multiline\n"
+                        "string.quoted.double = span '\"' '\"' escape \\\n"
+                        "keyword.control = words if\n") ? 1 : 0, 1);
+        check("  three rules", g.nrules, 3);
+        check("  the block comment may cross", g.rules[0].multiline ? 1 : 0, 1);
+        check("  the string may not", g.rules[1].multiline ? 1 : 0, 0);
+
+        int st = -1;
+        check_map("if /* opens", lexed_in(&g, "if /* opens", SYN_STATE_NONE, &st),
+                  "KKTCCCCCCCC");
+        check("  and the line is left inside it", st != SYN_STATE_NONE, 1);
+
+        int st2 = -1;
+        check_map("  still inside, if ignored",
+                  lexed_in(&g, "if still inside", st, &st2),
+                  "CCCCCCCCCCCCCCC");
+        check("    and stays inside", st2 == st, 1);
+
+        int st3 = -1;
+        check_map("  closes */ then if",
+                  lexed_in(&g, "closes */ if", st, &st3), "CCCCCCCCCTKK");
+        check("    and the line ends clean", st3, SYN_STATE_NONE);
+
+        int st4 = -1;
+        check_map("  an unterminated \" does not carry",
+                  lexed_in(&g, "if \"open", SYN_STATE_NONE, &st4), "KKTSSSSS");
+        check("    leaving no state", st4, SYN_STATE_NONE);
+
+        /*
+         * A state is an index into the rules, and the rules move when a
+         * grammar is reloaded. One that names a rule this grammar does not
+         * have, or names a rule that cannot cross a line, is dropped rather
+         * than trusted -- otherwise a reload would colour by a stale index.
+         */
+        int st5 = -1;
+        check_map("  a state past the last rule is dropped",
+                  lexed_in(&g, "if x", 99, &st5), "KKTT");
+        check("    and leaves none", st5, SYN_STATE_NONE);
+        int st6 = -1;
+        check_map("  a state naming the string rule is dropped",
+                  lexed_in(&g, "if x", 2, &st6), "KKTT");
+        check("    and leaves none", st6, SYN_STATE_NONE);
+    }
+
+    /* --- escape and multiline may be written in either order --- */
+    {
+        check("multiline before escape",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "string.quoted.double = span '<' '>' multiline escape \\\n")
+              ? 1 : 0, 1);
+        check("  both are read", (g.rules[0].multiline ? 2 : 0)
+              + (g.rules[0].escape == '\\' ? 1 : 0), 3);
+
+        check("escape before multiline",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "string.quoted.double = span '<' '>' escape \\ multiline\n")
+              ? 1 : 0, 1);
+        check("  both are read", (g.rules[0].multiline ? 2 : 0)
+              + (g.rules[0].escape == '\\' ? 1 : 0), 3);
+
+        check("a span with neither is still a span",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "string.quoted.double = span '<' '>'\n") ? 1 : 0, 1);
+        check("  and does not cross a line", g.rules[0].multiline ? 1 : 0, 0);
+    }
+
+    /* --- the lookback, for a view that jumped --- */
+    {
+        /*
+         * Scrolling carries the state forward for nothing; a jump arrives with
+         * none. syn_state_before reads back at most SYN_LOOKBACK lines and
+         * lexes forward, which is the whole of the design -- no per-line state
+         * is stored anywhere.
+         */
+        static const char* d[] = {
+            "int a;",           /* 0 */
+            "/* open",          /* 1 */
+            "still",            /* 2 */
+            "*/ int b;",        /* 3 */
+            "int c;",           /* 4 */
+        };
+        doc_lines = d;
+        doc_n = 5;
+
+        check("a C-like grammar with a block comment",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "comment.block = span '/*' '*/' multiline\n"
+                        "storage.type = words int\n") ? 1 : 0, 1);
+
+        char buf[SYN_SCAN_MAX];
+        doc_reads = 0;
+        check("  line 0 starts clean",
+              syn_state_before(&g, 0, doc_get, NULL, buf, sizeof(buf)),
+              SYN_STATE_NONE);
+        check("    without reading anything", doc_reads, 0);
+
+        check("  line 2 starts inside the comment",
+              syn_state_before(&g, 2, doc_get, NULL, buf, sizeof(buf))
+              != SYN_STATE_NONE, 1);
+        check("  line 3 starts inside it too",
+              syn_state_before(&g, 3, doc_get, NULL, buf, sizeof(buf))
+              != SYN_STATE_NONE, 1);
+        check("  line 4 starts clean again",
+              syn_state_before(&g, 4, doc_get, NULL, buf, sizeof(buf)),
+              SYN_STATE_NONE);
+
+        /* And the state it finds is the one that paints the row. */
+        const int at2 = syn_state_before(&g, 2, doc_get, NULL, buf,
+                                         sizeof(buf));
+        check_map("  so line 2 paints as comment",
+                  lexed_in(&g, d[2], at2, NULL), "CCCCC");
+        check_map("  and without it would not",
+                  lexed_in(&g, d[2], SYN_STATE_NONE, NULL), "TTTTT");
+
+        /*
+         * A grammar that cannot cross a line can only answer NONE, so it is
+         * answered without touching the document at all. That is what keeps a
+         * jump in an assembly file exactly as cheap as it is today.
+         */
+        check("a grammar with nothing that crosses",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "comment.line = eol ';'\n") ? 1 : 0, 1);
+        doc_reads = 0;
+        check("  answers NONE for any line",
+              syn_state_before(&g, 4, doc_get, NULL, buf, sizeof(buf)),
+              SYN_STATE_NONE);
+        check("    having read no lines at all", doc_reads, 0);
+    }
+
+    /* --- the lookback is bounded --- */
+    {
+        /*
+         * A comment opened further back than SYN_LOOKBACK is not found, and
+         * the point of the test is that the scan stops rather than walking to
+         * the top of a large file. The row paints plainly until the view is
+         * scrolled through the opening, which is the trade the design names.
+         */
+        static const char* d[SYN_LOOKBACK + 60];
+        d[0] = "/* opened a long way back";
+        for (int i = 1; i < SYN_LOOKBACK + 60; i++) {
+            d[i] = "still inside";
+        }
+        doc_lines = d;
+        doc_n = SYN_LOOKBACK + 60;
+
+        check("a grammar with a block comment",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "comment.block = span '/*' '*/' multiline\n") ? 1 : 0, 1);
+
+        char buf[SYN_SCAN_MAX];
+        doc_reads = 0;
+        check("  a line just inside the lookback is found",
+              syn_state_before(&g, SYN_LOOKBACK, doc_get, NULL, buf,
+                               sizeof(buf)) != SYN_STATE_NONE, 1);
+        check("    reading exactly the lookback", doc_reads, SYN_LOOKBACK);
+
+        doc_reads = 0;
+        check("  one line further back is missed",
+              syn_state_before(&g, SYN_LOOKBACK + 1, doc_get, NULL, buf,
+                               sizeof(buf)), SYN_STATE_NONE);
+        check("    still reading only the lookback", doc_reads, SYN_LOOKBACK);
+    }
+
+    /* --- the C grammar AED ships --- */
+    {
+        static char text[4096];
+        int n = 0;
+        {
+            FILE* f = fopen("config/aed/syntax/c.cfg", "rb");
+            if (f == NULL) {
+                fprintf(stderr, "FAIL  cannot open config/aed/syntax/c.cfg\n");
+                failures++;
+            } else {
+                n = (int) fread(text, 1, sizeof(text), f);
+                fclose(f);
+            }
+        }
+        stub_file_reset();
+        stub_file_add("/c.cfg", text, n);
+        syn_clear(&g);
+        check("the C grammar loads", syn_load(&g, "/c.cfg") ? 1 : 0, 1);
+        check("  and claims a .c file", syn_covers(&g, "/src/main.c") ? 1 : 0, 1);
+        check("  and a .h file", syn_covers(&g, "/src/main.h") ? 1 : 0, 1);
+        check("  and a .hpp file", syn_covers(&g, "/x.hpp") ? 1 : 0, 1);
+        check("  and leaves an .asm file alone",
+              syn_covers(&g, "/boot.asm") ? 1 : 0, 0);
+        check("  C is case sensitive", g.nocase ? 1 : 0, 0);
+
+        check_lex("int x = 42;", &g, "YYYTTTTTNNT");
+        check_lex("return 0;", &g, "KKKKKKTNT");
+        check_lex("// a comment", &g, "CCCCCCCCCCCC");
+        check_lex("#include <stdio.h>", &g, "PPPPPPPPPPPPPPPPPP");
+        check_lex("x = \"if 42\";", &g, "TTTTSSSSSSST");
+
+        int st = -1;
+        check_map("a block comment opens",
+                  lexed_in(&g, "int a; /* why", SYN_STATE_NONE, &st),
+                  "YYYTTTTCCCCCC");
+        check("  and carries", st != SYN_STATE_NONE, 1);
+        check_map("  the next line is all comment",
+                  lexed_in(&g, "int b;", st, NULL), "CCCCCC");
+        int st2 = -1;
+        check_map("  until it closes",
+                  lexed_in(&g, "*/ int c;", st, &st2), "CCTYYYTTT");
+        check("    and then it is clean", st2, SYN_STATE_NONE);
     }
 
     if (failures > 0) {

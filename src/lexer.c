@@ -105,6 +105,29 @@ static bool lit_at(const char* s, int len, int at, const char* lit, int n,
  * then the characters numbers are made of. `1st` is not a number and neither is
  * a bare `$`.
  */
+/*
+ * Where a span that has already opened finishes, starting the search at `i`.
+ *
+ * Returns one past the closing literal, or -1 when the line runs out first --
+ * which is the line ending inside the span, and the only way a state crosses a
+ * line break.
+ */
+static int span_end(const syn_rule* r, const char* s, int len, int i,
+                    bool nocase) {
+    while (i < len) {
+        if (r->escape != 0 && s[i] == r->escape && i + 1 < len) {
+            i += 2;
+            continue;
+        }
+        if (lit_at(s, len, i, r->close, r->nclose, nocase)) {
+            return i + r->nclose;
+        }
+        i++;
+    }
+
+    return -1;
+}
+
 static int number_at(const char* s, int len, int at) {
     int i = at;
     if (i < len && (s[i] == '$' || s[i] == '%' || s[i] == '#')) {
@@ -404,11 +427,32 @@ bool syn_load(syntax* g, const char* path) {
                                          vat + lit_span(ln.value, vat,
                                                         ln.valuelen,
                                                         r->nclose));
-                        if (ini_name_is(ln.value + vat, 6, "escape")) {
-                            vat = after_verb(ln.value, ln.valuelen, vat + 6);
-                            if (vat < ln.valuelen) {
-                                r->escape = ln.value[vat];
+                        /*
+                         * `escape <c>` and `multiline` may follow in either
+                         * order, and either may be left out. Reading them in a
+                         * loop rather than in sequence is what makes the order
+                         * free, and an unknown word ends the rule rather than
+                         * failing the file -- a grammar written against a
+                         * later AED still loads on this one.
+                         */
+                        while (vat < ln.valuelen) {
+                            if (ini_name_is(ln.value + vat, 6, "escape")) {
+                                vat = after_verb(ln.value, ln.valuelen,
+                                                 vat + 6);
+                                if (vat < ln.valuelen) {
+                                    r->escape = ln.value[vat];
+                                    vat = after_verb(ln.value, ln.valuelen,
+                                                     vat + 1);
+                                }
+                                continue;
                             }
+                            if (ini_name_is(ln.value + vat, 9, "multiline")) {
+                                r->multiline = 1;
+                                vat = after_verb(ln.value, ln.valuelen,
+                                                 vat + 9);
+                                continue;
+                            }
+                            break;
                         }
                     }
                 }
@@ -427,13 +471,46 @@ bool syn_load(syntax* g, const char* path) {
     return true;
 }
 
-int syn_lex(const syntax* g, const char* line, int len, tok_run* out, int max) {
-    if (g == NULL || !g->loaded || line == NULL || out == NULL || max <= 0) {
+int syn_lex(const syntax* g, const char* line, int len, int in,
+            int* out_state, tok_run* out, int max) {
+    if (out == NULL) {
+        max = 0;                    // state only; add_run writes nothing
+    }
+    if (g == NULL || !g->loaded || line == NULL || max < 0) {
+        if (out_state != NULL) {
+            *out_state = SYN_STATE_NONE;
+        }
+
         return 0;
     }
     int n = 0;
     int at = 0;
     bool at_line_start = true;      // nothing but blanks seen yet
+    int state = SYN_STATE_NONE;
+
+    /*
+     * A line that begins inside a span finishes that span before anything else
+     * is looked at. The rest of the rules never see those columns, which is
+     * what makes a quote inside a block comment ordinary text.
+     *
+     * A state naming a rule this grammar does not have is dropped rather than
+     * trusted: grammars are reloaded when the file changes, and a state held
+     * across that would otherwise colour by an index that has moved.
+     */
+    if (in != SYN_STATE_NONE) {
+        const int k = in - 1;
+        if (k >= 0 && k < g->nrules && g->rules[k].kind == M_SPAN
+                && g->rules[k].multiline) {
+            const syn_rule* r = &g->rules[k];
+            const int e = span_end(r, line, len, 0, g->nocase);
+            at = (e < 0 ? len : e);
+            state = (e < 0 ? in : SYN_STATE_NONE);
+            if (at > 0) {
+                at_line_start = false;
+                n = add_run(out, n, max, at, (tok_class) r->cls);
+            }
+        }
+    }
 
     while (at < len) {
         int took = 0;
@@ -452,24 +529,20 @@ int syn_lex(const syntax* g, const char* line, int len, tok_run* out, int max) {
                     if (!lit_at(line, len, at, r->open, r->nopen, g->nocase)) {
                         break;
                     }
-                    int i = at + r->nopen;
-                    while (i < len) {
-                        if (r->escape != 0 && line[i] == r->escape
-                                && i + 1 < len) {
-                            i += 2;
-                            continue;
+                    const int e = span_end(r, line, len, at + r->nopen,
+                                           g->nocase);
+                    if (e < 0) {
+                        // Unclosed. A multiline span hands the rest to the
+                        // line below; anything else ends where the line does,
+                        // so one stray quote colours one line rather than a
+                        // file.
+                        took = len - at;
+                        if (r->multiline) {
+                            state = k + 1;
                         }
-                        if (lit_at(line, len, i, r->close, r->nclose,
-                                   g->nocase)) {
-                            i += r->nclose;
-                            break;
-                        }
-                        i++;
+                    } else {
+                        took = e - at;
                     }
-                    // An unclosed span ends with the line. Nothing here crosses
-                    // one; a grammar that needs that comes with the state to
-                    // carry it.
-                    took = (i > len ? len : i) - at;
                     cls = (tok_class) r->cls;
                 } break;
                 case M_WORDS: {
@@ -538,5 +611,45 @@ int syn_lex(const syntax* g, const char* line, int len, tok_run* out, int max) {
         n = add_run(out, n, max, at, cls);
     }
 
+    if (out_state != NULL) {
+        *out_state = state;
+    }
+
     return n;
+}
+
+int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
+                     char* buf, int bufmax) {
+    if (g == NULL || !g->loaded || get == NULL || y <= 0 || buf == NULL
+            || bufmax <= 0) {
+        return SYN_STATE_NONE;
+    }
+
+    /*
+     * A grammar with nothing that crosses a line can only ever answer NONE, so
+     * a jump in an assembly file reads no lines at all. C is the one that pays.
+     */
+    bool crosses = false;
+    for (int k = 0; k < g->nrules && !crosses; k++) {
+        crosses = (g->rules[k].kind == M_SPAN && g->rules[k].multiline != 0);
+    }
+    if (!crosses) {
+        return SYN_STATE_NONE;
+    }
+
+    int from = y - SYN_LOOKBACK;
+    if (from < 0) {
+        from = 0;
+    }
+
+    int state = SYN_STATE_NONE;
+    for (int i = from; i < y; i++) {
+        const int n = get(ctx, i, buf, bufmax);
+        if (n < 0) {
+            break;              // the document ended early; keep what we have
+        }
+        syn_lex(g, buf, n, state, &state, NULL, 0);
+    }
+
+    return state;
 }
