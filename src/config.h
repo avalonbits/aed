@@ -104,8 +104,14 @@ void cfg_defaults(config* cfg);
  * the new name and removed. A copy that fails leaves the old file exactly
  * where it was and takes the half-written new one away, so the next run tries
  * again rather than reading a truncated file.
+ *
+ * Returns false only in that last case: an old settings file is still waiting
+ * to be moved. The caller must not write a fresh one while that is true. A
+ * card that is full fails the copy, and a fresh file written afterwards would
+ * be found by every later run -- which would report the move as done and
+ * leave the reader's real settings sitting in the old file, unread, for good.
  */
-void cfg_migrate(void);
+bool cfg_migrate(void);
 
 bool cfg_load(config* cfg, const char* path);
 

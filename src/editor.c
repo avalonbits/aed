@@ -234,7 +234,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     cfg_defaults(&cfg);
     // Before anything reads them: a card written by an older AED has the
     // settings under the old name, and this is the one run that moves them.
-    cfg_migrate();
+    const bool moved = cfg_migrate();
 
     if (cfg_load(&cfg, CFG_PATH)) {
         if (cfg.tab_size >= 0) {
@@ -261,7 +261,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
             scr_set_scheme(scr, fg, bg);
             scr_clear(scr);
         }
-    } else {
+    } else if (moved) {
         cfg.tab_size = scr_tab_size(scr);
         // The user's pair, so a theme in force when the settings are written
         // does not become the user's setting.
@@ -269,6 +269,12 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         cfg.bg = scr_base_bg(scr);
         cfg_save(&cfg, CFG_PATH);
     }
+    /*
+     * And when the move could not finish, nothing is written at all. The old
+     * file still holds the reader's settings and the next run will try again;
+     * a fresh one written now would be found first from then on, and their
+     * settings would sit in a file nothing reads.
+     */
     ed->selecting_ = false;
     ed->anchor_.line = 1;
     ed->anchor_.x = 0;

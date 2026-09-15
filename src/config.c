@@ -546,18 +546,18 @@ bool cfg_update(const config* cfg, const char* path) {
     return write_file(path, out, n);
 }
 
-void cfg_migrate(void) {
+bool cfg_migrate(void) {
     // Already moved. An .cfg beside it is somebody else's file now.
     char have = mos_fopen(CFG_PATH, FA_READ);
     if (have != 0) {
         mos_fclose(have);
 
-        return;
+        return true;
     }
 
     char in = mos_fopen(CFG_PATH_OLD, FA_READ);
     if (in == 0) {
-        return;             // neither file: a first run, and nothing to move
+        return true;        // neither file: a first run, and nothing to move
     }
 
     mos_mkdir(CFG_DIR);
@@ -565,7 +565,7 @@ void cfg_migrate(void) {
     if (out == 0) {
         mos_fclose(in);
 
-        return;
+        return false;       // the old file is still waiting to be moved
     }
 
     /*
@@ -598,9 +598,11 @@ void cfg_migrate(void) {
         // where it is, so the next run has something to try again from.
         mos_del(CFG_PATH);
 
-        return;
+        return false;
     }
     mos_del(CFG_PATH_OLD);
+
+    return true;
 }
 
 bool cfg_load(config* cfg, const char* path) {

@@ -639,6 +639,46 @@ int main(void) {
         stub_file_clear_named();
     }
 
+    /* --- a move that could not finish is not papered over --- */
+    {
+        /*
+         * cfg_migrate keeps the old settings file when the copy fails, so the
+         * next run can try again. The editor writes a fresh settings file when
+         * it finds none -- and doing that here would be found by every run
+         * after it, which would report the move as done and leave the reader's
+         * real settings sitting in the old file, unread, for good.
+         *
+         * One full card at the wrong moment, and their settings are gone
+         * without anything having failed visibly.
+         */
+        static const char old[] = "[editor]\r\ntab = 7\r\n";
+        static const char doc[] = "hi\r\n";
+
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, old, (int) sizeof(old) - 1);
+        stub_file_add("doc.txt", doc, (int) sizeof(doc) - 1);
+        /*
+         * No fallback content: the stub serves it for any name nobody
+         * registered, which would make opening the settings file succeed and
+         * leave an entry behind under that name -- so the check below would be
+         * looking at the stub rather than at what the editor wrote.
+         */
+        stub_file_short_write(4);
+
+        editor ed;
+        check("the editor still starts", ed_init(&ed, 8, "doc.txt") != NULL, 1);
+        stub_file_short_write(-1);
+
+        check("  the old settings file is left to try again from",
+              stub_file_exists(CFG_PATH_OLD), 1);
+        check("    and nothing was written over it",
+              stub_file_exists(CFG_PATH), 0);
+        ed_destroy(&ed);
+        stub_file_clear_named();
+    }
+
     fflush(stdout);
 
     return failures == 0 ? 0 : 1;

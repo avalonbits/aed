@@ -639,6 +639,29 @@ int main(void) {
               stub_file_exists(CFG_PATH_OLD), 1);
         check("  and leaves no half-written new one",
               stub_file_exists(CFG_PATH), 0);
+
+        /*
+         * And says so, which is the part that matters. The editor writes a
+         * fresh settings file when it finds none -- and doing that here would
+         * be found by every later run, which would report the move as done and
+         * leave the reader's settings sitting in the old file, unread, for
+         * good. One full card at the wrong moment and they are gone.
+         */
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        stub_file_short_write(4);
+        check("  and says the move is still to do", cfg_migrate() ? 1 : 0, 0);
+        stub_file_short_write(-1);
+
+        /* The cases that are done say so too, so nothing is held back. */
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        check("a move that finishes says so", cfg_migrate() ? 1 : 0, 1);
+        stub_file_reset();
+        check("and so does having nothing to move", cfg_migrate() ? 1 : 0, 1);
+        stub_file_reset();
+        stub_file_add(CFG_PATH, OLD, (int) sizeof(OLD) - 1);
+        check("and so does having moved already", cfg_migrate() ? 1 : 0, 1);
     }
 
     if (failures > 0) {
