@@ -364,6 +364,79 @@ int main(void) {
         tb_destroy(&big);
     }
 
+    /* --- the break length, decided once, on both ways in --- */
+    {
+        /*
+         * A document is read by one of two paths: straight into memory when it
+         * fits, or a chunk at a time into the store when it does not. Both have
+         * to answer the same question -- is a break here one byte or two --
+         * and both used to answer it with their own copy of the same eight
+         * lines. They now share break_len_at and break_len_agrees.
+         *
+         * elen_ is the number every later edit reads to know how much a break
+         * is, so both paths are checked for both kinds, and for a file holding
+         * both, which is refused as it stands and read again normalised.
+         *
+         * 1 KiB pages; 64 KiB does not.
+         */
+        static char lf[3000];
+        static char crlf[4000];
+        int a = 0;
+        int b = 0;
+        for (int i = 0; i < 250; i++) {
+            for (int k = 0; k < 8; k++) {
+                lf[a++] = (char) ('a' + ((i + k) % 26));
+                crlf[b++] = (char) ('a' + ((i + k) % 26));
+            }
+            lf[a++] = '\n';
+            crlf[b++] = '\r';
+            crlf[b++] = '\n';
+        }
+
+        static text_buffer t;
+        struct { const char* text; int len; int kb; int want; const char* what; }
+        cases[] = {
+            { lf,   a, 64, 1, "bare feeds, read into memory" },
+            { lf,   a,  1, 1, "bare feeds, read into the store" },
+            { crlf, b, 64, 2, "CRLF, read into memory" },
+            { crlf, b,  1, 2, "CRLF, read into the store" },
+        };
+        for (int i = 0; i < 4; i++) {
+            stub_file_reset();
+            stub_file_set_content(cases[i].text, cases[i].len);
+            check(cases[i].what, tb_init(&t, cases[i].kb, "/e.txt") != NULL, 1);
+            check("  the break length it settles on", t.elen_, cases[i].want);
+            check("    and it opens clean", tb_changed(&t) ? 1 : 0, 0);
+            tb_destroy(&t);
+        }
+
+        /* A file of both kinds, down each path. Refused as it stands, read
+         * again with every break made CRLF, and dirty because that is a
+         * change the file on disk does not have yet. */
+        static char both[4000];
+        int c = 0;
+        for (int i = 0; i < 250; i++) {
+            for (int k = 0; k < 8; k++) {
+                both[c++] = (char) ('a' + ((i + k) % 26));
+            }
+            if (i % 2 == 0) {
+                both[c++] = '\r';
+            }
+            both[c++] = '\n';
+        }
+        const int kbs[2] = { 64, 1 };
+        for (int i = 0; i < 2; i++) {
+            stub_file_reset();
+            stub_file_set_content(both, c);
+            check(i == 0 ? "both kinds, read into memory"
+                         : "both kinds, read into the store",
+                  tb_init(&t, kbs[i], "/b.txt") != NULL, 1);
+            check("  every break is CRLF now", t.elen_, 2);
+            check("    so it opens dirty", tb_changed(&t) ? 1 : 0, 1);
+            tb_destroy(&t);
+        }
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
