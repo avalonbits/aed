@@ -45,13 +45,20 @@
  * change is why a cap is wanted at all (test/probes/vducost.c).
  *
  * Static rather than on the stack: 512 bytes of frame is wider than an eZ80
- * index displacement reaches. One row is painted at a time, and the lookback
- * borrows the same buffer, which never runs while a row is being painted.
+ * index displacement reaches. One row is painted at a time.
+ *
+ * The scan that works out what a row begins inside gets a buffer of its own
+ * rather than borrowing this one. It used to borrow it, on the grounds that it
+ * never runs while a row is being painted -- which was true of the paint paths
+ * and false of cmd_sync_cursor_colour, where the row was assembled first and
+ * the scan then overwrote it. The line came out as the head of whichever row
+ * was assembled last, and the cursor took its colour from that.
  */
 #define SYN_ROW_MAX  512
 #define SYN_ROW_RUNS 64
 
 static char synRow_[SYN_ROW_MAX];
+static char synScan_[SYN_ROW_MAX];
 static tok_run synRuns_[SYN_ROW_RUNS];
 
 static int row_bytes(const split_line* ln, char* buf, int max) {
@@ -168,7 +175,7 @@ static int top_state(editor* ed, int line) {
     bs.at = tb_ypos(&bs.cp);
 
     return syn_state_before(&ed->syn_, line - 1, back_get, &bs,
-                            synRow_, SYN_ROW_MAX);
+                            synScan_, SYN_ROW_MAX);
 }
 
 /*
@@ -443,8 +450,8 @@ static void fill_row_states(editor* ed, text_buffer* tb, int top) {
     for (char y = scr->topY_; y < scr->bottomY_ && y < SCR_MAX_ROWS; y++) {
         ed->rowSyn_[y] = (char) state;
         const split_line ln = tb_curr_line(&cp);
-        const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
-        syn_lex(&ed->syn_, synRow_, len, state, &state, NULL, 0);
+        const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
+        syn_lex(&ed->syn_, synScan_, len, state, &state, NULL, 0);
         if (tb_down(&cp) == prev) {
             // Past the end of the document. The rows below it are blank, and a
             // blank row leaves what it was given.
@@ -485,11 +492,13 @@ void cmd_sync_cursor_colour(editor* ed) {
         return;
     }
 
+    // The state first, then the row: they used to share a buffer, and the
+    // order they are written in is no longer what keeps them apart.
+    const int in = state_at_row(ed, tb, scr->currY_);
     const split_line ln = tb_curr_line(tb);
     const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
     int out = SYN_STATE_NONE;
-    const int n = syn_lex(&ed->syn_, synRow_, len,
-                          state_at_row(ed, tb, scr->currY_), &out,
+    const int n = syn_lex(&ed->syn_, synRow_, len, in, &out,
                           synRuns_, SYN_ROW_RUNS);
     // tb_curr_line splits the cursor's row at the cursor, so the prefix is
     // exactly how many bytes into the line it is.

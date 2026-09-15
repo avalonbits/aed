@@ -582,6 +582,36 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- the cell the cursor starts on --- */
+    {
+        /*
+         * Reported from a real session: opening a file put the cursor on the
+         * first character of the line, which was coloured correctly until the
+         * cursor moved off it -- and then it came back plain. Moving back on
+         * to it and off again put it right.
+         *
+         * The colour of the cell under the cursor was worked out after each
+         * command, so before the first command there was none, and the first
+         * cell the cursor ever sat on was restored in the document's colour.
+         * It is worked out at startup too now, which is what this checks: an
+         * editor that has run no commands already knows.
+         *
+         * Through ed_init rather than by hand, because what failed was the
+         * state an editor is in before anything has happened to it.
+         */
+        files();
+        static const char INC[] = "int x;\r\n#include <stdio.h>\r\n";
+        stub_file_add("/inc.c", INC, (int) sizeof(INC) - 1);
+        static editor e3;
+        check("an editor opens the file", ed_init(&e3, 8, "/inc.c") != NULL, 1);
+        check("  with a grammar", e3.syn_.loaded ? 1 : 0, 1);
+        check("  and the cursor knows the colour of the cell it is on",
+              e3.scr_.cellFg_, theme_colour(&e3.theme_, TOK_TYPE));
+        check("    which is a colour rather than the document's own",
+              e3.scr_.cellFg_ >= 0 ? 1 : 0, 1);
+        ed_destroy(&e3);
+    }
+
     /* --- a row's colouring does not outlive the row --- */
     {
         /*

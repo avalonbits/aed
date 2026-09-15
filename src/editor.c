@@ -352,6 +352,14 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->buf_));
     }
 
+    /*
+     * The cell the cursor starts on. ed_run works this out before every key,
+     * but an editor is usable before it reaches that loop and a test can hold
+     * one that never does -- and the first cell the cursor sits on is exactly
+     * the one a user moves off first.
+     */
+    cmd_sync_cursor_colour(ed);
+
     // Last, so that no failure above has to take it back down again.
     keys_open();
 
@@ -522,6 +530,23 @@ void ed_run(editor* ed) {
     screen* scr = &ed->scr_;
 
     for (;;) {
+        /*
+         * What colour the cell under the cursor belongs in, worked out before
+         * the key arrives rather than after the command runs.
+         *
+         * Two reasons for it being here. It describes where the cursor is now,
+         * which is the cell the command about to run will move off and have to
+         * put back -- and on the first pass there has been no command yet, so
+         * doing it afterwards left the very first cell the cursor sat on to be
+         * restored in the document's colour. That showed as the `#` of an
+         * include losing its colour the first time the cursor left it, and
+         * coming back correctly every time after.
+         *
+         * And it costs a lex of one row, which happens here while waiting for
+         * a key rather than on the keystroke itself.
+         */
+        cmd_sync_cursor_colour(ed);
+
         // Not while a chord is held down. The footer sits on the bottom row,
         // so drawing it means moving the cursor off the text, writing, and
         // moving back -- and doing that between keystrokes is what stops the
@@ -587,11 +612,6 @@ void ed_run(editor* ed) {
         // repaints like a drop: the whole area.
         ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,
                              y_before, x_before, top_before, origin_before);
-
-        // Last, with the cursor where the command left it: this describes the
-        // cell the *next* command will move off, which is the one whose colour
-        // has to be put back.
-        cmd_sync_cursor_colour(ed);
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
