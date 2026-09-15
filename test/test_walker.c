@@ -30,6 +30,7 @@
 
 #include "char_buffer.h"
 #include "text_buffer.h"
+#include "doc_store.h"
 
 static int failures = 0;
 
@@ -428,6 +429,120 @@ int main(void) {
 
         tb_destroy(&tb);
         free(doc);
+    }
+
+    /* --- a walker owns nothing, and must not hand anything back --- */
+    {
+        /*
+         * tb_copy assigns the two buffers whole, so a walker's cb_ and lb_
+         * point at the original's allocations, and store_ is the same store.
+         * Everything that writes to those refuses on the walker flag -- the
+         * edits, the slides, saving -- but tb_destroy, tb_clear, tb_load and
+         * tb_open did not, and the first of those is the one with teeth:
+         * destroying a walker freed the original's line buffer and character
+         * buffer, and the next read of the document read memory that had been
+         * handed back. Under the sanitiser this file runs with, that is a
+         * heap-use-after-free in lb_csize, reached from tb_seek.
+         *
+         * Nothing in the editor destroys a walker -- every one is a local that
+         * goes out of scope -- so this is the contract being held rather than
+         * a bug being caught in the act. It is worth holding because it fails
+         * as memory corruption rather than as a wrong answer.
+         */
+        stub_file_reset();
+        stub_file_set_content("alpha\r\nbeta\r\ngamma\r\n", 20);
+        static text_buffer host;
+        check("a document to walk", tb_init(&host, 8, "/own.txt") != NULL, 1);
+
+        static text_buffer cp;
+        tb_copy(&cp, &host);
+        check("  a walker copied from it", cp.walker_ ? 1 : 0, 1);
+        check("    sharing the character buffer",
+              cp.cb_.buf_ == host.cb_.buf_ ? 1 : 0, 1);
+
+        /* Each of these would work on the original's memory. */
+        tb_destroy(&cp);
+        tb_clear(&cp);
+        check("  loading into a walker refuses",
+              tb_load(&cp, "/own.txt") == TB_OK ? 1 : 0, 0);
+        check("  opening into one refuses",
+              tb_open(&cp, "/own.txt", 9) == TB_OK ? 1 : 0, 0);
+
+        /* The original is untouched and still readable. Reading it is the
+         * check: if the walker freed anything, this is a use-after-free. */
+        check("    and the original still has its buffer",
+              host.cb_.buf_ != NULL ? 1 : 0, 1);
+        tb_pos top = { 1, 0 };
+        tb_seek(&host, top);
+        check("    and reads its first line", tb_ypos(&host), 1);
+        check("      as itself",
+              memcmp(tb_curr_line(&host).suffix_, "alpha", 5) == 0 ? 1 : 0, 1);
+        check("    with all of its lines", tb_ymax(&host), 4);
+        check("      and its name", host.fname_ != NULL ? 1 : 0, 1);
+
+        /* And it can still be edited, which is what the two loads would have
+         * taken away. */
+        tb_pos at = { 2, 0 };
+        tb_seek(&host, at);
+        check("    and takes an edit", tb_put(&host, 'Z') ? 1 : 0, 1);
+        tb_destroy(&host);
+    }
+
+    /* --- and on a paged document, where the store is shared too --- */
+    {
+        /*
+         * The buffers are only half of what a walker aliases. store_ is the
+         * same store, holding the part of the document that is not in memory,
+         * and tb_clear and tb_destroy both drop it.
+         *
+         * Dropping it closes and deletes the two files, so the original keeps
+         * a pointer to a store that is gone and every slide from then on reads
+         * nothing. On an unpaged document there is no store and the same call
+         * is harmless, which is why that case alone did not show this: the
+         * clear has to be tried on a document large enough to page.
+         */
+        static char BIG[120000];
+        int at2 = 0;
+        for (int i = 0; at2 < (int) sizeof(BIG) - 44; i++) {
+            at2 += snprintf(BIG + at2, 42, "row %06d ", i);
+            while (at2 % 40 != 38) {
+                BIG[at2++] = '-';
+            }
+            BIG[at2++] = '\r';
+            BIG[at2++] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(BIG, at2);
+        static text_buffer paged;
+        check("a paged document to walk", tb_init(&paged, 48, "/pg.txt") != NULL, 1);
+        check("  which really pages", paged.paged_ ? 1 : 0, 1);
+
+        tb_pos mid = { 1500, 0 };
+        tb_seek(&paged, mid);
+        const int lines_before = tb_ymax(&paged);
+        const int head_before = store_head_bytes(paged.store_);
+
+        static text_buffer pcp;
+        tb_copy(&pcp, &paged);
+        check("  a walker shares its store",
+              pcp.store_ == paged.store_ ? 1 : 0, 1);
+        tb_clear(&pcp);
+        tb_destroy(&pcp);
+
+        check("    and the store is still open",
+              store_head_bytes(paged.store_), head_before);
+        check("    the document is still its length", tb_ymax(&paged), lines_before);
+
+        /* The real proof: the window can still move, which needs the store. */
+        tb_pos top = { 1, 0 };
+        tb_seek(&paged, top);
+        check("    and it can still reach the top", tb_ypos(&paged), 1);
+        check("      reading the first line",
+              memcmp(tb_curr_line(&paged).suffix_, "row 000000", 10) == 0 ? 1 : 0, 1);
+        tb_pos back = { 1500, 0 };
+        tb_seek(&paged, back);
+        check("    and come back", tb_ypos(&paged), 1500);
+        tb_destroy(&paged);
     }
 
     if (failures > 0) {

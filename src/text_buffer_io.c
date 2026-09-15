@@ -469,6 +469,9 @@ static bool tb_load_paged(text_buffer* tb, char fh, int size) {
 }
 
 tb_result tb_load(text_buffer* tb, const char* fname) {
+    if (tb->walker_) {
+        return TB_NO_FILE;  // a copy shares the original's buffers
+    }
     if (fname == NULL) {
         return TB_NO_FILE;
     }
@@ -580,6 +583,9 @@ void tbi_drop_store(text_buffer* tb) {
 }
 
 void tb_clear(text_buffer* tb) {
+    if (tb->walker_) {
+        return;             // a copy shares the original's buffers
+    }
     tbi_drop_store(tb);
     cb_clear(&tb->cb_);
     lb_clear(&tb->lb_);
@@ -598,6 +604,9 @@ void tb_clear(text_buffer* tb) {
 }
 
 tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
+    if (tb->walker_) {
+        return TB_NO_FILE;  // a copy shares the original's buffers
+    }
     if (fname == NULL || sz <= 0) {
         return TB_NO_FILE;
     }
