@@ -53,10 +53,18 @@
  * platform, 14.1 and 18.4 on console8. The wire floor is 8.68 us a byte, so
  * platform is within 28% of the physics and console8 within 62%.
  *
- * A colour change costs about five characters of text. A row of ten tokens
- * goes from 0.90 to 1.43 ms (platform) or 1.15 to 1.90 (console8), which is
- * the per-keystroke case and is comfortable. A full 24-row repaint goes from
- * 22 to 34 ms, and from 28 to 46 on console8, which is the one to watch.
+ * A colour change costs about five characters of text.
+ *
+ * A row is 83 bytes in two calls -- 80 of text and three for the scr_tab in
+ * front of it -- and a token adds four bytes and one call. One row of ten
+ * tokens goes from 0.94 to 1.47 ms on platform and 1.21 to 1.96 on console8.
+ * That is what a keystroke repaints, and it is comfortable.
+ *
+ * A screen is 80 columns by 60 rows with the stock 8x8 font, or 30 with 8x16.
+ * A full 60-row repaint goes from 56 to 88 ms on platform and from 72 to
+ * 117 ms on console8. That is the number to watch -- though note the 72 is
+ * before a single token is coloured, because 4,800 characters need 42 ms on
+ * the link whatever runs.
  */
 
 #define COLS      80        /* the text a row carries */
