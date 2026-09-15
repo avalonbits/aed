@@ -1875,18 +1875,29 @@ int main(void) {
          * prime_spare keeps a quarter of the character buffer free, and
          * tb_settle wants TB_MARGIN clear on each side of the cursor. What is
          * left between the two margins is the room a seek has to work in. This
-         * fails from 40 KiB down, where the window stops being wider than the
-         * two margins together.
+         * passes at 48 KiB and fails at 44, where the window stops being wider
+         * than the two margins together.
          *
-         * The real floor is higher than that and this cannot see it: on the
-         * emulator, against slow.asm, a 64 KiB buffer walked three thousand
-         * lines and then seeked to the top stays on the last line. Whatever is
-         * behind that wants line lengths this document does not have, so the
-         * arithmetic below is the part that can be held here and the emulator
-         * is what says a size is really usable. 256 KiB is measured good on
-         * MOS 3.0.2 and Console8 both.
+         * This used to carry a warning that the real floor was higher than the
+         * arithmetic: on the emulator a 64 KiB buffer walked three thousand
+         * lines, seeked to the top, and stayed on the last line. That was a
+         * slide refilling by less than it sent out until the window drained
+         * below two margins, and a settle that then alternated forever. Both
+         * are fixed and covered above, so the arithmetic here is the floor
+         * again. 72 KiB is measured good on MOS 3.0.2 and Console8 both.
          */
         const int kb = AED_DOC_KB;
+
+        /*
+         * The block below finds the floor by failing at it, which says the
+         * shipped size is above the floor without saying by how much. This
+         * says by how much, and says it in one line when someone lowers the
+         * constant: 48 is the smallest size that passes, measured by sweeping
+         * it, so anything under that is known broken before a single page is
+         * turned.
+         */
+        check("the shipped size clears the measured floor", kb >= 48, 1);
+
         const int doc_lines = 12000;
         const int line_len = 40;            /* 480 KB, comfortably paged */
         char* doc = (char*) malloc((size_t) (doc_lines * line_len));
