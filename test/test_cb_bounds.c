@@ -260,6 +260,80 @@ int main(void) {
         free(cb);
     }
 
+    /* --- the sizes, without the pointers --- */
+    {
+        /*
+         * cb_prefix_size and cb_suffix_size are the two halves of a char_buffer
+         * measured without asking for the pointer that goes with them. They are
+         * static inline in the header so that settling, which asks for both on
+         * every cursor movement of a paged document, does not pay a call across
+         * a translation unit for a pointer subtraction.
+         *
+         * Being a second copy of the arithmetic, they have to keep answering
+         * what cb_prefix and cb_suffix answer through their `sz`. The empty
+         * cases are where a copy would drift: those two report an empty half by
+         * returning NULL and writing zero, so the size is the only thing the
+         * inline versions can be compared against.
+         */
+        static char_buffer cb;
+        check("a buffer to measure", cb_init(&cb, 64) != NULL, 1);
+
+        int psz = 0;
+        int ssz = 0;
+        cb_prefix(&cb, &psz);
+        cb_suffix(&cb, &ssz);
+        check("  empty: the prefix agrees", cb_prefix_size(&cb), psz);
+        check("    and is nothing", cb_prefix_size(&cb), 0);
+        check("  empty: the suffix agrees", cb_suffix_size(&cb), ssz);
+        check("    and is nothing", cb_suffix_size(&cb), 0);
+
+        for (int i = 0; i < 10; i++) {
+            cb_put(&cb, (char) ('a' + i));
+        }
+        cb_prefix(&cb, &psz);
+        cb_suffix(&cb, &ssz);
+        check("  ten in front of the cursor: the prefix agrees",
+              cb_prefix_size(&cb), psz);
+        check("    and is ten", cb_prefix_size(&cb), 10);
+        check("  with nothing behind it", cb_suffix_size(&cb), ssz);
+        check("    which is nothing", cb_suffix_size(&cb), 0);
+
+        /* Walk the cursor back: bytes cross from one half to the other, and
+         * both have to keep agreeing at every step. */
+        int wrong = 0;
+        for (int i = 0; i < 10; i++) {
+            cb_prev(&cb, 1);
+            cb_prefix(&cb, &psz);
+            cb_suffix(&cb, &ssz);
+            if (cb_prefix_size(&cb) != psz || cb_suffix_size(&cb) != ssz) {
+                wrong = i + 1;
+            }
+        }
+        check("  and through every position of the cursor", wrong, 0);
+        check("    ending with all of it behind", cb_suffix_size(&cb), 10);
+        check("      and none in front", cb_prefix_size(&cb), 0);
+
+        /*
+         * And with free space at the *front* of the buffer, which is where a
+         * copy of this arithmetic goes wrong: the live bytes start at lo_, not
+         * at buf_, and the two are only the same until something is taken off
+         * the front. A slide down does that on every chunk it sends to the
+         * head. Measuring from buf_ then counts the free space as text.
+         */
+        static char out[16];
+        for (int i = 0; i < 10; i++) {
+            cb_next(&cb, 1);        // all ten back in front of the cursor
+        }
+        check("  taking four off the front", cb_take_front(&cb, out, 4), 4);
+        check("    leaves six", cb_used(&cb), 6);
+        cb_prefix(&cb, &psz);
+        cb_suffix(&cb, &ssz);
+        check("    and the prefix agrees", cb_prefix_size(&cb), psz);
+        check("      counting the six, not the ten", cb_prefix_size(&cb), 6);
+        check("    with the suffix agreeing too", cb_suffix_size(&cb), ssz);
+        cb_destroy(&cb);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

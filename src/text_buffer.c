@@ -1202,10 +1202,8 @@ bool tb_settle(text_buffer* tb) {
     // document above it can only slide up.
     int dir = 0;                    // -1 up, +1 down, 0 undecided
     while (guard-- > 0) {
-        int psz = 0;
-        int ssz = 0;
-        cb_prefix(&tb->cb_, &psz);
-        cb_suffix(&tb->cb_, &ssz);
+        const int psz = cb_prefix_size(&tb->cb_);
+        const int ssz = cb_suffix_size(&tb->cb_);
 
         const bool can_down = ssz < TB_MARGIN && store_tail_bytes(tb->store_) > 0;
         const bool can_up = psz < TB_MARGIN && store_head_bytes(tb->store_) > 0;
