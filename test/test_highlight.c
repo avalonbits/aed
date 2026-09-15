@@ -402,6 +402,8 @@ int main(void) {
         n = cap_read(cap, (int) sizeof(cap));
         check("  return keeps it", has_colour(cap, n, 14), 1);
 
+
+
         tb_home(&ed.buf_);
         cap_start();
         cmd_del(&ed);
@@ -579,6 +581,133 @@ int main(void) {
         cmd_sync_cursor_colour(&ed);
         check("  a document with no grammar always asks for none",
               ed.scr_.cellFg_, -1);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- return in front of a line --- */
+    {
+        /*
+         * The awkward one, and the one that was reported: with the cursor at
+         * the start of a line, nothing is left on the row it was on and the
+         * whole line moves down to a row cmd_newl paints itself, through the
+         * region scroll. That row was painted with no colouring, so the line
+         * appeared to lose its colours and got them back the next time
+         * anything else repainted it.
+         *
+         * A fresh document and a deliberate position, because pressing return
+         * on a blank line moves nothing and would pass either way.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char NL[] = "int a;\r\nint b;\r\nint c;\r\n";
+        stub_file_add("/nl.c", NL, (int) sizeof(NL) - 1);
+        tb_load(&ed.buf_, "/nl.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        check("the cursor is at the start of a line with a token on it",
+              tb_xpos(&ed.buf_), 1);
+        cap_start();
+        cmd_newl(&ed);
+        const int n6 = cap_read(cap, (int) sizeof(cap));
+        check("  return in front of it keeps the line coloured",
+              has_colour(cap, n6, 14), 1);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- inserting a line moves every row below it --- */
+    {
+        /*
+         * What each screen row begins inside is worked out once for a view and
+         * read back per row. Inserting or removing a line shifts every row
+         * under it, so what was worked out describes the wrong rows -- and for
+         * C that is the difference between a row being inside a block comment
+         * and not.
+         *
+         * Row 2 here opens a comment that row 3 closes, so row 3 begins inside
+         * one and its `*` and `/` are comment rather than text. Insert a line
+         * above them and, with the old answer still believed, row 3 is lexed
+         * as though it began outside and the closing marker paints plain.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char SHIFT[] = "/* open\r\n*/ int a;\r\nint b;\r\n";
+        stub_file_add("/shift.c", SHIFT, (int) sizeof(SHIFT) - 1);
+        tb_load(&ed.buf_, "/shift.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);                  /* which is what fills the answers in */
+
+        cap_start();
+        cmd_repaint_rows(&ed, 2, 2);
+        int n7 = cap_read(cap, (int) sizeof(cap));
+        check("the row inside the comment is comment",
+              column_of_colour(cap, n7, 8), 0);
+
+        /* A line in front of everything, which moves all three rows down. */
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_newl(&ed);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 3, 3);
+        n7 = cap_read(cap, (int) sizeof(cap));
+        /*
+         * At column 0 specifically. The cursor's own writes carry colour bytes
+         * too -- it is sitting in the comment -- so asking only whether the
+         * colour appears anywhere passes whether the row was painted right or
+         * not.
+         */
+        check("  and it still is once a line is inserted above it",
+              column_of_colour(cap, n7, 8), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- joining two lines moves every row below them --- */
+    {
+        /*
+         * The case the top line cannot catch. Deleting the break between the
+         * first two lines leaves the cursor on the same document line and the
+         * same screen row, so the view's top line is what it was -- and every
+         * row below has still moved up by one.
+         *
+         * Row 2 was outside the comment and is inside it afterwards. Believing
+         * the old answer paints its text plain.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char JOIN[] =
+            "int a;\r\n/* open\r\nstill\r\n*/ int b;\r\nint c;\r\n";
+        stub_file_add("/join.c", JOIN, (int) sizeof(JOIN) - 1);
+        tb_load(&ed.buf_, "/join.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 7;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        const int top_was = tb_ypos(&ed.buf_) - (ed.scr_.currY_ - ed.scr_.topY_);
+        cmd_end(&ed);                   /* end of line 1 */
+        cmd_del(&ed);                   /* which joins it to line 2 */
+        check("joining leaves the view's top line where it was",
+              tb_ypos(&ed.buf_) - (ed.scr_.currY_ - ed.scr_.topY_), top_was);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 2, 2);
+        const int n8 = cap_read(cap, (int) sizeof(cap));
+        check("  and the row that moved up is coloured for where it now is",
+              column_of_colour(cap, n8, 8), 0);
+        stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }
 

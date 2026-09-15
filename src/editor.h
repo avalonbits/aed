@@ -76,7 +76,19 @@ typedef struct _editor {
      * the edit paths handle that by repainting the rows below it.
      */
     char rowSyn_[SCR_MAX_ROWS];
+    /*
+     * What the answers above describe: the document line the top row held, and
+     * how many lines the document had.
+     *
+     * Both, because either changing makes them describe the wrong rows. The
+     * line count is the one that catches an insertion or a deletion, which
+     * moves every row below it -- and for C that is the difference between a
+     * row being inside a block comment and not. Checking here rather than
+     * at each command that can change it means there is no list of those to
+     * keep up to date.
+     */
     int synTopLine_;
+    int synLines_;
 
     clipboard clip_;
     // Session state, like the clipboard: it does not outlive the editor and

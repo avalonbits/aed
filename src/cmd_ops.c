@@ -464,6 +464,7 @@ static void fill_row_states(editor* ed, text_buffer* tb, int top) {
         prev = tb_ypos(&cp);
     }
     ed->synTopLine_ = top;
+    ed->synLines_ = tb_ymax(tb);
 }
 
 static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
@@ -475,7 +476,7 @@ static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
         return SYN_STATE_NONE;
     }
     const int top = top_line(scr, tb);
-    if (ed->synTopLine_ != top) {
+    if (ed->synTopLine_ != top || ed->synLines_ != tb_ymax(tb)) {
         fill_row_states(ed, tb, top);
     }
 
@@ -1433,15 +1434,23 @@ void cmd_newl(editor* ed) {
     if (!tb_newline(tb)) {
         return;
     }
-    {
-        // What is left on this row is the text before the break, so it is
-        // lexed as its own line -- which it now is.
-        const split_line cut = { ln.psz_, ln.prefix_, 0, NULL };
-        set_row_colours(ed, &cut, state_at_row(ed, tb, scr->currY_));
-    }
+    // What is left on this row is the text before the break, so it is lexed as
+    // its own line -- which it now is.
+    const split_line cut = { ln.psz_, ln.prefix_, 0, NULL };
+    const int out = set_row_colours(ed, &cut,
+                                    state_at_row(ed, tb, scr->currY_));
     scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
     scr_place_cursor(scr, NULL, 0);
+    /*
+     * And the text that moved down is a line of its own now too, beginning in
+     * whatever the half above it left open. Without this the row the text
+     * landed on was painted plain -- which is what pressing return at the
+     * start of a line looked like: the line appeared to lose its colouring and
+     * got it back the next time anything repainted it.
+     */
+    const split_line moved = { ln.ssz_, ln.suffix_, 0, NULL };
+    set_row_colours(ed, &moved, out);
     if  (scr->currY_ < scr->bottomY_-1) {
         scr->currY_++;
         scr_scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
