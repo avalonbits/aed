@@ -587,6 +587,11 @@ void ed_run(editor* ed) {
         // repaints like a drop: the whole area.
         ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,
                              y_before, x_before, top_before, origin_before);
+
+        // Last, with the cursor where the command left it: this describes the
+        // cell the *next* command will move off, which is the one whose colour
+        // has to be put back.
+        cmd_sync_cursor_colour(ed);
     }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.

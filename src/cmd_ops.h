@@ -64,6 +64,16 @@ void cmd_open(editor* ed);
 // document knowledge, so it lives here rather than in the view.
 void cmd_repaint_rows(editor* ed, char fromY, char toY);
 
+/*
+ * Works out what colour the cell under the cursor belongs in and tells the
+ * screen, so that moving off it puts the token's colour back rather than the
+ * document's.
+ *
+ * Called once per command, after it has run. One lex of one row, and nothing
+ * at all when the document has no grammar.
+ */
+void cmd_sync_cursor_colour(editor* ed);
+
 // Repaints one row, but only document columns [from_col, to_col). Used when a
 // selection grows or shrinks within a row: the columns either side of the
 // change already show what they should.

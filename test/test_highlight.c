@@ -113,6 +113,26 @@ static int has_colour(const char* b, int n, int c) {
     return 0;
 }
 
+/* The screen column a change to colour `c` lands on, or -1 if it never does. */
+static int column_of_colour(const char* b, int n, int c) {
+    int col = 0;
+    for (int i = 0; i < n; i++) {
+        const unsigned char ch = (unsigned char) b[i];
+        if (ch == 17 && i + 1 < n) {
+            if ((unsigned char) b[i + 1] == (unsigned char) c) {
+                return col;
+            }
+            i++;
+            continue;
+        }
+        if (ch >= 32 && ch < 127) {
+            col++;
+        }
+    }
+
+    return -1;
+}
+
 static long mark = 0;
 
 static void cap_start(void) {
@@ -461,6 +481,104 @@ int main(void) {
         check("  a row below it is comment", has_colour(cap, n3, 8), 1);
         check("    and is no longer a type", has_colour(cap, n3, 14), 0);
         stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- a tab does not push the colouring off the token --- */
+    {
+        /*
+         * Reported from a real session: on a reopened, correctly coloured file
+         * the last character of `return` was left plain.
+         *
+         * A run ends at a byte offset into the line, which is what the lexer
+         * counts in. The painting counts screen columns, and a tab is one byte
+         * and several columns. Looking runs up by column therefore drifted by
+         * one column per tab: every token after the first tab was coloured a
+         * column early, so its last character lost its colour and the
+         * character before it gained one.
+         *
+         * With tab_size 2 the tab is columns 0 and 1, so `int` starts at
+         * column 2. Before the fix the type colour was set at column 1.
+         */
+        files();
+        setup(&ed, 0);
+        ed.scr_.tab_size_ = 2;
+        stub_emit_colours(1);
+        static const char TABBED[] = "\tint x;\r\nint y;\r\n";
+        stub_file_add("/tab.c", TABBED, (int) sizeof(TABBED) - 1);
+        tb_load(&ed.buf_, "/tab.c");
+        ed_pick_syntax(&ed);
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+
+        cap_start();
+        cmd_repaint_rows(&ed, 1, 1);
+        const int n4 = cap_read(cap, (int) sizeof(cap));
+        check("a tab-indented token is coloured where it is",
+              column_of_colour(cap, n4, 14), 2);
+
+        /* And with no tab the answer is the same one, at column 0. */
+        cap_start();
+        cmd_repaint_rows(&ed, 2, 2);
+        const int n5 = cap_read(cap, (int) sizeof(cap));
+        check("  and an unindented one at column 0",
+              column_of_colour(cap, n5, 14), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- the cursor puts back the colour it stood on --- */
+    {
+        /*
+         * Reported with the tab bug: moving the cursor along a line rubbed the
+         * colouring out a character at a time. scr_hide_cursor_ch puts the
+         * character back when the cursor moves off it, and it used the
+         * document's own foreground to do it.
+         *
+         * The editor works out what the cell belongs in after every command,
+         * while the cursor is still on it, so the next command has it to hand.
+         */
+        files();
+        setup(&ed, 0);
+        named(&ed, "/cursor.c");        /* "int x;" */
+        ed_pick_syntax(&ed);
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+
+        cmd_sync_cursor_colour(&ed);
+        check("the cursor standing on a type knows its colour",
+              ed.scr_.cellFg_, 14);
+
+        /*
+         * Knowing it is half of it. This is the half a user sees: the cell the
+         * cursor moves off has to be written back in that colour, and it was
+         * being written back in the document's.
+         */
+        stub_emit_colours(1);
+        cap_start();
+        scr_hide_cursor_ch(&ed.scr_, 'i');
+        int nc = cap_read(cap, (int) sizeof(cap));
+        check("  and moving off it puts that colour back",
+              has_colour(cap, nc, 14), 1);
+        check("    rather than the document's own",
+              has_colour(cap, nc, 15), 0);
+        stub_emit_colours(0);
+
+        /* Off the end of the token, where the theme says nothing. */
+        for (int i = 0; i < 4; i++) {
+            cmd_right(&ed);
+        }
+        cmd_sync_cursor_colour(&ed);
+        check("  and standing on plain text asks for none",
+              ed.scr_.cellFg_, -1);
+        tb_destroy(&ed.buf_);
+
+        setup(&ed, 0);
+        named(&ed, "/cursor.txt");
+        ed_pick_syntax(&ed);
+        cmd_sync_cursor_colour(&ed);
+        check("  a document with no grammar always asks for none",
+              ed.scr_.cellFg_, -1);
         tb_destroy(&ed.buf_);
     }
 

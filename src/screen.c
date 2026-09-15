@@ -338,6 +338,7 @@ screen *scr_init(screen* scr, char cursor) {
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
     scr->theme_ = NULL;
+    scr->cellFg_ = -1;
     scr->runs_ = NULL;
     scr->nruns_ = 0;
     scr->runAt_ = 0;
@@ -1029,13 +1030,19 @@ void scr_clear(screen* scr) {
     scr_tab(scr, scr->currX_, scr->currY_);
 }
 
+void scr_set_cursor_colour(screen* scr, char fg) {
+    scr->cellFg_ = (fg >= 0 && fg < scr->colors_) ? fg : -1;
+}
+
 void scr_hide_cursor_ch(screen* scr, char ch) {
     ch = cursor_glyph(scr, ch);
     out_flush();
 
     char vdu[6];
+    // What the cell belongs in rather than what the document is drawn in: the
+    // cursor puts back a token's colour when it moves off one.
+    vdu[1] = scr->cellFg_ >= 0 ? scr->cellFg_ : scr->fg_;
     vdu[0] = 17;
-    vdu[1] = scr->fg_;
     vdu[2] = 17;
     vdu[3] = (char) (scr->bg_ + 128);
     vdu[4] = ch;
@@ -1197,7 +1204,7 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
 // Called once a column, so the early return is what keeps a run of columns in
 // one colour down to a single change -- see the cost of one in
 // test/probes/vducost.c.
-static void highlight(screen* scr, int col) {
+static void highlight(screen* scr, int col, int byte) {
     char fg = scr->fg_;
     char bg = scr->bg_;
 
@@ -1205,10 +1212,22 @@ static void highlight(screen* scr, int col) {
         fg = scr->bg_;
         bg = scr->fg_;
     } else if (scr->theme_ != NULL && scr->runs_ != NULL) {
-        // The runs are in column order and so is this walk, so the cursor only
-        // ever moves forward: colouring a row is one pass over its runs.
+        /*
+         * `byte` rather than `col`, and the difference is a tab. A run ends at
+         * a byte offset into the line, which is what the lexer counts in;
+         * `col` is a screen column, which a tab moves by more than one. Using
+         * the column here coloured everything after the first tab a column
+         * early -- the last character of every token on the line lost its
+         * colour and the character before it gained one.
+         *
+         * The selection above stays in columns: it is worked out from the
+         * screen, and it is what the user drew.
+         *
+         * The runs are in order and so is this walk, so the cursor only ever
+         * moves forward: colouring a row is one pass over its runs.
+         */
         while (scr->runAt_ < scr->nruns_
-               && col >= scr->runs_[scr->runAt_].end) {
+               && byte >= scr->runs_[scr->runAt_].end) {
             scr->runAt_++;
         }
         if (scr->runAt_ < scr->nruns_) {
@@ -1239,7 +1258,7 @@ void scr_set_row_tokens(screen* scr, const tok_run* runs, int n) {
 }
 
 static int emit_span(screen* scr, const char* buf, int sz, int col,
-                     int from_col, int stop_col) {
+                     int from_col, int stop_col, int* byte) {
     const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
 
     for (int i = 0; i < sz && col < stop_col; i++) {
@@ -1249,11 +1268,13 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
         }
         for (int w = 0; w < width && col < stop_col; w++, col++) {
             if (col >= from_col) {
-                highlight(scr, col);
+                highlight(scr, col, *byte);
                 out_ch(buf[i] == '\t' ? ' ' : buf[i]);
             }
         }
-        continue;
+        // One byte of the line, however many columns it took. A tab's columns
+        // all belong to the tab.
+        (*byte)++;
     }
 
     return col;
@@ -1277,18 +1298,21 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     scr->curBg_ = scr->bg_;
     scr->runAt_ = 0;
     int col = 0;
+    // The two halves are one line as far as the lexer is concerned, so the
+    // byte count runs across both of them.
+    int byte = 0;
     if (pre != NULL && presz > 0) {
-        col = emit_span(scr, pre, presz, col, from, stop);
+        col = emit_span(scr, pre, presz, col, from, stop, &byte);
     }
     if (suf != NULL && sufsz > 0) {
-        col = emit_span(scr, suf, sufsz, col, from, stop);
+        col = emit_span(scr, suf, sufsz, col, from, stop, &byte);
     }
     // The padding past the end of the text is highlighted too when the
     // selection runs through the line break, which is how a selected newline
     // shows up as anything at all.
     for (; col < stop; col++) {
         if (col >= from) {
-            highlight(scr, col);
+            highlight(scr, col, byte);
             out_ch(' ');
         }
     }
@@ -1355,8 +1379,16 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
 
     scr_tab(scr, scr->currX_, scr->currY_);
     int col = at;
+    /*
+     * This paints from the cursor and so cannot know where the line began,
+     * which means it cannot count bytes from the start of it. That is why the
+     * paths that colour a row -- scr_putc, scr_bksp -- paint the row whole
+     * when a theme is in force and leave this to the uncoloured case, where
+     * the count is never read.
+     */
+    int byte = at;
     if (suf != NULL && sufsz > 0) {
-        col = emit_span(scr, suf, sufsz, col, at, stop);
+        col = emit_span(scr, suf, sufsz, col, at, stop, &byte);
     }
     out_run(' ', stop - col);
     scr_sync_cursor(scr);

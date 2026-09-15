@@ -475,6 +475,35 @@ static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
     return ed->rowSyn_[ypos];
 }
 
+void cmd_sync_cursor_colour(editor* ed) {
+    SCR(ed);
+    TB(ed);
+
+    if (!ed->syn_.loaded || scr->theme_ == NULL) {
+        scr_set_cursor_colour(scr, -1);
+
+        return;
+    }
+
+    const split_line ln = tb_curr_line(tb);
+    const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
+    int out = SYN_STATE_NONE;
+    const int n = syn_lex(&ed->syn_, synRow_, len,
+                          state_at_row(ed, tb, scr->currY_), &out,
+                          synRuns_, SYN_ROW_RUNS);
+    // tb_curr_line splits the cursor's row at the cursor, so the prefix is
+    // exactly how many bytes into the line it is.
+    const int at = ln.psz_;
+    char fg = -1;
+    for (int i = 0; i < n; i++) {
+        if (at < synRuns_[i].end) {
+            fg = theme_colour(&ed->theme_, (tok_class) synRuns_[i].cls);
+            break;
+        }
+    }
+    scr_set_cursor_colour(scr, fg);
+}
+
 void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     SCR(ed);
     TB(ed);
