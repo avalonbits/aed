@@ -258,7 +258,7 @@ int tbi_prime_spare(text_buffer* tb) {
     //     1/16     1.10s   2.84s   0.32s
     //
     // Opening and seeking both want the reserve; only scrolling wants it back,
-    // and it gains 0.06s where a seek loses 0.52. See docs/SIZING.md.
+    // and it gains 0.06s where a seek loses 0.52. See .internal/docs/SIZING.md.
     //
     // The trade is fewer lines in memory, so a long scroll crosses more
     // chunks. Each one is cheap enough that it is worth it.

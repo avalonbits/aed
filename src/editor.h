@@ -60,9 +60,10 @@ typedef struct _editor {
  *
  * tb_init splits it: a thirty-second goes to the line index, the rest to the
  * character buffer. The index entries are three bytes each on this machine, so
- * at 256 a document is 253,952 bytes of text plus 24,576 of index -- 279,364
- * all told once its name and scratch paths are counted, against a heap of
- * 342,365. One document is ninety per cent of what there is.
+ * at 72 a document is 71,424 bytes of text plus 6,912 of index -- 79,164 all
+ * told once its name and scratch paths are counted, against a heap of 325,298.
+ * One document is under a third of what there is, and the rest is what every
+ * other feature is built from.
  *
  * Which is the number to change for a second one, and the only one. It is
  * free to move now: it used to be pinned from below, because a walker read by
@@ -70,13 +71,17 @@ typedef struct _editor {
  * buffer meant a bigger reserve meant a window with no room in it. Walkers
  * move by number -- .internal/docs/WALKER.md -- and the floor went with that.
  *
- * It stays at 256 because the measurement says so and nothing needs the heap
- * yet. Halving it costs a long scroll twice what it costs now -- 0.70 s
- * against 0.38 for 3,000 lines on MOS 3.0.2 -- while opening and seeking barely
- * move. That buys 139 KB, which is what a second document would need. See
- * docs/SIZING.md section 7.
+ * It was 256 while nothing needed the heap. What 72 costs is arrow scrolling:
+ * 0.78 s against 0.34 for 3,000 lines on MOS 3.0.2, and 187 store reads for a
+ * full traversal against 119. Opening is faster, because less of the file is
+ * indexed at open, and seeking does not move at all. What it buys is 200 KB.
+ *
+ * The floor is lower than this. The host suite navigates a 480 KB document at
+ * whatever this says and passes at 48, failing at 44; correctness holds on the
+ * emulator down to 8. 72 leaves about half again over the arithmetic floor.
+ * See .internal/docs/SIZING.md section 3.
  */
-#define AED_DOC_KB 256
+#define AED_DOC_KB 72
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
 
