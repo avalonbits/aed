@@ -91,12 +91,12 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L25) ·
-[`ed_init()`](../src/editor.c#L219) ·
+[`ed_init()`](../src/editor.c#L220) ·
 [`ed_run()`](../src/editor.c#L520) ·
 [`read_input()`](../src/editor.c#L751) ·
 [`ctrlCmds()`](../src/editor.c#L643) ·
 [`editCmds()`](../src/editor.c#L702) ·
-[`ed_selection_for()`](../src/editor.c#L397) ·
+[`ed_selection_for()`](../src/editor.c#L398) ·
 [`cmd_repaint_rows()`](../src/cmd_ops.c#L755)
 
 `main` asks for **256 KB** and that single number sizes the document: `tb_init`
@@ -129,7 +129,7 @@ command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/editor.c#L397) decides what a keystroke does to
+[`ed_selection_for()`](../src/editor.c#L398) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
@@ -440,6 +440,6 @@ Four things learned the hard way:
 * **If it reads a range**, it streams. There has been one wrong second walk over
   the document already.
 * **If it owns the selection**, say so in
-  [`owns_selection()`](../src/editor.c#L382), or the loop will take the
+  [`owns_selection()`](../src/editor.c#L383), or the loop will take the
   selection away before the command runs.
 * **Anything on a hot path** is measured on the emulator before and after.

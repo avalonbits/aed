@@ -179,9 +179,10 @@ void ed_pick_syntax(editor* ed) {
     if (ed == NULL) {
         return;
     }
-    // What was worked out about the rows on screen belongs to the document that
-    // was there before this one.
-    ed->synTopLine_ = 0;
+    // What was worked out belongs to the document that was there before this.
+    ed->synFirst_ = 0;
+    ed->synKnown_ = 0;
+    ed->synTop_ = 1;
     syn_clear(&ed->syn_);
     theme_clear(&ed->theme_);
     scr_set_theme(&ed->scr_, NULL);

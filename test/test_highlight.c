@@ -642,14 +642,15 @@ int main(void) {
          * worked out again -- which on a screenful of C costs a lex a row and
          * measured 141 milliseconds a keystroke before the shift existed.
          *
-         * The check is the invariant the shift maintains: the answers still
-         * describe this document. Without the shift the line count they were
-         * written under is one behind, and the next read throws them away.
+         * The check is the invariant an edit maintains: the answers stop at
+         * the line that changed, and everything above it is still held. They
+         * are never thrown away wholesale, which is what left the cursor with
+         * nothing to consult.
          */
-        check("  and what is known about the rows still describes it",
-              ed.synLines_, tb_ymax(&ed.buf_));
-        check("    and has not been thrown away",
-              ed.synTopLine_ != 0 ? 1 : 0, 1);
+        check("  what was known above the split is still held",
+              ed.synFirst_, 1);
+        check("    and none of it was thrown away",
+              ed.synKnown_ > 0 ? 1 : 0, 1);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }
@@ -782,10 +783,12 @@ int main(void) {
               ed.scr_.bottomY_ - 1);
 
         check("  and the painted screen left its answers behind",
-              ed.synTopLine_, 1);
+              ed.synTop_, 1);
         cmd_down(&ed);                  /* line 5 scrolls into view */
         check("  the view has moved down one", tb_ypos(&ed.buf_), 5);
-        check("    and the answers moved with it", ed.synTopLine_, 2);
+        check("    and the top row draws the line below", ed.synTop_, 2);
+        check("      while the answers themselves did not move",
+              ed.synFirst_, 1);
 
         /*
          * The row that came in from below, first. Its state is the one nothing
@@ -848,7 +851,7 @@ int main(void) {
         tb_home(&ed.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
-        check("the screen left its answers behind", ed.synTopLine_, 1);
+        check("the screen left its answers behind", ed.synTop_, 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 3, 3);
@@ -860,7 +863,7 @@ int main(void) {
         cmd_end(&ed);
         cmd_del(&ed);
         check("  joining takes a line out", tb_ymax(&ed.buf_), 8);
-        check("    and the answers survived it", ed.synTopLine_ != 0 ? 1 : 0, 1);
+        check("    and the answers survived it", ed.synFirst_ != 0 ? 1 : 0, 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 2, 2);
@@ -943,6 +946,84 @@ int main(void) {
         const int nb = cap_read(cap, (int) sizeof(cap));
         check("  and its first character is still a type",
               column_of_colour(cap, nb, 14), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- an edit renumbers the answers below it --- */
+    {
+        /*
+         * Adding or removing a line does not change what the lines below it
+         * begin inside -- the same text still runs into them -- but it does
+         * change what they are called. The answers are renumbered to follow.
+         *
+         * Checked well below the edit, on a row the edit did not repaint. The
+         * rows it does repaint write their own answers as they go, so a
+         * renumbering that went the wrong way is invisible there.
+         *
+         *   1 int a;      2 /_* x      3 still      4 *_/ int b;     5 int c;
+         *
+         * Row 4 begins inside the comment. Put a line in at the top and that
+         * becomes row 5, still inside it.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char RN[] =
+            "int a;\r\n/* x\r\nstill\r\n*/ int b;\r\nint c;\r\nint d;\r\n";
+        stub_file_add("/rn.c", RN, (int) sizeof(RN) - 1);
+        tb_load(&ed.buf_, "/rn.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 7;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 4, 4);
+        int nr = cap_read(cap, (int) sizeof(cap));
+        check("the line that closes the comment is inside it",
+              column_of_colour(cap, nr, 8), 0);
+
+        /* A line in at the very top, which moves everything down one. */
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_newl(&ed);
+        check("  the document gained a line", tb_ymax(&ed.buf_), 8);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 5, 5);
+        nr = cap_read(cap, (int) sizeof(cap));
+        check("    and it is still inside it, a row further down",
+              column_of_colour(cap, nr, 8), 0);
+
+        /* And taking the line back out puts everything where it was. The
+         * split left the cursor on the second half, so this steps back onto
+         * the blank line it made. */
+        cmd_up(&ed);
+        cmd_del(&ed);
+        check("  the document lost it again", tb_ymax(&ed.buf_), 7);
+
+        /*
+         * The line under it first, which is outside the comment while its
+         * neighbours are inside one -- so it is the row that shows a
+         * renumbering off by one in either direction. Checking a row whose
+         * neighbours share its state proves nothing, and checking it after the
+         * row above proves nothing either: painting a row writes the answer
+         * for the row below, which repairs exactly what is being looked for.
+         */
+        cap_start();
+        cmd_repaint_rows(&ed, 5, 5);
+        nr = cap_read(cap, (int) sizeof(cap));
+        check("    the line after it is outside the comment",
+              column_of_colour(cap, nr, 14), 0);
+        check("      rather than inside it", has_colour(cap, nr, 8), 0);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 4, 4);
+        nr = cap_read(cap, (int) sizeof(cap));
+        check("    and the comment's last line is back where it started",
+              column_of_colour(cap, nr, 8), 0);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }
