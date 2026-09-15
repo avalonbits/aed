@@ -33,6 +33,7 @@ static void check(const char* name, int got, int want) {
 static const char C_CFG[] =
     "[syntax]\nname = C\nextensions = .c .h\n"
     "[match]\ncomment.block = span '/*' '*/' multiline\n"
+    "string.quoted.double = span '\"' '\"' escape \\\n"
     "storage.type = words int\n";
 
 static const char ASM_CFG[] =
@@ -42,7 +43,7 @@ static const char ASM_CFG[] =
 /* Says nothing about fg and bg, so it colours tokens and moves no pair. */
 static const char DARK[] =
     "[theme]\nname = dark\ncovers = 0 1 4\n"
-    "[colours]\ncomment = 8\ntype = 14\n";
+    "[colours]\ncomment = 8\ntype = 14\nstring = 10\n";
 
 /* Asks for its own pair, which is the case the base/active rule is about. */
 static const char BOLD[] =
@@ -145,6 +146,27 @@ static int count_asks(void* ctx, char ypos, const char* pre, int presz,
     asked++;
 
     return 0;
+}
+
+/* The colour in force when `target` is first written. */
+static int colour_at_char(const char* b, int n, char target) {
+    int fg = -1;
+    for (int i = 0; i < n; i++) {
+        const unsigned char c = (unsigned char) b[i];
+        if (c == 17 && i + 1 < n) {
+            const unsigned char v = (unsigned char) b[i + 1];
+            if (v < 128) {
+                fg = v;
+            }
+            i++;
+            continue;
+        }
+        if (c == (unsigned char) target) {
+            return fg;
+        }
+    }
+
+    return -1;
 }
 
 static long mark = 0;
@@ -1024,6 +1046,59 @@ int main(void) {
         nr = cap_read(cap, (int) sizeof(cap));
         check("    and the comment's last line is back where it started",
               column_of_colour(cap, nr, 8), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- typing beside a string, then taking it back out --- */
+    {
+        /*
+         * Reported from a real session: text typed between `(` and the quote
+         * coloured correctly, and a backspace then turned everything before
+         * the quote into string colour, which stayed until the cursor was
+         * walked over it.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char PR[] = "printf(\"hi\");\r\nint b;\r\nint c;\r\n";
+        stub_file_add("/pr.c", PR, (int) sizeof(PR) - 1);
+        tb_load(&ed.buf_, "/pr.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        ed.scr_.cols_ = 40;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        /* To just after the `(`, which is byte 7. */
+        for (int i = 0; i < 7; i++) {
+            cmd_right(&ed);
+        }
+        check("the cursor is after the bracket", tb_xpos(&ed.buf_), 8);
+
+        const key kx = { 'x', VK_X };
+        cap_start();
+        cmd_putc(&ed, kx);
+        int np = cap_read(cap, (int) sizeof(cap));
+        check("  typing beside the string leaves the name plain",
+              colour_at_char(cap, np, 'p'), 15);
+        check("    and the string still a string",
+              colour_at_char(cap, np, 'h'), 10);
+
+        /*
+         * The colour the text is written in, rather than where a colour change
+         * lands. The cursor writes its own cell before the row is painted, so
+         * counting columns from the start of the capture counts that too --
+         * and the cell's colour is exactly what went wrong here.
+         */
+        cap_start();
+        cmd_bksp(&ed);
+        np = cap_read(cap, (int) sizeof(cap));
+        check("  and taking it back out leaves it plain too",
+              colour_at_char(cap, np, 'p'), 15);
+        check("    with the string still a string",
+              colour_at_char(cap, np, 'h'), 10);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }

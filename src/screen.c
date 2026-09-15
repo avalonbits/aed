@@ -1053,13 +1053,34 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
         }
     }
 
-    char vdu[6];
-    vdu[1] = fg;
+    /*
+     * And the document's own pair afterwards, when this drew in something
+     * else.
+     *
+     * Everything that paints a row starts by assuming the pair coming in is
+     * the document's -- scr_paint_span says so and sets curFg_ from it without
+     * writing anything. While this only ever drew in that pair the assumption
+     * held for nothing; now that it draws a token's colour, leaving it set
+     * paints the front of the next row in it. That showed as the name before a
+     * string turning the string's colour after a backspace, and staying that
+     * way until the cursor was walked back over it.
+     */
+    char vdu[10];
     vdu[0] = 17;
+    vdu[1] = fg;
     vdu[2] = 17;
     vdu[3] = (char) (scr->bg_ + 128);
     vdu[4] = ch;
     vdu[5] = 8;
+    if (fg == scr->fg_) {
+        mos_puts(vdu, 6, 0);
+
+        return;
+    }
+    vdu[6] = 17;
+    vdu[7] = scr->fg_;
+    vdu[8] = 17;
+    vdu[9] = (char) (scr->bg_ + 128);
     mos_puts(vdu, sizeof(vdu), 0);
 }
 
