@@ -82,8 +82,23 @@ line ini_read_line(const char* s, int start, int end) {
     ln.value = NULL;
     ln.valuelen = 0;
 
+    // A comment marker inside quotes is not one. Without this a value cannot
+    // contain a ';' or a '#' at all, and both are wanted: a syntax grammar has
+    // to be able to say that ';' begins a comment in the language it describes,
+    // which is the exact character this reader would otherwise eat.
     int cut = end;
+    char quote = 0;
     for (int c = start; c < end; c++) {
+        if (quote != 0) {
+            if (s[c] == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (s[c] == '"' || s[c] == '\'') {
+            quote = s[c];
+            continue;
+        }
         if (is_comment(s[c])) {
             cut = c;
             break;

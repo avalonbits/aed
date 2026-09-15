@@ -1,0 +1,542 @@
+/*
+ * Copyright (C) 2023  Igor Cananea <icc@avalonbits.com>
+ * Author: Igor Cananea <icc@avalonbits.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "syntax.h"
+
+#include "ini.h"
+
+#include <agon/mos.h>
+#include <string.h>
+
+// A word is a run of these. The dot is in because assembly wants it at both
+// ends of a name -- `.db` is a directive and `rst.lil` is one opcode -- and
+// nothing else in the three languages is hurt by it.
+static bool is_word(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '_' || c == '.';
+}
+
+static bool is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+static char fold(char c) {
+    return (c >= 'A' && c <= 'Z') ? (char) (c - 'A' + 'a') : c;
+}
+
+static int cmp_word(const char* a, int alen, const char* b, bool nocase) {
+    for (int i = 0; i < alen; i++) {
+        const char x = nocase ? fold(a[i]) : a[i];
+        const char y = nocase ? fold(b[i]) : b[i];
+        if (b[i] == 0 || x != y) {
+            return (b[i] == 0 || x > y) ? 1 : -1;
+        }
+    }
+
+    return b[alen] == 0 ? 0 : -1;
+}
+
+/*
+ * Is the word at `s` one of this rule's?
+ *
+ * The rule's offsets are sorted at load, so this is a binary search: six
+ * comparisons against sixty opcodes rather than sixty. That is not a
+ * micro-optimisation -- a line holds a dozen words and a repaint sixty lines,
+ * so a linear scan would be tens of thousands of character comparisons for one
+ * screen, which is more than the painting itself costs.
+ */
+static bool in_words(const syntax* g, const syn_rule* r, const char* s, int n) {
+    int lo = 0;
+    int hi = r->word_n - 1;
+    while (lo <= hi) {
+        const int mid = lo + (hi - lo) / 2;
+        const char* w = g->words + g->wordoff[r->word_at + mid];
+        const int c = cmp_word(s, n, w, g->nocase);
+        if (c == 0) {
+            return true;
+        }
+        if (c < 0) {
+            hi = mid - 1;
+        } else {
+            lo = mid + 1;
+        }
+    }
+
+    return false;
+}
+
+static bool lit_at(const char* s, int len, int at, const char* lit, int n,
+                   bool nocase) {
+    if (n == 0 || at + n > len) {
+        return false;
+    }
+    for (int i = 0; i < n; i++) {
+        const char x = nocase ? fold(s[at + i]) : s[at + i];
+        const char y = nocase ? fold(lit[i]) : lit[i];
+        if (x != y) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * How many bytes of a number start at `at`, or zero.
+ *
+ * Built in rather than expressible as a rule, because every language wants one
+ * and none of them write it the same way. What is accepted is the union that
+ * costs nothing to accept: a leading digit, or one of assembly's sigils, and
+ * then the characters numbers are made of. `1st` is not a number and neither is
+ * a bare `$`.
+ */
+static int number_at(const char* s, int len, int at) {
+    int i = at;
+    if (i < len && (s[i] == '$' || s[i] == '%' || s[i] == '#')) {
+        i++;
+        const int start = i;
+        while (i < len && (is_digit(s[i])
+                           || (fold(s[i]) >= 'a' && fold(s[i]) <= 'f'))) {
+            i++;
+        }
+
+        return i > start ? i - at : 0;
+    }
+    if (i >= len || !is_digit(s[i])) {
+        return 0;
+    }
+    while (i < len && (is_digit(s[i]) || fold(s[i]) == 'x'
+                       || (fold(s[i]) >= 'a' && fold(s[i]) <= 'f'))) {
+        i++;
+    }
+    // A number runs up to a word character it did not consume, which is what
+    // keeps `1st` out: the `s` and `t` are word characters, so this is a word.
+    if (i < len && is_word(s[i])) {
+        return 0;
+    }
+
+    return i - at;
+}
+
+// Adds a run, merging with the one before when the class has not changed --
+// which is what keeps the painting to one colour change a run.
+static int add_run(tok_run* out, int n, int max, int end, tok_class cls) {
+    if (n > 0 && out[n - 1].cls == (char) cls) {
+        out[n - 1].end = end;
+
+        return n;
+    }
+    if (n >= max) {
+        if (n > 0) {
+            out[n - 1].end = end;   // no room: the last run swallows the rest
+        }
+
+        return n;
+    }
+    out[n].end = end;
+    out[n].cls = (char) cls;
+
+    return n + 1;
+}
+
+
+void syn_clear(syntax* g) {
+    if (g != NULL) {
+        memset(g, 0, sizeof(*g));
+    }
+}
+
+// ".c .h .cc" against "main.c". The extension is whatever follows the last dot,
+// and a name without one matches nothing.
+bool syn_covers(const syntax* g, const char* fname) {
+    if (g == NULL || !g->loaded || fname == NULL) {
+        return false;
+    }
+    const char* dot = NULL;
+    for (const char* p = fname; *p != 0; p++) {
+        if (*p == '.') {
+            dot = p;
+        }
+        if (*p == '/' || *p == '\\') {
+            dot = NULL;         // a dot in a directory is not an extension
+        }
+    }
+    if (dot == NULL) {
+        return false;
+    }
+    int elen = 0;
+    while (dot[elen] != 0) {
+        elen++;
+    }
+    int at = 0;
+    while (at < SYN_EXTS_MAX && g->exts[at] != 0) {
+        while (at < SYN_EXTS_MAX && (g->exts[at] == ' ' || g->exts[at] == ',')) {
+            at++;
+        }
+        const int start = at;
+        while (at < SYN_EXTS_MAX && g->exts[at] != 0 && g->exts[at] != ' '
+               && g->exts[at] != ',') {
+            at++;
+        }
+        if (at > start && at - start == elen) {
+            bool same = true;
+            for (int i = 0; i < elen && same; i++) {
+                same = fold(g->exts[start + i]) == fold(dot[i]);
+            }
+            if (same) {
+                return true;
+            }
+        }
+        if (at == start) {
+            break;
+        }
+    }
+
+    return false;
+}
+
+// The rest of a value after the verb, trimmed. `eol //` leaves `//`.
+static int after_verb(const char* v, int len, int at) {
+    while (at < len && (v[at] == ' ' || v[at] == '\t')) {
+        at++;
+    }
+
+    return at;
+}
+
+// A literal, quoted or bare. Quoting is what lets a grammar name the character
+// that ends a line's worth of comment in *its* language, which for assembly is
+// the same ';' this file's own comments start with -- so it is written ';' and
+// the quotes come off here.
+static int copy_lit(char* dst, const char* v, int at, int len) {
+    int n = 0;
+    if (at < len && (v[at] == '"' || v[at] == '\'')) {
+        const char q = v[at];
+        at++;
+        while (at + n < len && n < SYN_LIT_MAX && v[at + n] != q) {
+            dst[n] = v[at + n];
+            n++;
+        }
+
+        return n;
+    }
+    while (at + n < len && n < SYN_LIT_MAX && v[at + n] != ' '
+           && v[at + n] != '\t') {
+        dst[n] = v[at + n];
+        n++;
+    }
+
+    return n;
+}
+
+// How far a literal reached in the value, so the next one can be found after
+// it. Two more than its length when it was quoted.
+static int lit_span(const char* v, int at, int len, int n) {
+    return (at < len && (v[at] == '"' || v[at] == '\'')) ? n + 2 : n;
+}
+
+// Words are packed and their offsets sorted, so in_words can bisect. Insertion
+// sort: a set is a few dozen and this runs once, when the grammar is read.
+static void add_words(syntax* g, syn_rule* r, const char* v, int at, int len) {
+    r->word_at = g->noffs;
+    r->word_n = 0;
+    while (at < len) {
+        while (at < len && (v[at] == ' ' || v[at] == '\t' || v[at] == ',')) {
+            at++;
+        }
+        const int start = at;
+        while (at < len && v[at] != ' ' && v[at] != '\t' && v[at] != ',') {
+            at++;
+        }
+        const int wlen = at - start;
+        if (wlen == 0) {
+            break;
+        }
+        if (g->nwords + wlen + 1 > SYN_WORDS_MAX
+                || g->noffs >= SYN_WORDOFF_MAX) {
+            break;              // full: the rest of the set is dropped
+        }
+        const int off = g->nwords;
+        memcpy(g->words + off, v + start, (size_t) wlen);
+        g->words[off + wlen] = 0;
+        g->nwords += wlen + 1;
+
+        // In place, among this rule's offsets only.
+        int i = r->word_n;
+        while (i > 0) {
+            const char* prev = g->words + g->wordoff[r->word_at + i - 1];
+            if (cmp_word(g->words + off, wlen, prev, g->nocase) >= 0) {
+                break;
+            }
+            g->wordoff[r->word_at + i] = g->wordoff[r->word_at + i - 1];
+            i--;
+        }
+        g->wordoff[r->word_at + i] = off;
+        r->word_n++;
+        g->noffs++;
+    }
+}
+
+static const struct { const char* name; match_kind kind; } VERBS[] = {
+    { "eol",    M_EOL    },
+    { "span",   M_SPAN   },
+    { "words",  M_WORDS  },
+    { "bol",    M_BOL    },
+    { "number", M_NUMBER },
+    { "label",  M_LABEL  },
+};
+
+bool syn_load(syntax* g, const char* path) {
+    if (g == NULL || path == NULL) {
+        return false;
+    }
+    static char buf[2048];
+    const char fh = mos_fopen(path, FA_READ);
+    if (fh == 0) {
+        return false;
+    }
+    const unsigned got = mos_fread(fh, buf, (unsigned) sizeof(buf) - 1);
+    mos_fclose(fh);
+    if (got == 0) {
+        return false;
+    }
+    const int len = (int) got;
+
+    static syntax g2;
+    syn_clear(&g2);
+
+    // Two passes. `case` decides how words are sorted and compared, and it can
+    // be written after them, so it is read before any rule is.
+    for (int pass = 0; pass < 2; pass++) {
+        int at = 0;
+        bool in_syntax = false;
+        bool in_match = false;
+        while (at < len) {
+            int end = at;
+            while (end < len && buf[end] != '\n') {
+                end++;
+            }
+            const line ln = ini_read_line(buf, at, end);
+            if (ln.kind == LINE_SECTION) {
+                in_syntax = ini_name_is(ln.name, ln.namelen, "syntax");
+                in_match = ini_name_is(ln.name, ln.namelen, "match");
+            } else if (ln.kind == LINE_SETTING && in_syntax && pass == 0) {
+                if (ini_name_is(ln.name, ln.namelen, "name")) {
+                    const int k = ln.valuelen < SYN_NAME_MAX - 1
+                                ? ln.valuelen : SYN_NAME_MAX - 1;
+                    memcpy(g2.name, ln.value, (size_t) k);
+                } else if (ini_name_is(ln.name, ln.namelen, "extensions")) {
+                    const int k = ln.valuelen < SYN_EXTS_MAX - 1
+                                ? ln.valuelen : SYN_EXTS_MAX - 1;
+                    memcpy(g2.exts, ln.value, (size_t) k);
+                } else if (ini_name_is(ln.name, ln.namelen, "case")) {
+                    g2.nocase = ini_name_is(ln.value, ln.valuelen,
+                                            "insensitive");
+                }
+            } else if (ln.kind == LINE_SETTING && in_match && pass == 1) {
+                if (g2.nrules >= SYN_MAX_RULES) {
+                    at = end + 1;
+                    continue;
+                }
+                syn_rule* r = &g2.rules[g2.nrules];
+                memset(r, 0, sizeof(*r));
+                r->cls = (char) syn_class_of(ln.name, ln.namelen);
+
+                int vat = 0;
+                while (vat < ln.valuelen && ln.value[vat] != ' '
+                       && ln.value[vat] != '\t') {
+                    vat++;
+                }
+                int found = -1;
+                for (int k = 0; k < 6; k++) {
+                    if (ini_name_is(ln.value, vat, VERBS[k].name)) {
+                        found = k;
+                        break;
+                    }
+                }
+                if (found < 0) {
+                    at = end + 1;
+                    continue;   // a verb nobody knows is a rule nobody applies
+                }
+                r->kind = (char) VERBS[found].kind;
+                vat = after_verb(ln.value, ln.valuelen, vat);
+
+                if (r->kind == M_WORDS) {
+                    add_words(&g2, r, ln.value, vat, ln.valuelen);
+                    if (r->word_n == 0) {
+                        at = end + 1;
+                        continue;
+                    }
+                } else if (r->kind == M_EOL || r->kind == M_BOL
+                           || r->kind == M_SPAN) {
+                    r->nopen = (char) copy_lit(r->open, ln.value, vat,
+                                               ln.valuelen);
+                    if (r->nopen == 0) {
+                        at = end + 1;
+                        continue;
+                    }
+                    if (r->kind == M_SPAN) {
+                        vat = after_verb(ln.value, ln.valuelen,
+                                         vat + lit_span(ln.value, vat,
+                                                        ln.valuelen, r->nopen));
+                        r->nclose = (char) copy_lit(r->close, ln.value, vat,
+                                                    ln.valuelen);
+                        if (r->nclose == 0) {
+                            at = end + 1;
+                            continue;
+                        }
+                        vat = after_verb(ln.value, ln.valuelen,
+                                         vat + lit_span(ln.value, vat,
+                                                        ln.valuelen,
+                                                        r->nclose));
+                        if (ini_name_is(ln.value + vat, 6, "escape")) {
+                            vat = after_verb(ln.value, ln.valuelen, vat + 6);
+                            if (vat < ln.valuelen) {
+                                r->escape = ln.value[vat];
+                            }
+                        }
+                    }
+                }
+                g2.nrules++;
+            }
+            at = end + 1;
+        }
+    }
+
+    if (g2.nrules == 0) {
+        return false;           // a grammar that matches nothing is not one
+    }
+    g2.loaded = true;
+    *g = g2;
+
+    return true;
+}
+
+int syn_lex(const syntax* g, const char* line, int len, tok_run* out, int max) {
+    if (g == NULL || !g->loaded || line == NULL || out == NULL || max <= 0) {
+        return 0;
+    }
+    int n = 0;
+    int at = 0;
+    bool at_line_start = true;      // nothing but blanks seen yet
+
+    while (at < len) {
+        int took = 0;
+        tok_class cls = TOK_TEXT;
+
+        for (int k = 0; k < g->nrules && took == 0; k++) {
+            const syn_rule* r = &g->rules[k];
+            switch ((match_kind) r->kind) {
+                case M_EOL:
+                    if (lit_at(line, len, at, r->open, r->nopen, g->nocase)) {
+                        took = len - at;
+                        cls = (tok_class) r->cls;
+                    }
+                    break;
+                case M_SPAN: {
+                    if (!lit_at(line, len, at, r->open, r->nopen, g->nocase)) {
+                        break;
+                    }
+                    int i = at + r->nopen;
+                    while (i < len) {
+                        if (r->escape != 0 && line[i] == r->escape
+                                && i + 1 < len) {
+                            i += 2;
+                            continue;
+                        }
+                        if (lit_at(line, len, i, r->close, r->nclose,
+                                   g->nocase)) {
+                            i += r->nclose;
+                            break;
+                        }
+                        i++;
+                    }
+                    // An unclosed span ends with the line. Nothing here crosses
+                    // one; a grammar that needs that comes with the state to
+                    // carry it.
+                    took = (i > len ? len : i) - at;
+                    cls = (tok_class) r->cls;
+                } break;
+                case M_WORDS: {
+                    if (!is_word(line[at]) || (at > 0 && is_word(line[at - 1]))) {
+                        break;      // mid-word: not a word boundary
+                    }
+                    int i = at;
+                    while (i < len && is_word(line[i])) {
+                        i++;
+                    }
+                    if (in_words(g, r, line + at, i - at)) {
+                        took = i - at;
+                        cls = (tok_class) r->cls;
+                    }
+                } break;
+                case M_BOL:
+                    if (at_line_start
+                            && lit_at(line, len, at, r->open, r->nopen,
+                                      g->nocase)) {
+                        took = len - at;
+                        cls = (tok_class) r->cls;
+                    }
+                    break;
+                case M_LABEL: {
+                    if (at != 0 || !is_word(line[at]) || is_digit(line[at])) {
+                        break;      // only where a line starts, and not a number
+                    }
+                    int i = at;
+                    while (i < len && is_word(line[i])) {
+                        i++;
+                    }
+                    took = i - at;
+                    cls = (tok_class) r->cls;
+                } break;
+                case M_NUMBER: {
+                    if (at > 0 && is_word(line[at - 1])) {
+                        break;      // the tail of a word is not a number
+                    }
+                    const int k2 = number_at(line, len, at);
+                    if (k2 > 0) {
+                        took = k2;
+                        cls = (tok_class) r->cls;
+                    }
+                } break;
+                default:
+                    break;
+            }
+        }
+
+        if (took == 0) {
+            // Nothing claimed this byte. A whole word goes at once so that the
+            // next position is a boundary again, which is what lets the word
+            // rules trust `is_word(line[at - 1])`.
+            took = 1;
+            if (is_word(line[at])) {
+                while (at + took < len && is_word(line[at + took])) {
+                    took++;
+                }
+            }
+            cls = TOK_TEXT;
+        }
+        if (line[at] != ' ' && line[at] != '\t') {
+            at_line_start = false;
+        }
+        at += took;
+        n = add_run(out, n, max, at, cls);
+    }
+
+    return n;
+}

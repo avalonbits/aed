@@ -103,4 +103,78 @@ bool theme_covers(const theme* t, int bg);
 // The colour for a class. TOK_TEXT when the theme says nothing about it.
 char theme_colour(const theme* t, tok_class c);
 
+/*
+ * A grammar: how a language's text divides into the classes above.
+ *
+ * Sublime's model, without its regular expressions. A rule is a way of
+ * matching, a scope for what it matched, and that is all -- there is no engine
+ * here, because an eZ80 cannot run one per column per repaint (see
+ * .internal/docs/SYNTAX.md, and test/probes/vducost.c for what a repaint
+ * costs). Six ways of matching cover assembly, C and BASIC completely.
+ */
+typedef enum _match_kind {
+    M_EOL = 0,      // a literal, and the rest of the line after it
+    M_SPAN,         // from one literal to another, with an optional escape
+    M_WORDS,        // any of a set, on whole-word boundaries
+    M_BOL,          // a literal, only where a line starts
+    M_NUMBER,       // a numeric literal; built in, every language wants one
+    M_LABEL,        // an identifier where a line starts
+} match_kind;
+
+#define SYN_LIT_MAX    4        // "/*", "//", ";" -- none of them are long
+#define SYN_MAX_RULES  12
+#define SYN_WORDS_MAX  768      // the packed text of every word set
+#define SYN_WORDOFF_MAX 192     // one offset per word, sorted for searching
+
+typedef struct _syn_rule {
+    char kind;                  // a match_kind
+    char cls;                   // a tok_class, from the scope the rule named
+    char open[SYN_LIT_MAX];
+    char nopen;
+    char close[SYN_LIT_MAX];
+    char nclose;
+    char escape;                // 0 for none
+    int word_at;                // first offset in the grammar's word index
+    int word_n;
+} syn_rule;
+
+#define SYN_NAME_MAX 24
+#define SYN_EXTS_MAX 64
+
+typedef struct _syntax {
+    char name[SYN_NAME_MAX];
+    char exts[SYN_EXTS_MAX];    // ".c .h .cc", as written
+    bool nocase;
+    syn_rule rules[SYN_MAX_RULES];
+    int nrules;
+    char words[SYN_WORDS_MAX];  // every word set, packed and NUL-terminated
+    int nwords;                 // bytes used
+    int wordoff[SYN_WORDOFF_MAX];
+    int noffs;
+    bool loaded;
+} syntax;
+
+// Empties a grammar. A cleared one matches nothing, which paints plainly.
+void syn_clear(syntax* g);
+
+// Reads an INI grammar. False leaves it untouched, so a bad file gives the
+// grammar already loaded rather than half of a new one.
+bool syn_load(syntax* g, const char* path);
+
+// Whether this grammar claims a file name, by its extension.
+bool syn_covers(const syntax* g, const char* fname);
+
+/*
+ * Colours one line, as runs.
+ *
+ * Writes at most `max` runs and returns how many. Columns are byte offsets
+ * into the line, which is what the painting counts in before tabs are
+ * expanded. Runs come out in order and cover the line end to end, so the
+ * painting can walk them forward without searching.
+ *
+ * A line is lexed on its own: nothing here carries state from the line above,
+ * which is why a grammar in this step has no rule that crosses a line.
+ */
+int syn_lex(const syntax* g, const char* line, int len, tok_run* out, int max);
+
 #endif  // _SYNTAX_H_
