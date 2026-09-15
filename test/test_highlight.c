@@ -616,6 +616,21 @@ int main(void) {
         const int n6 = cap_read(cap, (int) sizeof(cap));
         check("  return in front of it keeps the line coloured",
               has_colour(cap, n6, 14), 1);
+
+        /*
+         * And what is known about the rows survives it. Inserting a line moves
+         * every row below, and the states are shifted to follow rather than
+         * worked out again -- which on a screenful of C costs a lex a row and
+         * measured 141 milliseconds a keystroke before the shift existed.
+         *
+         * The check is the invariant the shift maintains: the answers still
+         * describe this document. Without the shift the line count they were
+         * written under is one behind, and the next read throws them away.
+         */
+        check("  and what is known about the rows still describes it",
+              ed.synLines_, tb_ymax(&ed.buf_));
+        check("    and has not been thrown away",
+              ed.synTopLine_ != 0 ? 1 : 0, 1);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }

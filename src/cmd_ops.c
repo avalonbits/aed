@@ -439,14 +439,47 @@ static void fill_row_states(editor* ed, text_buffer* tb, int top) {
     // Static for the same reason as the scan above: this is inlined into
     // cmd_repaint_rows, which already holds a text_buffer of its own.
     static text_buffer cp;
+
+    /*
+     * Where to start, and in what.
+     *
+     * Reading back to find out what the top line begins inside costs
+     * SYN_LOOKBACK lines -- 200 of them, four times what a screenful is, and
+     * the larger half of what working the screen out again costs at all.
+     *
+     * A view that has moved *down* needs none of it. What its old top line
+     * began in is already known, and the lines between then and now are on
+     * screen, so walking forward from there is a lex per line moved -- one,
+     * for a scroll. The read-back is left for a view that arrived somewhere
+     * new: a jump, a slide, or a first paint.
+     */
+    int from = top;
+    int state;
+    const int moved = top - ed->synTopLine_;
+    if (ed->synTopLine_ != 0 && moved >= 0 && moved <= SCR_MAX_ROWS
+            && scr->topY_ < SCR_MAX_ROWS) {
+        from = ed->synTopLine_;
+        state = ed->rowSyn_[scr->topY_];
+    } else {
+        state = top_state(ed, top);
+    }
+
     tb_copy(&cp, tb);
     tb_pos p;
-    p.line = top;
+    p.line = from;
     p.x = 0;
     tb_seek(&cp, p);
-
-    int state = top_state(ed, top);
     int prev = tb_ypos(&cp);
+    // Forward to the line the top row actually shows.
+    while (prev < top) {
+        const split_line ln = tb_curr_line(&cp);
+        const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
+        syn_lex(&ed->syn_, synScan_, len, state, &state, NULL, 0);
+        if (tb_down(&cp) == prev) {
+            break;
+        }
+        prev = tb_ypos(&cp);
+    }
     for (char y = scr->topY_; y < scr->bottomY_ && y < SCR_MAX_ROWS; y++) {
         ed->rowSyn_[y] = (char) state;
         const split_line ln = tb_curr_line(&cp);
@@ -465,6 +498,37 @@ static void fill_row_states(editor* ed, text_buffer* tb, int top) {
     }
     ed->synTopLine_ = top;
     ed->synLines_ = tb_ymax(tb);
+}
+
+/*
+ * A line was inserted, splitting the line shown on row `y`; the half that moved
+ * down begins in `below`.
+ *
+ * The rows above y are unchanged and so is row y, whose line still begins where
+ * it did. The rows under it show what the row above them showed, so what is
+ * known about them is shifted rather than worked out again.
+ *
+ * Working a screen out again costs a lex of every row on it -- about 140
+ * milliseconds of C on an Agon, which is what pressing return used to pay.
+ */
+static void rows_inserted(editor* ed, char y, int below) {
+    SCR(ed);
+    if (ed->synTopLine_ == 0 || !syn_crosses_lines(&ed->syn_)) {
+        return;
+    }
+    int last = scr->bottomY_ - 1;
+    if (last >= SCR_MAX_ROWS) {
+        last = SCR_MAX_ROWS - 1;
+    }
+    if (y < scr->topY_ || y >= last) {
+        ed->synTopLine_ = 0;    // the split is at or past the bottom row
+        return;
+    }
+    for (int r = last; r > y + 1; r--) {
+        ed->rowSyn_[r] = ed->rowSyn_[r - 1];
+    }
+    ed->rowSyn_[y + 1] = (char) below;
+    ed->synLines_++;
 }
 
 static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
@@ -1430,15 +1494,18 @@ void cmd_newl(editor* ed) {
 
     char ch = tb_peek(tb);
     split_line ln = tb_curr_line(tb);
+    const int in = state_at_row(ed, tb, scr->currY_);
 
     if (!tb_newline(tb)) {
         return;
     }
     // What is left on this row is the text before the break, so it is lexed as
-    // its own line -- which it now is.
+    // its own line -- which it now is. It begins where the whole line began,
+    // which was read before the split: asking afterwards asks about a document
+    // the view does not describe yet, and the answer is worked out again for
+    // nothing.
     const split_line cut = { ln.psz_, ln.prefix_, 0, NULL };
-    const int out = set_row_colours(ed, &cut,
-                                    state_at_row(ed, tb, scr->currY_));
+    const int out = set_row_colours(ed, &cut, in);
     scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
     scr_place_cursor(scr, NULL, 0);
@@ -1452,9 +1519,13 @@ void cmd_newl(editor* ed) {
     const split_line moved = { ln.ssz_, ln.suffix_, 0, NULL };
     set_row_colours(ed, &moved, out);
     if  (scr->currY_ < scr->bottomY_-1) {
+        rows_inserted(ed, scr->currY_, out);
         scr->currY_++;
         scr_scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     } else {
+        // The view scrolled instead, so every row moved and the top line with
+        // them. Nothing above is worth keeping.
+        ed->synTopLine_ = 0;
         scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     }
 }
