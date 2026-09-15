@@ -62,7 +62,17 @@ editor may call, a `tbi_` name is one of those six talking to another.
 it works around is in a calling sequence that C cannot reach.
 
 There is no global state. Everything hangs off one
-[`editor`](../src/editor.h#L32), which `main` puts on the stack and passes down.
+[`editor`](../src/editor.h#L32), which `main` owns and passes down by address;
+nothing reaches it any other way.
+
+It is a `static` local rather than an ordinary one, which is a placement rather
+than a change of ownership -- no other translation unit can name it. The editor
+is most of a kilobyte, and `(IX + d)` addresses a frame with a signed byte, so
+on the stack it put every other local in `main` past the boundary and cost the
+two frame escapes the build used to carry. The heap and the stack grow toward
+each other out of one region (`__stack` is `___heaptop`), so moving it from one
+to the other costs no memory: `.bss` grew 776 bytes and the stack stopped
+needing 825.
 
 ---
 
