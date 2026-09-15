@@ -546,6 +546,63 @@ bool cfg_update(const config* cfg, const char* path) {
     return write_file(path, out, n);
 }
 
+void cfg_migrate(void) {
+    // Already moved. An .cfg beside it is somebody else's file now.
+    char have = mos_fopen(CFG_PATH, FA_READ);
+    if (have != 0) {
+        mos_fclose(have);
+
+        return;
+    }
+
+    char in = mos_fopen(CFG_PATH_OLD, FA_READ);
+    if (in == 0) {
+        return;             // neither file: a first run, and nothing to move
+    }
+
+    mos_mkdir(CFG_DIR);
+    char out = mos_fopen(CFG_PATH, FA_WRITE | FA_CREATE_ALWAYS);
+    if (out == 0) {
+        mos_fclose(in);
+
+        return;
+    }
+
+    /*
+     * Copied a bufferful at a time rather than read whole. Settings files are
+     * small, but this one belongs to the reader and may have anything in it --
+     * comments, sections AED does not know, a section for something else --
+     * and none of that should be lost for being longer than a buffer.
+     */
+    static char buf[CFG_MAX];
+    bool ok = true;
+    for (;;) {
+        const unsigned n = mos_fread(in, buf, CFG_MAX);
+        if (n == 0) {
+            break;
+        }
+        if (mos_fwrite(out, buf, n) != n) {
+            ok = false;
+            break;
+        }
+        if (n < CFG_MAX) {
+            break;
+        }
+    }
+    mos_fclose(in);
+    mos_fclose(out);
+
+    if (!ok) {
+        // A half-written settings file would be read as the whole of the
+        // reader's settings next time. Take it away and leave the old one
+        // where it is, so the next run has something to try again from.
+        mos_del(CFG_PATH);
+
+        return;
+    }
+    mos_del(CFG_PATH_OLD);
+}
+
 bool cfg_load(config* cfg, const char* path) {
     if (path == NULL) {
         return false;

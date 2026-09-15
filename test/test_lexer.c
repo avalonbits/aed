@@ -652,6 +652,49 @@ int main(void) {
               syn_class_of("meta.nonsense", 13), TOK_TEXT);
     }
 
+    /* --- the INI grammar AED ships --- */
+    {
+        /*
+         * The settings file is an INI file, and so is every grammar and theme
+         * beside it -- including this one. So the editor can colour its own
+         * configuration, which is most of what a user of it edits.
+         */
+        static char text[4096];
+        int n = 0;
+        {
+            FILE* f = fopen("config/aed/syntax/ini.cfg", "rb");
+            if (f == NULL) {
+                fprintf(stderr, "FAIL  cannot open config/aed/syntax/ini.cfg\n");
+                failures++;
+            } else {
+                n = (int) fread(text, 1, sizeof(text), f);
+                fclose(f);
+            }
+        }
+        stub_file_reset();
+        stub_file_add("/ini.cfg", text, n);
+        syn_clear(&g);
+        check("the INI grammar loads", syn_load(&g, "/ini.cfg") ? 1 : 0, 1);
+        check("  and claims the settings file",
+              syn_covers(&g, "/config/aed.ini") ? 1 : 0, 1);
+        check("    and a grammar beside it",
+              syn_covers(&g, "/config/aed/syntax/c.cfg") ? 1 : 0, 1);
+        check("  and leaves a .c file alone",
+              syn_covers(&g, "/main.c") ? 1 : 0, 0);
+        check("  and nothing in it crosses a line",
+              syn_crosses_lines(&g) ? 1 : 0, 0);
+
+        /* A heading is a label and a name is a type, so a section stands out
+         * from the settings inside it rather than sharing their colour. */
+        check_lex("[editor]", &g, "LLLLLLLL");
+        check_lex("tab = 2", &g, "YYYTTTN");
+        check_lex("# a comment", &g, "CCCCCCCCCCC");
+        check_lex("; also a comment", &g, "CCCCCCCCCCCCCCCC");
+        check_lex("fg = 9    ; trailing", &g, "YYTTTNTTTTCCCCCCCCCC");
+        check_lex("font = /config/aed/unscii16.bin", &g,
+                  "YYYYTTTTTTTTTTTTTTTTTTTTTTTTTTT");
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

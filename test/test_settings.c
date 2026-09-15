@@ -384,7 +384,7 @@ int main(void) {
         static const char before[] = "[editor]\r\ntab = 4\r\n";
         stub_file_reset();
         stub_file_set_content(before, (int) sizeof(before) - 1);
-        cfg_update(&cfg, "/config/aed.cfg");
+        cfg_update(&cfg, CFG_PATH);
         check("  and reaches the file",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
         ui_destroy(&ui);
@@ -455,7 +455,7 @@ int main(void) {
         strcpy(cfg.font, "/config/aed/unscii16.bin");
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&cfg, "/config/aed.cfg");
+        cfg_update(&cfg, CFG_PATH);
 
         const char* out = stub_file_bytes();
         check("the new font replaces the old one",
@@ -479,7 +479,7 @@ int main(void) {
         cfg_defaults(&quiet);
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&quiet, "/config/aed.cfg");
+        cfg_update(&quiet, CFG_PATH);
         check("saying nothing leaves the font line alone",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
 
@@ -490,7 +490,7 @@ int main(void) {
         none.font_none = true;
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&none, "/config/aed.cfg");
+        cfg_update(&none, CFG_PATH);
         check("  but asking for none empties it",
               strstr(stub_file_bytes(), "unscii16") == NULL, 1);
         check("  leaving the setting there, with no value",
@@ -587,7 +587,7 @@ int main(void) {
         stub_set_cell(8, 8);
         stub_file_reset();
         stub_file_add("/autoexec.txt", boot, (int) sizeof(boot) - 1);
-        stub_file_add("/config/aed.cfg", cfg16, (int) sizeof(cfg16) - 1);
+        stub_file_add(CFG_PATH, cfg16, (int) sizeof(cfg16) - 1);
         stub_file_add("/config/aed/unscii16.bin", font16, (int) sizeof(font16));
         stub_file_add("doc.txt", doc2, (int) sizeof(doc2) - 1);
         stub_file_set_content(doc2, (int) sizeof(doc2) - 1);

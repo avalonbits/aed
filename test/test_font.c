@@ -518,7 +518,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&cfg);
         cfg.fg = 9;
-        cfg_update(&cfg, "/config/aed.cfg");
+        cfg_update(&cfg, CFG_PATH);
 
         const char* out = stub_file_bytes();
         check("the font line survives a colour change",

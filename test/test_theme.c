@@ -173,7 +173,7 @@ int main(void) {
     {
         /*
          * The path that matters: a file with a theme is open, the user opens
-         * settings and saves. What lands in aed.cfg has to be their own pair.
+         * settings and saves. What lands in aed.ini has to be their own pair.
          * Written against scr_base_fg because that is what editor.c and
          * user_input.c now read; if either went back to scr_fg, a session that
          * had ever opened a .c file would rewrite the user's colours.

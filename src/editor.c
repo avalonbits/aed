@@ -207,7 +207,7 @@ void ed_pick_syntax(editor* ed) {
 
     /*
      * A theme may move the pair the document is drawn on, and moves only the
-     * active one. What the user chose is untouched and is what aed.cfg keeps,
+     * active one. What the user chose is untouched and is what aed.ini keeps,
      * so opening a file with no grammar -- which calls scr_base_restore above
      * -- puts their colours back.
      *
@@ -232,6 +232,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
 
     config cfg;
     cfg_defaults(&cfg);
+    // Before anything reads them: a card written by an older AED has the
+    // settings under the old name, and this is the one run that moves them.
+    cfg_migrate();
+
     if (cfg_load(&cfg, CFG_PATH)) {
         if (cfg.tab_size >= 0) {
             scr_set_tab_size(scr, (char) cfg.tab_size);
