@@ -123,8 +123,8 @@ typedef enum _match_kind {
 
 #define SYN_LIT_MAX    4        // "/*", "//", ";" -- none of them are long
 #define SYN_MAX_RULES  12
-#define SYN_WORDS_MAX  768      // the packed text of every word set
-#define SYN_WORDOFF_MAX 192     // one offset per word, sorted for searching
+#define SYN_WORDS_MAX  1024     // the packed text of every word set
+#define SYN_WORDOFF_MAX 224     // one offset per word, sorted for searching
 
 typedef struct _syn_rule {
     char kind;                  // a match_kind
@@ -142,9 +142,21 @@ typedef struct _syn_rule {
 #define SYN_NAME_MAX 24
 #define SYN_EXTS_MAX 64
 
+/*
+ * Characters a language counts as part of a word, beyond letters, digits, `_`
+ * and `.` which every language here shares.
+ *
+ * BASIC is why this is a setting rather than one global answer: `MID$` and
+ * `A%` end in characters that are punctuation in C and a hex or binary prefix
+ * in assembly. A word rule can only match `MID$` where `$` is part of the
+ * word, and `A%` may only be one word where `%` is.
+ */
+#define SYN_WORDCHARS_MAX 8
+
 typedef struct _syntax {
     char name[SYN_NAME_MAX];
     char exts[SYN_EXTS_MAX];    // ".c .h .cc", as written
+    char wordchars[SYN_WORDCHARS_MAX];
     bool nocase;
     syn_rule rules[SYN_MAX_RULES];
     int nrules;

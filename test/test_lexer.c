@@ -507,6 +507,151 @@ int main(void) {
         check("    and then it is clean", st2, SYN_STATE_NONE);
     }
 
+    /* --- a word rule needs the language's own idea of a word --- */
+    {
+        /*
+         * `MID$` is one word in BASIC and two things in C. Without wordchars
+         * the word run stops at the `D`, so the rule can never match what it
+         * names -- which is a rule that loads, looks right in the file, and
+         * silently colours nothing.
+         */
+        check("a grammar naming MID$ without saying $ is a word letter",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "support.function = words MID$\n") ? 1 : 0, 1);
+        check_lex("MID$", &g, "TTTT");
+
+        check("the same grammar saying so",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\nwordchars = $%\n"
+                        "[match]\nsupport.function = words MID$\n") ? 1 : 0, 1);
+        check_lex("MID$", &g, "YYYY");
+        check_lex("MID", &g, "TTT");
+        check("  and the letters are kept", g.wordchars[0] == '$'
+              && g.wordchars[1] == '%' ? 1 : 0, 1);
+    }
+
+    /* --- a comment marker that is a word has to sit on boundaries --- */
+    {
+        /*
+         * The BASIC counterpart of the ';' problem: `REM` starts a comment, so
+         * without a boundary check `REMOVE` starts one too and the rest of the
+         * line vanishes into it. A punctuation marker has no boundary to
+         * respect, which is why C and assembly are untouched.
+         */
+        check("a grammar whose comment marker is a word",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\ncase = insensitive\n"
+                        "[match]\ncomment.line = eol 'REM'\n") ? 1 : 0, 1);
+        check_lex("REM hi", &g, "CCCCCC");
+        check_lex("rem hi", &g, "CCCCCC");
+        check_lex("REMOVE", &g, "TTTTTT");
+        check_lex("X REM", &g, "TTCCC");
+        check_lex("XREM", &g, "TTTT");
+
+        /*
+         * The other half of the boundary, and it takes some arranging to
+         * reach: the fallback consumes a whole word at a time, so a rule is
+         * normally only ever tried at a boundary already. A span that closes
+         * on a word character is the one thing that leaves the next position
+         * in the middle of a word -- and there the marker has to be refused.
+         */
+        check("a grammar whose span closes on a word character",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\ncase = insensitive\n"
+                        "[match]\ncomment.line = eol 'REM'\n"
+                        "string.quoted.double = span '<' 'X'\n") ? 1 : 0, 1);
+        check_lex("a<bXREM", &g, "TSSSTTT");
+        check_lex("a<bX REM", &g, "TSSSTCCC");
+
+        check("a grammar whose marker is punctuation",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "comment.line = eol '//'\n") ? 1 : 0, 1);
+        check_lex("a//b", &g, "TCCC");
+    }
+
+    /* --- numbers a language other than assembly writes --- */
+    {
+        check("a grammar with numbers",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n[match]\n"
+                        "constant.numeric = number\n") ? 1 : 0, 1);
+        check_lex("&FF", &g, "NNN");
+        check_lex("$FF", &g, "NNN");
+        check_lex("10.5", &g, "NNNN");
+        check_lex("3.14159", &g, "NNNNNNN");
+
+        /*
+         * `&foo` is why `&` could not simply join the prefix list: `f` is a hex
+         * digit, so without a check that the run ends where a word would, this
+         * reads as the number `&f` and the text `oo`.
+         */
+        check_lex("&foo", &g, "TTTT");
+        check_lex("&", &g, "T");
+        /* One point only, so a version is text and assembly's rst.lil is safe. */
+        check_lex("1.0.2", &g, "TTTTT");
+    }
+
+    /* --- the BASIC grammar AED ships --- */
+    {
+        static char text[4096];
+        int n = 0;
+        {
+            FILE* f = fopen("config/aed/syntax/bas.cfg", "rb");
+            if (f == NULL) {
+                fprintf(stderr, "FAIL  cannot open config/aed/syntax/bas.cfg\n");
+                failures++;
+            } else {
+                n = (int) fread(text, 1, sizeof(text), f);
+                fclose(f);
+            }
+        }
+        stub_file_reset();
+        stub_file_add("/bas.cfg", text, n);
+        syn_clear(&g);
+        check("the BASIC grammar loads", syn_load(&g, "/bas.cfg") ? 1 : 0, 1);
+        check("  and claims a .bas file", syn_covers(&g, "/hello.bas") ? 1 : 0, 1);
+        check("  and leaves a .c file alone",
+              syn_covers(&g, "/main.c") ? 1 : 0, 0);
+        check("  BASIC is case insensitive", g.nocase ? 1 : 0, 1);
+
+        /*
+         * add_words drops the rest of a set when either budget runs out, and it
+         * does so without a word of complaint -- so the check that matters is
+         * not that the file parsed, it is that the last word of the longest set
+         * still matches. Breaking it would look like one keyword that quietly
+         * stopped colouring.
+         */
+        check("  its word sets fit", g.nwords < SYN_WORDS_MAX
+              && g.noffs < SYN_WORDOFF_MAX ? 1 : 0, 1);
+        check_lex("LINE", &g, "KKKK");     /* last of keyword.control */
+        check_lex("VPOS", &g, "YYYY");     /* last of support.function */
+        check_lex("DIV", &g, "OOO");       /* last of punctuation.operator */
+
+        check_lex("PRINT \"hi\"", &g, "KKKKKTSSSS");
+        check_lex("print \"hi\"", &g, "KKKKKTSSSS");
+        check_lex("REM a comment", &g, "CCCCCCCCCCCCC");
+        check_lex("REMOVE = 1", &g, "TTTTTTTTTN");
+        check_lex("X% = &FF", &g, "TTTTTNNN");
+        check_lex("A = 10.5", &g, "TTTTNNNN");
+        check_lex("10 PRINT", &g, "NNTKKKKK");
+        check_lex("IF A AND B THEN", &g, "KKTTTOOOTTTKKKK");
+        check_lex("PRINT MID$(A$,1,2)", &g, "KKKKKTYYYYTTTTNTNT");
+
+        /* A doubled quote closes and reopens rather than escaping, which is
+         * what BBC BASIC actually does. */
+        check_lex("\"a\"\"b\"", &g, "SSSSSS");
+    }
+
+    /* --- a scope a theme can colour without knowing the language --- */
+    {
+        check("support.function is a class of its own",
+              syn_class_of("support.function", 16), TOK_TYPE);
+        check("  and an unknown head is still plain text",
+              syn_class_of("meta.nonsense", 13), TOK_TEXT);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

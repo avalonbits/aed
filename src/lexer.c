@@ -26,9 +26,20 @@
 // A word is a run of these. The dot is in because assembly wants it at both
 // ends of a name -- `.db` is a directive and `rst.lil` is one opcode -- and
 // nothing else in the three languages is hurt by it.
-static bool is_word(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-        || (c >= '0' && c <= '9') || c == '_' || c == '.';
+static bool is_word(const syntax* g, char c) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+            || (c >= '0' && c <= '9') || c == '_' || c == '.') {
+        return true;
+    }
+    if (g != NULL) {
+        for (int i = 0; i < SYN_WORDCHARS_MAX && g->wordchars[i] != 0; i++) {
+            if (g->wordchars[i] == c) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 static bool is_digit(char c) {
@@ -128,28 +139,77 @@ static int span_end(const syn_rule* r, const char* s, int len, int i,
     return -1;
 }
 
-static int number_at(const char* s, int len, int at) {
+/*
+ * Whether a literal made of word characters is sitting on word boundaries.
+ *
+ * BASIC is why this exists: `REM` begins a comment, and without this `REMOVE`
+ * would begin one too, commenting out the rest of the line. A literal that is
+ * punctuation -- `//`, `;`, `#` -- has no boundary to respect and is
+ * unaffected, so C and assembly read exactly as they did.
+ */
+static bool lit_bounded(const syntax* g, const char* s, int len, int at,
+                        const char* lit, int n) {
+    if (n <= 0) {
+        return true;
+    }
+    if (is_word(g, lit[0]) && at > 0 && is_word(g, s[at - 1])) {
+        return false;
+    }
+    if (is_word(g, lit[n - 1]) && at + n < len && is_word(g, s[at + n])) {
+        return false;
+    }
+
+    return true;
+}
+
+static int number_at(const syntax* g, const char* s, int len, int at) {
     int i = at;
-    if (i < len && (s[i] == '$' || s[i] == '%' || s[i] == '#')) {
+    // `$FF` and `%1010` in assembly, `&FF` in BASIC, `#10` where a language
+    // writes it that way.
+    if (i < len && (s[i] == '$' || s[i] == '%' || s[i] == '#' || s[i] == '&')) {
         i++;
         const int start = i;
         while (i < len && (is_digit(s[i])
                            || (fold(s[i]) >= 'a' && fold(s[i]) <= 'f'))) {
             i++;
         }
+        if (i == start) {
+            return 0;
+        }
+        /*
+         * The run has to end where a word would. Without this, C's `&foo`
+         * reads as the number `&f` followed by `oo`, because `f` is a hex
+         * digit -- which is the whole reason `&` could not simply be added to
+         * the list above.
+         */
+        if (i < len && is_word(g, s[i])) {
+            return 0;
+        }
 
-        return i > start ? i - at : 0;
+        return i - at;
     }
     if (i >= len || !is_digit(s[i])) {
         return 0;
     }
-    while (i < len && (is_digit(s[i]) || fold(s[i]) == 'x'
-                       || (fold(s[i]) >= 'a' && fold(s[i]) <= 'f'))) {
-        i++;
+    bool dot = false;
+    while (i < len) {
+        if (is_digit(s[i]) || fold(s[i]) == 'x'
+                || (fold(s[i]) >= 'a' && fold(s[i]) <= 'f')) {
+            i++;
+            continue;
+        }
+        // One decimal point, and only with a digit behind it, so `10.5` is a
+        // number while `1.0.2` and assembly's `rst.lil` are not.
+        if (s[i] == '.' && !dot && i + 1 < len && is_digit(s[i + 1])) {
+            dot = true;
+            i += 2;
+            continue;
+        }
+        break;
     }
     // A number runs up to a word character it did not consume, which is what
     // keeps `1st` out: the `s` and `t` are word characters, so this is a word.
-    if (i < len && is_word(s[i])) {
+    if (i < len && is_word(g, s[i])) {
         return 0;
     }
 
@@ -370,6 +430,16 @@ bool syn_load(syntax* g, const char* path) {
                 } else if (ini_name_is(ln.name, ln.namelen, "case")) {
                     g2.nocase = ini_name_is(ln.value, ln.valuelen,
                                             "insensitive");
+                } else if (ini_name_is(ln.name, ln.namelen, "wordchars")) {
+                    // Written run together -- `wordchars = $%` -- because
+                    // separating them would need an escape for the space.
+                    int w = 0;
+                    for (int c = 0; c < ln.valuelen
+                                    && w < SYN_WORDCHARS_MAX - 1; c++) {
+                        if (ln.value[c] != ' ' && ln.value[c] != '\t') {
+                            g2.wordchars[w++] = ln.value[c];
+                        }
+                    }
                 }
             } else if (ln.kind == LINE_SETTING && in_match && pass == 1) {
                 if (g2.nrules >= SYN_MAX_RULES) {
@@ -520,7 +590,9 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
             const syn_rule* r = &g->rules[k];
             switch ((match_kind) r->kind) {
                 case M_EOL:
-                    if (lit_at(line, len, at, r->open, r->nopen, g->nocase)) {
+                    if (lit_at(line, len, at, r->open, r->nopen, g->nocase)
+                            && lit_bounded(g, line, len, at, r->open,
+                                           r->nopen)) {
                         took = len - at;
                         cls = (tok_class) r->cls;
                     }
@@ -546,11 +618,12 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
                     cls = (tok_class) r->cls;
                 } break;
                 case M_WORDS: {
-                    if (!is_word(line[at]) || (at > 0 && is_word(line[at - 1]))) {
+                    if (!is_word(g, line[at])
+                            || (at > 0 && is_word(g, line[at - 1]))) {
                         break;      // mid-word: not a word boundary
                     }
                     int i = at;
-                    while (i < len && is_word(line[i])) {
+                    while (i < len && is_word(g, line[i])) {
                         i++;
                     }
                     if (in_words(g, r, line + at, i - at)) {
@@ -561,27 +634,29 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
                 case M_BOL:
                     if (at_line_start
                             && lit_at(line, len, at, r->open, r->nopen,
-                                      g->nocase)) {
+                                      g->nocase)
+                            && lit_bounded(g, line, len, at, r->open,
+                                           r->nopen)) {
                         took = len - at;
                         cls = (tok_class) r->cls;
                     }
                     break;
                 case M_LABEL: {
-                    if (at != 0 || !is_word(line[at]) || is_digit(line[at])) {
+                    if (at != 0 || !is_word(g, line[at]) || is_digit(line[at])) {
                         break;      // only where a line starts, and not a number
                     }
                     int i = at;
-                    while (i < len && is_word(line[i])) {
+                    while (i < len && is_word(g, line[i])) {
                         i++;
                     }
                     took = i - at;
                     cls = (tok_class) r->cls;
                 } break;
                 case M_NUMBER: {
-                    if (at > 0 && is_word(line[at - 1])) {
+                    if (at > 0 && is_word(g, line[at - 1])) {
                         break;      // the tail of a word is not a number
                     }
-                    const int k2 = number_at(line, len, at);
+                    const int k2 = number_at(g, line, len, at);
                     if (k2 > 0) {
                         took = k2;
                         cls = (tok_class) r->cls;
@@ -595,10 +670,10 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
         if (took == 0) {
             // Nothing claimed this byte. A whole word goes at once so that the
             // next position is a boundary again, which is what lets the word
-            // rules trust `is_word(line[at - 1])`.
+            // rules trust `is_word(g, line[at - 1])`.
             took = 1;
-            if (is_word(line[at])) {
-                while (at + took < len && is_word(line[at + took])) {
+            if (is_word(g, line[at])) {
+                while (at + took < len && is_word(g, line[at + took])) {
                     took++;
                 }
             }
