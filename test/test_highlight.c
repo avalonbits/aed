@@ -726,6 +726,132 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- the row a scroll brings in from below --- */
+    {
+        /*
+         * Scrolling moves every row up and brings in a line that was off
+         * screen. Two things have to be right: what each row that moved begins
+         * inside, which is what the row under it began inside, and what the
+         * new bottom row begins inside, which nothing on screen knew.
+         *
+         * The document alternates on purpose. Neighbouring rows in the same
+         * state hide a shift that never happened, because the wrong answer and
+         * the right one are the same value.
+         *
+         *   1  int a;          begins outside, leaves outside
+         *   2  /_* y           begins outside, leaves INSIDE
+         *   3  *_/ int c;      begins INSIDE, leaves outside
+         *   4  int d;          begins outside
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char SCROLL[] =
+            "int z;\r\nint a;\r\n/* y\r\n*/ int c;\r\nint d;\r\n";
+        stub_file_add("/scroll.c", SCROLL, (int) sizeof(SCROLL) - 1);
+        tb_load(&ed.buf_, "/scroll.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 5;           /* four rows: lines 1 to 4 */
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        while (ed.scr_.currY_ < ed.scr_.bottomY_ - 1) {
+            cmd_down(&ed);
+        }
+        check("the cursor is on the bottom row", ed.scr_.currY_,
+              ed.scr_.bottomY_ - 1);
+
+        check("  and the painted screen left its answers behind",
+              ed.synTopLine_, 1);
+        cmd_down(&ed);                  /* line 5 scrolls into view */
+        check("  the view has moved down one", tb_ypos(&ed.buf_), 5);
+        check("    and the answers moved with it", ed.synTopLine_, 2);
+
+        /*
+         * The row that came in from below, first. Its state is the one nothing
+         * on screen knew, and taking it from the row above paints this line as
+         * comment instead of code.
+         *
+         * Before row 3, on purpose: painting a row writes what it leaves into
+         * the row under it, so checking row 3 first would repair row 4's
+         * answer and hide a wrong one.
+         */
+        cap_start();
+        cmd_repaint_rows(&ed, 4, 4);
+        int ns = cap_read(cap, (int) sizeof(cap));
+        check("    the row from below begins where its line does",
+              column_of_colour(cap, ns, 14), 0);
+        check("      rather than inside the comment",
+              has_colour(cap, ns, 8), 0);
+
+        /*
+         * And row 3 shows the line that closes the comment. It begins inside
+         * one, so its first two characters are comment. If the rows did not
+         * move, row 3 still answers for the line above and they paint plain.
+         */
+        cap_start();
+        cmd_repaint_rows(&ed, 3, 3);
+        ns = cap_read(cap, (int) sizeof(cap));
+        check("    a row that moved up begins where its line does",
+              column_of_colour(cap, ns, 8), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- joining two lines can open something neither of them did --- */
+    {
+        /*
+         * When two lines become one, what the merged line leaves is usually
+         * what the second of them left -- which is what the row under it
+         * already answered, so shifting alone would do.
+         *
+         * Not always. Taking the break out puts the two halves together, and
+         * characters that meant nothing apart can mean something joined:
+         *
+         *   int a; /      leaves nothing open
+         *   * still       leaves nothing open
+         *   int b;
+         *
+         * joined, the first line reads `int a; /* still` and opens a comment
+         * that runs on. The row under it has to be told what the merged line
+         * leaves rather than what the line it replaced left.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char MERGE[] = "int a; /\r\n* still\r\nint b;\r\nint c;\r\n"
+            "int d;\r\nint e;\r\nint f;\r\nint g;\r\n";
+        stub_file_add("/merge.c", MERGE, (int) sizeof(MERGE) - 1);
+        tb_load(&ed.buf_, "/merge.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 5;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+        check("the screen left its answers behind", ed.synTopLine_, 1);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 3, 3);
+        int nm = cap_read(cap, (int) sizeof(cap));
+        check("  the third line is code to start with",
+              column_of_colour(cap, nm, 14), 0);
+
+        /* Join the first two, with the cursor at the end of the first. */
+        cmd_end(&ed);
+        cmd_del(&ed);
+        check("  joining takes a line out", tb_ymax(&ed.buf_), 8);
+        check("    and the answers survived it", ed.synTopLine_ != 0 ? 1 : 0, 1);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 2, 2);
+        nm = cap_read(cap, (int) sizeof(cap));
+        check("    and the row under it is inside the comment now",
+              column_of_colour(cap, nm, 8), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
     /* --- the cell the cursor starts on --- */
     {
         /*

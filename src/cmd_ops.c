@@ -136,7 +136,11 @@ static int back_get(void* ctx, int y, char* buf, int max) {
     back_scan* bs = (back_scan*) ctx;
     const int want = y + 1;     // syn_state_before counts lines from zero
     while (bs->at < want) {
-        const int now = tb_down(&bs->cp);
+        // tb_down answers with the character it landed on, so whether it moved
+        // is a question for tb_ypos. Comparing the two reads a letter as a
+        // line number, and 'A' is line 65.
+        tb_down(&bs->cp);
+        const int now = tb_ypos(&bs->cp);
         if (now == bs->at) {
             return -1;          // the document ended first
         }
@@ -207,8 +211,18 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     // has to be worked out, and only when the grammar has something that can
     // cross a line.
     int state = top_state(ed, tpos);
+    /*
+     * And what each row begins inside is worth keeping as it goes past. This
+     * walk is exactly the one working it out again would do, so recording it
+     * here is free -- and it means the first scroll after a repaint has
+     * something to shift rather than a screen to lex.
+     */
+    const int top_here = tpos;
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
+        if (ypos < SCR_MAX_ROWS) {
+            ed->rowSyn_[ypos] = (char) state;
+        }
         state = set_row_colours(ed, &ln, state);
         scr_paint_row(scr, ypos, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 
@@ -222,8 +236,13 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     }
 
     for (; ypos < scr->bottomY_; ypos++) {
+        if (ypos < SCR_MAX_ROWS) {
+            ed->rowSyn_[ypos] = (char) state;   // a blank row leaves what it got
+        }
         scr_write_line(scr, ypos, NULL, 0);
     }
+    ed->synTopLine_ = top_here;
+    ed->synLines_ = tb_ymax(tb);
 }
 
 
@@ -475,7 +494,8 @@ static void fill_row_states(editor* ed, text_buffer* tb, int top) {
         const split_line ln = tb_curr_line(&cp);
         const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
         syn_lex(&ed->syn_, synScan_, len, state, &state, NULL, 0);
-        if (tb_down(&cp) == prev) {
+        tb_down(&cp);
+        if (tb_ypos(&cp) == prev) {
             break;
         }
         prev = tb_ypos(&cp);
@@ -485,7 +505,8 @@ static void fill_row_states(editor* ed, text_buffer* tb, int top) {
         const split_line ln = tb_curr_line(&cp);
         const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
         syn_lex(&ed->syn_, synScan_, len, state, &state, NULL, 0);
-        if (tb_down(&cp) == prev) {
+        tb_down(&cp);
+        if (tb_ypos(&cp) == prev) {
             // Past the end of the document. The rows below it are blank, and a
             // blank row leaves what it was given.
             for (char rest = (char)(y + 1);
@@ -529,6 +550,85 @@ static void rows_inserted(editor* ed, char y, int below) {
     }
     ed->rowSyn_[y + 1] = (char) below;
     ed->synLines_++;
+}
+
+static int state_at_row(editor* ed, text_buffer* tb, char ypos);
+
+/*
+ * What the line above `at` leaves, given what that line begins in.
+ *
+ * Its own function so that the buffer it needs does not join the frame of
+ * whatever rows_shifted_up is inlined into -- cmd_down already holds one, and
+ * the two together take it past the 128 bytes an eZ80 index displacement
+ * reaches (test/frames.sh).
+ */
+static int state_after(editor* ed, text_buffer* at, int began) {
+    static text_buffer up;
+    tb_copy(&up, at);
+    const int here = tb_ypos(&up);
+    tb_up(&up);
+    if (tb_ypos(&up) == here) {
+        return SYN_STATE_NONE;      // nothing above it
+    }
+    tb_home(&up);
+    const split_line prev = tb_curr_line(&up);
+    const int len = row_bytes(&prev, synScan_, SYN_ROW_MAX);
+    int out = SYN_STATE_NONE;
+    syn_lex(&ed->syn_, synScan_, len, began, &out, NULL, 0);
+
+    return out;
+}
+
+/*
+ * The rows from `first` down moved up by one, and a line that was off screen
+ * arrived at the bottom. `at_bottom` is a buffer sitting on that new line, and
+ * `first_state` is what row `first` now begins in, or -1 to take what the
+ * shift moved into it.
+ *
+ * Returns what the bottom row begins in, and leaves the answers describing the
+ * screen as it now is. The bottom is the only row that has to be worked out:
+ * what the row above it leaves is what it begins in, and that row's beginning
+ * is what the shift just moved down into it.
+ *
+ * Falls back to working the whole screen out again when there is nothing to
+ * shift, which is a lex of every row -- about a tenth of a second of C.
+ *
+ * Kept out of line on purpose. Inlined into cmd_down, which already holds a
+ * text_buffer of its own, it takes that frame to 133 bytes -- past the 128 an
+ * eZ80 index displacement reaches, which charges an address computation to
+ * every local the function has (test/frames.sh).
+ */
+__attribute__((noinline))
+static int rows_shifted_up(editor* ed, text_buffer* at_bottom, char first,
+                           int first_state) {
+    SCR(ed);
+    if (!syn_crosses_lines(&ed->syn_)) {
+        return SYN_STATE_NONE;
+    }
+    int last = scr->bottomY_ - 1;
+    if (last >= SCR_MAX_ROWS) {
+        last = SCR_MAX_ROWS - 1;
+    }
+    if (ed->synTopLine_ == 0 || first < scr->topY_ || first > last
+            || last <= scr->topY_) {
+        ed->synTopLine_ = 0;
+
+        return state_at_row(ed, at_bottom, (char) last);
+    }
+    for (int r = first; r < last; r++) {
+        ed->rowSyn_[r] = ed->rowSyn_[r + 1];
+    }
+    if (first_state >= 0) {
+        // The first row that moved does not always show what the row under it
+        // showed: joining two lines leaves one line where two were, and what
+        // that line leaves is not what either of them left.
+        ed->rowSyn_[first] = (char) first_state;
+    }
+
+    ed->rowSyn_[last] = (char) state_after(ed, at_bottom,
+                                           ed->rowSyn_[last - 1]);
+
+    return ed->rowSyn_[last];
 }
 
 static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
@@ -1357,10 +1457,22 @@ void cmd_putc(editor* ed, key k) {
     }
 }
 
-static void region_up(editor* ed, text_buffer* tb, char ch) {
+/*
+ * `merged` says what happened above: two lines became one, so the row at the
+ * cursor still starts where it did and the rows under it moved up -- against a
+ * line being removed, where the row at the cursor shows a different line and
+ * moved up with the rest.
+ *
+ * `in` is what the cursor's row begins inside, and the caller reads it before
+ * the edit. Asking here would ask about a document the view does not describe
+ * yet: the line count has already changed, so the answers are thrown away and
+ * a screenful of lexing buys back what the caller already had.
+ */
+static void region_up(editor* ed, text_buffer* tb, char ch, bool merged,
+                      int in) {
     SCR(ed);
     split_line ln = tb_curr_line(tb);
-    set_row_colours(ed, &ln, state_at_row(ed, tb, scr->currY_));
+    const int out = set_row_colours(ed, &ln, in);
     scr_scroll_up_split(scr, scr->currY_, scr->bottomY_-1,
                         ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_, ch);
 
@@ -1370,15 +1482,25 @@ static void region_up(editor* ed, text_buffer* tb, char ch) {
     while (diff-- > 0) {
         curr = tb_down(tb);
         if (curr == last) {
+            // The document ran out, so the rows below are blank and nothing
+            // known about them holds.
+            ed->synTopLine_ = 0;
             scr_write_line(scr, scr->bottomY_-1, NULL, 0);
             return;
         }
     }
     ln = tb_curr_line(tb);
-    // The row that the scroll exposed: the rows above it moved as pixels and
-    // kept their colours, so only this one has to be worked out.
-    set_row_colours(ed, &ln, state_at_row(ed, &ed->buf_,
-                                          (char)(scr->bottomY_ - 1)));
+    /*
+     * The row that the scroll exposed: the rows above it moved as pixels and
+     * kept their colours, so only this one has to be worked out -- and what is
+     * known about the rows moves with them rather than being worked out again.
+     */
+    const char first = merged ? (char)(scr->currY_ + 1) : scr->currY_;
+    set_row_colours(ed, &ln,
+                    rows_shifted_up(ed, tb, first, merged ? out : -1));
+    if (ed->synTopLine_ != 0) {
+        ed->synLines_ = tb_ymax(&ed->buf_);
+    }
     scr_paint_row(scr, scr->bottomY_-1,
                   ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
@@ -1398,6 +1520,9 @@ void cmd_show(editor* ed) {
 
 static void cmd_del_merge(editor* ed) {
     TB(ed);
+    SCR(ed);
+    // Before the merge, while the view still describes the document.
+    const int in = state_at_row(ed, tb, scr->currY_);
     if (!tb_del_merge(tb)) {
         return;
     }
@@ -1406,7 +1531,7 @@ static void cmd_del_merge(editor* ed) {
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
-    region_up(ed, &cp, ch);
+    region_up(ed, &cp, ch, true, in);
 }
 
 void cmd_del(editor* ed) {
@@ -1445,6 +1570,14 @@ static void cmd_bksp_merge(editor* ed) {
     TB(ed);
     SCR(ed);
 
+    /*
+     * The merged line ends up on the row above this one, so that is the row
+     * whose beginning is wanted -- read now, before the merge, while the view
+     * still describes the document.
+     */
+    const int in = state_at_row(ed, tb,
+                                scr->currY_ > scr->topY_
+                                    ? (char)(scr->currY_ - 1) : scr->currY_);
     if (!tb_bksp_merge(tb)) {
         return;
     }
@@ -1460,7 +1593,7 @@ static void cmd_bksp_merge(editor* ed) {
 
     tb_copy(&cp, tb);
     tb_home(&cp);
-    region_up(ed, &cp, ch);
+    region_up(ed, &cp, ch, true, in);
 }
 
 void cmd_bksp(editor* ed) {
@@ -1535,6 +1668,7 @@ void cmd_del_line(editor* ed) {
     SCR(ed);
 
     undo_group_begin(&ed->undo_);
+    const int in = state_at_row(ed, tb, scr->currY_);
     const bool did = tb_del_line(tb);
     undo_group_end(&ed->undo_);
     if (!did) {
@@ -1547,7 +1681,9 @@ void cmd_del_line(editor* ed) {
 
     tb_copy(&cp, tb);
     tb_home(&cp);
-    region_up(ed, &cp, ch);
+    // A line went rather than two becoming one, so the cursor's row shows a
+    // different line and moved up with the rest of them.
+    region_up(ed, &cp, ch, false, in);
 }
 
 /*
@@ -1703,8 +1839,16 @@ void cmd_down(editor* ed) {
         tb_copy(&cp, tb);
         tb_home(&cp);
         const split_line cl = tb_curr_line(&cp);
-        set_row_colours(ed, &cl, state_at_row(ed, tb,
-                                              (char)(scr->bottomY_ - 1)));
+        /*
+         * Every row shows the line that was under it, and one arrives at the
+         * bottom. Shifting the answers along costs one lex; working the screen
+         * out again costs one per row, which is what holding the arrow key
+         * down used to pay for every line.
+         */
+        set_row_colours(ed, &cl, rows_shifted_up(ed, &cp, scr->topY_, -1));
+        if (ed->synTopLine_ != 0) {
+            ed->synTopLine_++;      // the top row shows the line below it now
+        }
         scr_scroll_up_split(scr, scr->topY_, scr->bottomY_-1,
                             cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
