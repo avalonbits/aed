@@ -876,8 +876,8 @@ int main(void) {
          *   * still       leaves nothing open
          *   int b;
          *
-         * joined, the first line reads `int a; /* still` and opens a comment
-         * that runs on. The row under it has to be told what the merged line
+         * joined, the two halves form a slash-star and open a comment that
+         * runs on. The row under it has to be told what the merged line
          * leaves rather than what the line it replaced left.
          */
         files();
