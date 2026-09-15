@@ -18,6 +18,8 @@
 
 #include "editor.h"
 #include "cmd_ops.h"
+#include "user_input.h"
+#include "vkey.h"
 
 static int failures = 0;
 
@@ -1267,6 +1269,132 @@ int main(void) {
         scr_paint_row(&ed.scr_, 1, "abc", 3, NULL, 0);
         check("  with nobody to ask it paints plainly",
               ed.scr_.runs_ == NULL ? 1 : 0, 1);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- changing the background changes the theme with it --- */
+    {
+        /*
+         * A theme is picked for the background it was written against, and
+         * CTRL+E can leave a different one behind. Picking black on white and
+         * then inverting it used to keep the theme chosen for black: the
+         * colours were only right again after quitting and coming back, which
+         * is the startup path doing what this one was not.
+         *
+         * Driven through cmd_settings rather than by setting the background
+         * directly, because the modal is where the reader changes it and the
+         * order it does things in -- pick, then repaint -- is half the fix.
+         */
+        files();
+        setup(&ed, 0);
+        named(&ed, "/main.c");
+        ed_pick_syntax(&ed);
+        check("a C file on a dark background",
+              strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
+
+        ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
+
+        /* Down to the colours, into the picker, background 0 -> 2, accept,
+         * close. bold.cfg is the one that covers 2. */
+        const stub_key to_bold[] = {
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(to_bold, 6);
+        cmd_settings(&ed);
+
+        check("  and a background the reader moves to 2",
+              scr_base_bg(&ed.scr_), 2);
+        check("    takes the theme written for 2",
+              strcmp(ed.theme_.name, "bold") == 0 ? 1 : 0, 1);
+        check("      which the screen is painting with",
+              ed.scr_.theme_ != NULL ? 1 : 0, 1);
+        check("      and whose own pair is in force", ed.scr_.fg_, 11);
+        check("    while the base pair is still the reader's",
+              scr_base_fg(&ed.scr_), 15);
+
+        ui_destroy(&ed.ui_);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- and to a background no theme covers, which colours nothing --- */
+    {
+        /*
+         * The same rule as opening a file no grammar claims: tokens painted
+         * all one colour is the work without the result, so the grammar goes
+         * too and the reader gets their own colours back.
+         */
+        files();
+        setup(&ed, 0);
+        named(&ed, "/main.c");
+        ed_pick_syntax(&ed);
+        check("a grammar and theme in force", ed.syn_.loaded ? 1 : 0, 1);
+
+        ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
+
+        /* Background 0 -> 7. Nothing here covers 7. */
+        const stub_key to_bare[] = {
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 0,  .vk = VK_RIGHT },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(to_bare, 11);
+        cmd_settings(&ed);
+
+        check("  moving to a background no theme covers",
+              scr_base_bg(&ed.scr_), 7);
+        check("    leaves the screen unthemed",
+              ed.scr_.theme_ == NULL ? 1 : 0, 1);
+        check("    and drops the grammar with it", ed.syn_.loaded ? 1 : 0, 0);
+        check("    so the reader's own pair is what paints", ed.scr_.bg_, 7);
+
+        ui_destroy(&ed.ui_);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- the foreground alone leaves the theme where it was --- */
+    {
+        /* Which theme fits is a question about the background: a theme names
+         * the backgrounds it was designed against and says nothing about what
+         * the text is drawn in. */
+        files();
+        setup(&ed, 0);
+        named(&ed, "/main.c");
+        ed_pick_syntax(&ed);
+
+        ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
+
+        /* UP is the foreground, and 15 wraps to 0. */
+        const stub_key fg_only[] = {
+            { .ch = 0,  .vk = VK_DOWN },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 0,  .vk = VK_UP },
+            { .ch = 13, .vk = VK_RETURN },
+            { .ch = 27, .vk = VK_ESCAPE },
+        };
+        stub_set_keys(fg_only, 5);
+        cmd_settings(&ed);
+
+        check("a foreground change moves the base foreground",
+              scr_base_fg(&ed.scr_), 0);
+        check("  and leaves the background alone", scr_base_bg(&ed.scr_), 0);
+        check("    so the theme is the one it was",
+              strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
+        check("      and the grammar is still loaded", ed.syn_.loaded ? 1 : 0, 1);
+
+        ui_destroy(&ed.ui_);
         tb_destroy(&ed.buf_);
     }
 

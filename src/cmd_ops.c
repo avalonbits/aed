@@ -1434,13 +1434,16 @@ void cmd_help(editor* ed) {
 void cmd_settings(editor* ed) {
     SCR(ed);
     UI(ed);
-    TB(ed);
 
     // Comes in holding what the settings file says, so the font row can show
     // the one in use, and goes out holding only what was changed.
     config cfg;
     cfg_defaults(&cfg);
     cfg_load(&cfg, CFG_PATH);
+
+    // A theme is chosen for the background it was written against, so the one
+    // in force may be the wrong one by the time this modal closes.
+    const char was_bg = scr_base_bg(scr);
 
     const RESPONSE ret = ui_settings(ui, scr, &cfg);
 
@@ -1464,6 +1467,22 @@ void cmd_settings(editor* ed) {
         // it back to the last text row keeps it somewhere the screen has, and
         // refresh_screen re-anchors the view from wherever it ends up.
         moved = true;
+    }
+
+    /*
+     * The background the reader just picked chooses the theme, exactly as the
+     * background at startup does: a colour that reads well on black is
+     * unreadable on white, and a background no theme covers means painting
+     * plainly. Done here rather than in the picker because the rule lives in
+     * ed_pick_syntax, which knows the document as well as the background.
+     *
+     * Before the screen goes back, so the repaint below draws in whatever the
+     * new background calls for. ed_pick_syntax winds the model back to the top
+     * of the document and refresh_screen sets it from the view, which is the
+     * order restore_after_modal already relies on.
+     */
+    if (scr_base_bg(scr) != was_bg) {
+        ed_pick_syntax(ed);
     }
 
     restore_after_modal(ed, moved);
