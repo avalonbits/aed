@@ -169,6 +169,25 @@ static int colour_at_char(const char* b, int n, char target) {
     return -1;
 }
 
+/*
+ * The pair left set on the wire by whatever was just captured, starting from
+ * the pair that was set going in.
+ */
+static void pair_after(const char* b, int n, int* fg, int* bg) {
+    for (int i = 0; i + 1 < n; i++) {
+        if ((unsigned char) b[i] != 17) {
+            continue;
+        }
+        const int v = (unsigned char) b[i + 1];
+        if (v >= 128) {
+            *bg = v - 128;
+        } else {
+            *fg = v;
+        }
+        i++;
+    }
+}
+
 static long mark = 0;
 
 static void cap_start(void) {
@@ -1099,6 +1118,112 @@ int main(void) {
               colour_at_char(cap, np, 'p'), 15);
         check("    with the string still a string",
               colour_at_char(cap, np, 'h'), 10);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- the screen knows what colour it left set --- */
+    {
+        /*
+         * A standing check, and the one that would have caught the last bug
+         * rather than leaving it to be reported.
+         *
+         * curFg_ and curBg_ are what the screen believes the VDP holds, and a
+         * row that wants the colour it already has writes nothing. A belief
+         * that is wrong therefore does not show where it is wrong -- it shows
+         * as the *next* thing painted coming out in whatever was really set.
+         * The cursor drew a cell in a string's colour, recorded nothing, and
+         * the name in front of the string was painted green.
+         *
+         * Checked one writer at a time rather than one command at a time. A
+         * command ends by drawing the cursor, which sets the pair and records
+         * it, so a lie told in the middle is true again by the end -- which is
+         * exactly why this went unnoticed until somebody used the editor.
+         *
+         * Anything added to screen.c that emits a colour belongs in this list.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char INV[] =
+            "printf(\"hi\");\r\nint b;\r\n/* c\r\nstill\r\n*/ int d;\r\nint e;\r\n";
+        stub_file_add("/inv.c", INV, (int) sizeof(INV) - 1);
+        tb_load(&ed.buf_, "/inv.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        ed.scr_.cols_ = 40;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        /* On the quote, so the cursor cell is a colour the document is not. */
+        for (int i = 0; i < 7; i++) {
+            cmd_right(&ed);
+        }
+
+        int fg = ed.scr_.curFg_;
+        int bg = ed.scr_.curBg_;
+        cap_start();
+        scr_hide_cursor_ch(&ed.scr_, '"');
+        int n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("hiding the cursor records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+        check("  and it left the cell's own colour", fg, 10);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_show_cursor_ch(&ed.scr_, '"');
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("showing the cursor records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_paint_row(&ed.scr_, 2, "int b;", 6, NULL, 0);
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("painting a row records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_write_line(&ed.scr_, 2, "int b;", 6);
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("writing a line records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_write_line_sel(&ed.scr_, 2, "int b;", 6, 1, 3);
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("writing one with a selection records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        /*
+         * And the one that matters in practice: a row painted straight after
+         * the cursor drew in a token's colour comes out in the document's.
+         */
+        for (int i = 0; i < 7; i++) {
+            cmd_left(&ed);
+        }
+        for (int i = 0; i < 7; i++) {
+            cmd_right(&ed);
+        }
+        scr_hide_cursor_ch(&ed.scr_, '"');
+        cap_start();
+        scr_paint_row(&ed.scr_, 2, "int b;", 6, NULL, 0);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  and a row painted after it is the document's colour",
+              colour_at_char(cap, n, 'b'), 15);
+
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }

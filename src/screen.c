@@ -118,6 +118,9 @@ void scr_show_cursor_ch(screen* scr, char ch) {
     vdu[8] = 17;
     vdu[9] = (char) (scr->bg_ + 128);
     mos_puts(vdu, sizeof(vdu), 0);
+    // What it leaves set, so the next thing painted knows.
+    scr->curFg_ = scr->fg_;
+    scr->curBg_ = scr->bg_;
 }
 
 static void scr_show_cursor(screen* scr) {
@@ -1072,16 +1075,11 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
     vdu[3] = (char) (scr->bg_ + 128);
     vdu[4] = ch;
     vdu[5] = 8;
-    if (fg == scr->fg_) {
-        mos_puts(vdu, 6, 0);
-
-        return;
-    }
-    vdu[6] = 17;
-    vdu[7] = scr->fg_;
-    vdu[8] = 17;
-    vdu[9] = (char) (scr->bg_ + 128);
-    mos_puts(vdu, sizeof(vdu), 0);
+    mos_puts(vdu, 6, 0);
+    // What it leaves set. Recorded rather than undone: the next thing painted
+    // reads this and writes a colour only if it needs a different one.
+    scr->curFg_ = fg;
+    scr->curBg_ = scr->bg_;
 }
 
 static void scr_hide_cursor(screen* scr) {
@@ -1343,10 +1341,17 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     }
 
     scr_tab(scr, from - scr->originX_, ypos);
-    // The document's own pair is what is set coming in, which is the same
-    // assumption the selection flag used to make.
-    scr->curFg_ = scr->fg_;
-    scr->curBg_ = scr->bg_;
+    /*
+     * curFg_ and curBg_ are what the VDP actually holds, and this used to
+     * overwrite them with what it assumed: the document's own pair. Anything
+     * that had drawn in another colour and not put it back therefore painted
+     * the front of this row in that colour, silently, because highlight sees
+     * no difference from what it believes and writes nothing.
+     *
+     * Not assumed any more. Everything that emits a colour records what it
+     * left set, so a row that really does begin in the document's pair still
+     * writes nothing, and one that does not, writes.
+     */
     scr->runAt_ = 0;
     int col = 0;
     // The two halves are one line as far as the lexer is concerned, so the
