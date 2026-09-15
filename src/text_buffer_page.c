@@ -357,8 +357,24 @@ bool tb_slide_down(text_buffer* tb) {
     // the front, and got ten bytes back. Two thousand and thirty bytes left the
     // window per turn, and inside three cursor movements a 15,350 byte window
     // held thirty bytes with the document's other 199,960 in the head.
+    //
+    // Never more than the store can put back, which is what stops a slide
+    // being a leak. The cap the other way -- no more comes in than went out --
+    // was only half of it: a tail holding eighty bytes still had a whole 2 KiB
+    // chunk evicted against it, and the difference stayed in the head.
+    //
+    // The exception is the index. Sending text out is also how slots are
+    // freed, so when there are none left the eviction has to happen whatever
+    // the tail can return, or a document of short lines cannot slide at all.
     int out_lines = 0;
-    const int out_bytes = lb_front_fit(&tb->lb_, TB_CHUNK, &out_lines);
+    int out_room = store_tail_bytes(tb->store_);
+    if (lb_room(&tb->lb_) == 0 && out_room < TB_CHUNK) {
+        out_room = TB_CHUNK;        // slots, not bytes, are what is short
+    }
+    if (out_room > TB_CHUNK) {
+        out_room = TB_CHUNK;
+    }
+    const int out_bytes = lb_front_fit(&tb->lb_, out_room, &out_lines);
     if (out_lines == 0 && !slide_room(tb)) {
         return false;       // the first line is longer than a chunk
     }
@@ -387,8 +403,16 @@ bool tb_slide_down(text_buffer* tb) {
     // that a slide near the top of a document -- where there is barely anything
     // in front of the cursor to send -- would take in a whole chunk against a
     // line or two going out, and memory would grow until it burst.
-    const int got = store_tail_pop(tb->store_, slide_bytes,
-                                   out_bytes > 0 ? out_bytes : TB_CHUNK);
+    int want = out_bytes > 0 ? out_bytes : TB_CHUNK;
+    const int left = store_tail_bytes(tb->store_);
+    if (left <= TB_CHUNK && left > want && cb_available(&tb->cb_) >= left) {
+        // The tail's last scrap, taken whole. Bounded intake is what stops
+        // memory growing without limit, and a scrap under one chunk cannot do
+        // that -- but taking it in pieces can leave a piece with no break in
+        // it, which run_lines finds no line in and every slide puts back.
+        want = left;
+    }
+    const int got = store_tail_pop(tb->store_, slide_bytes, want);
     if (got <= 0) {
         return true;        // the front went out; there was nothing to replace it
     }
@@ -406,6 +430,25 @@ bool tb_slide_down(text_buffer* tb) {
     // One slot short of the room: an entry for whatever carries on past
     // memory goes back after these -- either the one just taken off, or a
     // fresh one when the line being completed is the cursor's own.
+    // Nothing that ends in a break, and the tail is now empty: what came back
+    // is the document's last line, which has no break by definition. It is the
+    // rest of the line the index's last entry is already counting, so the entry
+    // grows by it and the tail is done.
+    //
+    // Without this those bytes could never enter memory -- run_lines finds no
+    // line in them, so every slide put them back -- and because the tail then
+    // never empties, settling kept choosing to slide down for ever. Each of
+    // those slides sent a little of the front to the head and got nothing in
+    // return, so a file with no final newline drained its own window: 190,408
+    // bytes down to 25,595, and the cursor could not be scrolled back to the
+    // top afterwards.
+    if (in_lines == 0 && store_tail_bytes(tb->store_) == 0 && got > 0
+            && had_trailing && cb_give_back(&tb->cb_, slide_bytes, got)) {
+        trailing += got;
+        lb_give_back(&tb->lb_, &trailing, 1);
+
+        return true;
+    }
     in_lines = fit_lines(slide_lens, in_lines, lb_room(&tb->lb_) - 1, &in_bytes);
     if (in_lines == 0 || !cb_give_back(&tb->cb_, slide_bytes, in_bytes)) {
         store_tail_rewind(tb->store_, got);
@@ -477,38 +520,61 @@ bool tb_slide_up(text_buffer* tb) {
     int trailing = 0;
     const bool had_trailing = lb_take_back(&tb->lb_, &trailing, 1) == 1;
 
-    // Only an empty trailing entry can be stepped over like that. Taking an
-    // index entry off does not take the bytes it describes with it, so when
-    // that last line has text on it -- the document's own last line, with
-    // nothing left in the tail -- cb_take_back below would take *its* bytes
-    // instead of the whole lines in front of them, and push a run with no
-    // break in it to the tail as though it were a line. tail_lines_ then
-    // counted a line the tail did not have.
+    // Taking an index entry off does not take the bytes it describes with it,
+    // and the trailing line's bytes are the last ones in memory. So whatever
+    // goes out has to include them: cb_take_back takes from the end, and the
+    // whole lines being sent sit *in front* of that line rather than behind
+    // it. Sending only the whole lines takes the wrong bytes -- part of the
+    // trailing line and part of the last whole one -- and pushes a run with no
+    // break in it to the tail as though it were a line.
     //
-    // Nothing goes out in that case. Text can still come in, if there is room
-    // for it -- see slide_room.
+    // Refusing to send at all when that line has text was the older answer.
+    // It is safe and it is a dead end: the lines in front of the trailing one
+    // can only reach the tail through it, so a document whose last line has
+    // text -- which is any file without a final newline -- could fill its
+    // window and then never move it up again.
     //
-    // Bounded by what the head can put back, for the reason sliding down is
-    // bounded by the tail: text sent out against text that is not there to
-    // come back is text the window loses.
+    // Sending it too is what works. Its bytes go to the tail with the lines in
+    // front of it, in the order they already sit in memory, and the entry left
+    // behind is empty: the line now carries on past memory, which is what a
+    // trailing entry means.
+    //
+    // A chunk at a time, less whatever the trailing line takes, because the two
+    // travel together and one buffer has to hold both.
+    //
+    // Deliberately *not* bounded by what the head can give back, which sliding
+    // down is bounded by. The symmetry is tempting and it costs: going up, the
+    // head empties as the window climbs, so near the top of a file such a
+    // bound stops anything going out, the window fills, and the slides start
+    // failing. Measured on slow.asm, it put 3,000 arrow-ups from 30 to 94
+    // centiseconds and a seek to the top from 220 to 446. The leak that bound
+    // was written for is in sliding down, and that is where it stayed.
     int out_lines = 0;
     int out_bytes = 0;
-    if (trailing == 0) {
-        out_bytes = lb_back_fit(&tb->lb_, TB_CHUNK, &out_lines);
+    int out_room = TB_CHUNK - trailing;
+    if (out_room > 0) {
+        out_bytes = lb_back_fit(&tb->lb_, out_room, &out_lines);
+    }
+    // What actually leaves: the whole lines, and the trailing line's bytes
+    // behind them. A trailing line longer than a chunk cannot go at all, and
+    // then this is the older behaviour again.
+    int send = out_bytes;
+    if (trailing > 0 && trailing <= TB_CHUNK && out_bytes + trailing <= TB_CHUNK) {
+        send += trailing;
     }
     // Nothing behind the cursor to send is only a reason to stop when there is
     // also no room to bring anything into -- the same exception sliding down
     // makes, and for the same reason. Without it a window emptied by deleting
     // could not move up, so the head held the rest of the document and the
     // only way back to it was gone.
-    if (out_lines == 0 && !slide_room(tb)) {
+    if (send == 0 && !slide_room(tb)) {
         if (had_trailing) {
             lb_give_back(&tb->lb_, &trailing, 1);
         }
 
         return false;
     }
-    if (out_lines > 0 && !store_tail_has_room(tb->store_, out_bytes)) {
+    if (send > 0 && !store_tail_has_room(tb->store_, send)) {
         if (had_trailing) {
             lb_give_back(&tb->lb_, &trailing, 1);
         }
@@ -518,13 +584,17 @@ bool tb_slide_up(text_buffer* tb) {
 
     static int out_lens[TB_CHUNK / 2 + 1];
     static char out_buf[TB_CHUNK];
-    if (out_lines > 0) {
-        lb_take_back(&tb->lb_, out_lens, out_lines);
-        cb_take_back(&tb->cb_, out_buf, out_bytes);
+    if (send > 0) {
+        if (out_lines > 0) {
+            lb_take_back(&tb->lb_, out_lens, out_lines);
+        }
+        cb_take_back(&tb->cb_, out_buf, send);
 
-        if (!store_tail_push(tb->store_, out_buf, out_bytes)) {
-            cb_give_back(&tb->cb_, out_buf, out_bytes);
-            lb_give_back(&tb->lb_, out_lens, out_lines);
+        if (!store_tail_push(tb->store_, out_buf, send)) {
+            cb_give_back(&tb->cb_, out_buf, send);
+            if (out_lines > 0) {
+                lb_give_back(&tb->lb_, out_lens, out_lines);
+            }
             if (had_trailing) {
                 lb_give_back(&tb->lb_, &trailing, 1);
             }
@@ -532,6 +602,9 @@ bool tb_slide_up(text_buffer* tb) {
             return false;
         }
         tb->tail_lines_ += out_lines;
+        if (send > out_bytes) {
+            trailing = 0;   // its bytes are in the tail; it carries on past memory
+        }
     }
     if (had_trailing) {
         lb_give_back(&tb->lb_, &trailing, 1);
