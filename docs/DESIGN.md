@@ -23,7 +23,7 @@ document describes the parts and how they fit together.
 * [10. Adding something](#10-adding-something)
 
 Sizing — how big the buffer is, how much of it stays empty, and why — is in
-[`SIZING.md`](SIZING.md).
+`.internal/docs/SIZING.md`, with the sweeps behind each number.
 
 ---
 
@@ -256,10 +256,10 @@ The store holds both files open for as long as the document is open. Opening one
 costs 1.12 centiseconds on MOS 3.0.2, and a slide does two of them against less
 than a millisecond for the 2 KB it actually moves.
 
-Every number in this section — the 256 the editor starts with, the quarter of
-the buffer kept free, the chunk and the margin — was picked against a
-measurement. [`SIZING.md`](SIZING.md) has the sweep they came out of, what each
-one is protecting, and what a second open document would cost.
+Every number in this section — the 72 KiB the editor starts with, the quarter
+of the buffer kept free, the chunk and the margin — was picked against a
+measurement. `.internal/docs/SIZING.md` has the sweep they came out of, what
+each one is protecting, and what a second open document would cost.
 
 ### 4a. What makes a file too large
 
