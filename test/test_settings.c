@@ -675,6 +675,17 @@ int main(void) {
               stub_file_exists(CFG_PATH_OLD), 1);
         check("    and nothing was written over it",
               stub_file_exists(CFG_PATH), 0);
+        /*
+         * Existence alone cannot tell the two apart: a settings file written
+         * short is deleted by write_file, so a fresh one attempted here would
+         * leave no trace of itself either -- and neither would its contents,
+         * since only the first few bytes of it ever reach the card.
+         *
+         * What it does leave is the delete. The move makes one, taking away
+         * the half-written file it could not finish; a fresh settings file
+         * attempted afterwards and failing the same way makes a second.
+         */
+        check("      and none was even attempted", stub_deletes(), 1);
         ed_destroy(&ed);
         stub_file_clear_named();
     }
