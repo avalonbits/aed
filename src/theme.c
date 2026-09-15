@@ -58,6 +58,10 @@ tok_class syn_class_of(const char* scope, int len) {
         { "storage",     TOK_TYPE     },
         { "entity",      TOK_LABEL    },
         { "punctuation", TOK_OPERATOR },
+        // BASIC's built-in functions are `support.function` in TextMate's
+        // vocabulary, and a language with no types of its own leaves the type
+        // colour free for them.
+        { "support",     TOK_TYPE     },
     };
     for (int i = 0; i < (int) (sizeof(HEADS) / sizeof(HEADS[0])); i++) {
         if (ini_name_is(scope, head, HEADS[i].head)) {
