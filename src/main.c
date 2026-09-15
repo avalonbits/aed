@@ -23,7 +23,7 @@
 #include <stdio.h>
 
 int main(int argc, char** argv) {
-    editor ed;
+    static editor ed;
 
     const char* fname = NULL;
     if (argc > 1) {

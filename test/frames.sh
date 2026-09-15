@@ -56,7 +56,7 @@ import glob, os, re, sys
 # live region, and the editor holds three of those -- the document, the
 # clipboard and the input line. That is four bytes of frame for a slide that
 # moves a chunk instead of a quarter of a megabyte.
-ALLOW = {'main': 810}
+ALLOW = {}
 
 # Frame escapes left in the program. A budget rather than zero because main's
 # are real and there is no point pretending otherwise.

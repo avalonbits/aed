@@ -208,6 +208,8 @@ static void get_active_colours(screen* scr) {
 
     scr->fg_ = fg;
     scr->bg_ = bg;
+    scr->baseFg_ = fg;
+    scr->baseBg_ = bg;
     scr->entryFg_ = fg;
     scr->entryBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
@@ -335,8 +337,15 @@ screen *scr_init(screen* scr, char cursor) {
     scr->originX_ = 0;
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
-    scr->selOn_ = 0;
+    scr->theme_ = NULL;
+    scr->runs_ = NULL;
+    scr->nruns_ = 0;
+    scr->runAt_ = 0;
     get_active_colours(scr);
+    // After the colours are known, not before: this records what is set on the
+    // VDP, and get_active_colours is what sets it.
+    scr->curFg_ = scr->fg_;
+    scr->curBg_ = scr->bg_;
     scr_clear(scr);
     scr_show_cursor(scr);
     vdp_cursor_home();
@@ -693,13 +702,45 @@ char scr_tab_size(screen* scr) {
     return scr->tab_size_;
 }
 
+// The user's own choice, from the settings file or the colour picker. It moves
+// both pairs: this is what the editor is set to, so it is what a theme reverts
+// to and what gets written back out.
 void scr_set_scheme(screen* scr, char fg, char bg) {
     if (fg < 0 || bg < 0 || fg >= scr->colors_ || bg >= scr->colors_) {
         return;   // outside what this screen mode can show
     }
     scr->fg_ = fg;
     scr->bg_ = bg;
+    scr->baseFg_ = fg;
+    scr->baseBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
+}
+
+// A theme's choice, which is a view of the document rather than a setting. The
+// base pair is left alone, so closing the file or opening one no theme covers
+// gives the user their own colours back -- and so the settings file never
+// records a colour the user did not pick.
+void scr_theme_scheme(screen* scr, char fg, char bg) {
+    if (fg < 0 || bg < 0 || fg >= scr->colors_ || bg >= scr->colors_) {
+        return;
+    }
+    scr->fg_ = fg;
+    scr->bg_ = bg;
+    set_colours(scr->fg_, scr->bg_);
+}
+
+void scr_base_restore(screen* scr) {
+    scr->fg_ = scr->baseFg_;
+    scr->bg_ = scr->baseBg_;
+    set_colours(scr->fg_, scr->bg_);
+}
+
+char scr_base_fg(screen* scr) {
+    return scr->baseFg_;
+}
+
+char scr_base_bg(screen* scr) {
+    return scr->baseBg_;
 }
 
 char scr_fg(screen* scr) {
@@ -1125,17 +1166,57 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
 // Swaps the colours on the way into the selection and back on the way out, so
 // a highlighted run costs two colour changes rather than one per character --
 // which matters on a VDP behind a serial link.
+// The colours column `col` of the row being painted wants, and a write to the
+// VDP only when they differ from what is already set.
+//
+// Three things can decide them, and they are in this order on purpose. A
+// selection reverses the pair and beats everything, because a user who has
+// selected text needs to see what they selected more than they need to see its
+// syntax. Otherwise a theme colours the token the column falls in. Otherwise
+// the document's own pair.
+//
+// Called once a column, so the early return is what keeps a run of columns in
+// one colour down to a single change -- see the cost of one in
+// test/probes/vducost.c.
 static void highlight(screen* scr, int col) {
-    const char want = (col >= scr->selFrom_ && col < scr->selTo_) ? 1 : 0;
-    if (want == scr->selOn_) {
+    char fg = scr->fg_;
+    char bg = scr->bg_;
+
+    if (col >= scr->selFrom_ && col < scr->selTo_) {
+        fg = scr->bg_;
+        bg = scr->fg_;
+    } else if (scr->theme_ != NULL && scr->runs_ != NULL) {
+        // The runs are in column order and so is this walk, so the cursor only
+        // ever moves forward: colouring a row is one pass over its runs.
+        while (scr->runAt_ < scr->nruns_
+               && col >= scr->runs_[scr->runAt_].end) {
+            scr->runAt_++;
+        }
+        if (scr->runAt_ < scr->nruns_) {
+            const char c = theme_colour(scr->theme_,
+                                        (tok_class) scr->runs_[scr->runAt_].cls);
+            if (c >= 0) {
+                fg = c;
+            }
+        }
+    }
+
+    if (fg == scr->curFg_ && bg == scr->curBg_) {
         return;
     }
-    if (want) {
-        set_colours(scr->bg_, scr->fg_);
-    } else {
-        set_colours(scr->fg_, scr->bg_);
-    }
-    scr->selOn_ = want;
+    set_colours(fg, bg);
+    scr->curFg_ = fg;
+    scr->curBg_ = bg;
+}
+
+void scr_set_theme(screen* scr, const theme* t) {
+    scr->theme_ = t;
+}
+
+void scr_set_row_tokens(screen* scr, const tok_run* runs, int n) {
+    scr->runs_ = runs;
+    scr->nruns_ = n;
+    scr->runAt_ = 0;
 }
 
 static int emit_span(screen* scr, const char* buf, int sz, int col,
@@ -1171,7 +1252,11 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     }
 
     scr_tab(scr, from - scr->originX_, ypos);
-    scr->selOn_ = 0;
+    // The document's own pair is what is set coming in, which is the same
+    // assumption the selection flag used to make.
+    scr->curFg_ = scr->fg_;
+    scr->curBg_ = scr->bg_;
+    scr->runAt_ = 0;
     int col = 0;
     if (pre != NULL && presz > 0) {
         col = emit_span(scr, pre, presz, col, from, stop);
@@ -1189,9 +1274,12 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         }
     }
     out_flush();
-    if (scr->selOn_) {
+    // Whatever the row ended in, the next thing painted expects the document's
+    // own pair.
+    if (scr->curFg_ != scr->fg_ || scr->curBg_ != scr->bg_) {
         set_colours(scr->fg_, scr->bg_);
-        scr->selOn_ = 0;
+        scr->curFg_ = scr->fg_;
+        scr->curBg_ = scr->bg_;
     }
     scr_sync_cursor(scr);
 }

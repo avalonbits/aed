@@ -114,8 +114,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         }
     } else {
         cfg.tab_size = scr_tab_size(scr);
-        cfg.fg = scr_fg(scr);
-        cfg.bg = scr_bg(scr);
+        // The user's pair, so a theme in force when the settings are written
+        // does not become the user's setting.
+        cfg.fg = scr_base_fg(scr);
+        cfg.bg = scr_base_bg(scr);
         cfg_save(&cfg, CFG_PATH);
     }
     ed->selecting_ = false;

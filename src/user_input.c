@@ -601,8 +601,11 @@ static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) 
 
 RESPONSE ui_color_picker(user_input* ui, screen* scr) {
     scr_footer_invalidate(scr);
-    char fg = scr->fg_;
-    char bg = scr->bg_;
+    // Seeded from the user's own pair rather than from what is painting. With
+    // a theme in force those differ, and starting from the theme's colours
+    // would make RETURN adopt them -- the one thing a theme must not do.
+    char fg = scr_base_fg(scr);
+    char bg = scr_base_bg(scr);
 
     // Centred across the bar, not the text area -- this row stands in for the
     // footer. The remainder is split rather than halved twice, so an odd number
@@ -652,8 +655,9 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
                 break;
             case VK_RETURN:
             case VK_KP_ENTER:
-                scr->fg_ = fg;
-                scr->bg_ = bg;
+                // The user's own choice, so it moves the base pair too -- a
+                // theme reverts to this, and this is what gets saved.
+                scr_set_scheme(scr, fg, bg);
                 return YES_OPT;
             default:
                 break;
@@ -724,8 +728,8 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
     // about, and telling it about one the reader never touched would rewrite a
     // line they had left alone.
     const int tab_now = scr_tab_size(scr);
-    const int fg_now = scr_fg(scr);
-    const int bg_now = scr_bg(scr);
+    const int fg_now = scr_base_fg(scr);
+    const int bg_now = scr_base_bg(scr);
 
     // The two CFG_FONT_MAX buffers here are static for the same reason the
     // directory walk's are: together they are 128 bytes, which is the whole ix
@@ -813,8 +817,8 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                 // The picker sets the screen's colours as it goes, so what it
                 // leaves behind is the answer.
                 if (ui_color_picker(ui, scr) == YES_OPT) {
-                    cfg->fg = scr_fg(scr);
-                    cfg->bg = scr_bg(scr);
+                    cfg->fg = scr_base_fg(scr);
+                    cfg->bg = scr_base_bg(scr);
                     changed = true;
 
                     // Repaint the whole screen, not just the rows this modal
