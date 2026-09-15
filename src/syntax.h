@@ -66,6 +66,17 @@ const char* syn_class_name(tok_class c);
  * screen's *active* pair only -- see scr_theme_scheme. The pair the user chose
  * is never touched by a theme.
  */
+/*
+ * A row's colouring, as runs. Run i covers the columns from where run i-1 ended
+ * up to `end`, so a row is a handful of these rather than a colour per column.
+ * That is also the shape the painting wants: it walks columns upwards and only
+ * emits a colour change when it crosses a run boundary.
+ */
+typedef struct _tok_run {
+    int end;            // one past the last column this run covers
+    char cls;           // a tok_class
+} tok_run;
+
 #define THEME_MAX_COVERS 16
 #define THEME_NAME_MAX   16
 

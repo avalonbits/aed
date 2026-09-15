@@ -19,6 +19,8 @@
 #ifndef _SCREEN_H_
 #define _SCREEN_H_
 
+#include "syntax.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -117,12 +119,23 @@ typedef struct _screen {
     // Columns of the row being painted that are inside the selection, as
     // [selFrom_, selTo_). Set for one row at a time by scr_write_line_sel and
     // cleared again by it, so no other painter can inherit a highlight meant
-    // for a different line. selOn_ is whether the colours are currently
-    // swapped, so a highlighted run costs two colour changes and not one per
-    // character.
+    // for a different line.
     int selFrom_;
     int selTo_;
-    char selOn_;
+    // What is actually set on the VDP right now, so a run of columns wanting
+    // the same colours costs one change rather than one per character. This
+    // was a single "is the selection on" flag until a theme could ask for a
+    // colour too; it has to hold the pair itself now, because there are more
+    // than two answers.
+    char curFg_;
+    char curBg_;
+    // How the row being painted is coloured, or NULL for plainly. Set for one
+    // row at a time, like the selection above. runAt_ walks the runs as the
+    // columns go up, so colouring a row is one pass and not a search a column.
+    const theme* theme_;
+    const tok_run* runs_;
+    int nruns_;
+    int runAt_;
 } screen;
 
 // Tab width used when projecting a byte offset onto a screen column. Tabs are
@@ -176,6 +189,14 @@ char scr_bg(screen* scr);
 // pair goes back to when nothing is theming it.
 char scr_base_fg(screen* scr);
 char scr_base_bg(screen* scr);
+
+// The theme in force, or NULL to paint plainly. The screen does not own it.
+void scr_set_theme(screen* scr, const theme* t);
+
+// How the next row painted is coloured. The runs are borrowed for that one
+// paint and must outlive it; passing NULL paints the row plainly. Set per row,
+// as the selection is, so no row can inherit another's colouring.
+void scr_set_row_tokens(screen* scr, const tok_run* runs, int n);
 
 // A theme's colours, which move the active pair and leave the base alone. Out
 // of range for the mode is ignored, as scr_set_scheme ignores it.

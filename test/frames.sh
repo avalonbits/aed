@@ -56,7 +56,13 @@ import glob, os, re, sys
 # live region, and the editor holds three of those -- the document, the
 # clipboard and the input line. That is four bytes of frame for a slide that
 # moves a chunk instead of a quarter of a megabyte.
-ALLOW = {'main': 810}
+# main holds the whole editor by value -- see DESIGN.md, "There is no global
+# state" -- so its frame is the size of that struct and cannot be anything else.
+# It is a ratchet rather than a blanket exemption: every field added to editor,
+# screen or text_buffer moves it, and the number has to be raised deliberately
+# rather than drifting. 810 before syntax highlighting; 825 with the theme and
+# the row colouring the screen now carries.
+ALLOW = {'main': 825}
 
 # Frame escapes left in the program. A budget rather than zero because main's
 # are real and there is no point pretending otherwise.

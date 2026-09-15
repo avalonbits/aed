@@ -35,10 +35,91 @@ static void check(const char* name, int got, int want) {
     }
 }
 
+
+/* stdout capture, so the emitted colour bytes can be read back. */
+static long mark;
+static void cap_start(void) { fflush(stdout); mark = ftell(stdout); }
+static int cap_read(char* buf, int max) {
+    fflush(stdout);
+    const long end = ftell(stdout);
+    int n = (int) (end - mark);
+    if (n > max) { n = max; }
+    FILE* r = fopen("/tmp/aed_theme_capture", "rb");
+    if (r == NULL) { return -1; }
+    fseek(r, mark, SEEK_SET);
+    n = (int) fread(buf, 1, (size_t) n, r);
+    fclose(r);
+
+    return n;
+}
+
+/* The foreground colour in force at each painted column, as a string of digits
+ * -- which is what a colour map looks like when every colour is under ten. */
+static const char* fg_map(int cols, char start_fg) {
+    static char raw[4096];
+    const int n = cap_read(raw, sizeof(raw));
+    static char out[256];
+    int col = 0;
+    // Seeded with the colour already in force. A row that wants no change
+    // emits none -- that early return is the whole reason a run of columns in
+    // one colour costs one write and not eighty -- so a map that started from
+    // "unknown" would read a correctly painted plain row as blank.
+    char fg = (char) ('0' + (start_fg % 10));
+    for (int i = 0; i < n && col < cols && col < (int) sizeof(out) - 1; i++) {
+        if (raw[i] == 17 && i + 1 < n) {
+            const unsigned char c = (unsigned char) raw[i + 1];
+            if (c < 128) { fg = (char) ('0' + (c % 10)); }
+            i++;
+            continue;
+        }
+        if (raw[i] == 31 && i + 2 < n) { i += 2; continue; }
+        if ((unsigned char) raw[i] < 32) { continue; }
+        out[col++] = fg;
+    }
+    out[col] = 0;
+
+    return out;
+}
+
+/* How many colour changes the last capture emitted. One VDU 17 pair is one
+ * change, and the count is the thing the feature's cost is measured in -- see
+ * test/probes/vducost.c, where each one is about five characters of text. */
+static int colour_changes(void) {
+    static char raw[4096];
+    const int n = cap_read(raw, sizeof(raw));
+    int k = 0;
+    for (int i = 0; i < n - 1; i++) {
+        if (raw[i] == 17 && (unsigned char) raw[i + 1] < 128) {
+            k++;
+            i++;
+        }
+    }
+
+    return k;
+}
+
+static void check_map(const char* name, const char* got, const char* want) {
+    if (strcmp(got, want) == 0) {
+        fprintf(stderr, "PASS  %-54s %s\n", name, got);
+    } else {
+        fprintf(stderr, "FAIL  %-54s got %s\n%*swant %s\n",
+                name, got, 58, "", want);
+        failures++;
+    }
+}
+
 static screen scr;
 
 static int start(void) {
     stub_discard_output();
+    memset(&scr, 0, sizeof(scr));
+
+    return scr_init(&scr, 0) != NULL;
+}
+
+/* As start(), but leaves stdout where the caller put it -- the painting tests
+ * capture it, and stub_discard_output would send it to /dev/null instead. */
+static int start_painting(void) {
     memset(&scr, 0, sizeof(scr));
 
     return scr_init(&scr, 0) != NULL;
@@ -240,6 +321,147 @@ int main(void) {
         check("    and the one already loaded is untouched",
               strcmp(th.name, "good") == 0 ? 1 : 0, 1);
         check("      colours and all", theme_colour(&th, TOK_TEXT), 7);
+    }
+
+    /* --- a row painted with token colours --- */
+    {
+        /*
+         * The whole point of the two sections above, seen at the only place it
+         * shows: the bytes that reach the VDP. The runs say which columns are
+         * which class, the theme says what colour a class is, and highlight()
+         * turns the pair into colour changes -- one a run rather than one a
+         * column, which is what makes the cost bearable.
+         */
+        FILE* cap = freopen("/tmp/aed_theme_capture", "w+", stdout);
+        if (cap == NULL) {
+            fprintf(stderr, "could not capture stdout\n");
+
+            return 1;
+        }
+        stub_emit_colours(1);
+        check("a screen to paint on", start_painting(), 1);
+        scr_set_scheme(&scr, 7, 0);
+
+        static theme th;
+        theme_clear(&th);
+        th.loaded = true;
+        th.colour[TOK_TEXT] = 7;
+        th.colour[TOK_KEYWORD] = 4;
+        th.colour[TOK_COMMENT] = 2;
+
+        /* "int x;  // hi"  ->  keyword, text, comment */
+        static const tok_run RUNS[] = {
+            { 3,  TOK_KEYWORD },      /* columns 0-2  "int"   */
+            { 8,  TOK_TEXT    },      /* columns 3-7  " x;  " */
+            { 13, TOK_COMMENT },      /* columns 8-12 "// hi" */
+        };
+
+        /* Without a theme, nothing is coloured. */
+        scr_set_theme(&scr, NULL);
+        scr_set_row_tokens(&scr, RUNS, 3);
+        cap_start();
+        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        check_map("no theme paints the row in one colour",
+                  fg_map(13, 7), "7777777777777");
+
+        /* With it, each run takes its class's colour. */
+        scr_set_theme(&scr, &th);
+        scr_set_row_tokens(&scr, RUNS, 3);
+        cap_start();
+        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        check_map("a theme colours each run", fg_map(13, 7), "4447777722222");
+
+        /* A class the theme says nothing about falls back to its text colour,
+         * so a partial theme still paints a whole row. */
+        static const tok_run ODD[] = { { 13, TOK_OPERATOR } };
+        scr_set_row_tokens(&scr, ODD, 1);
+        cap_start();
+        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        check_map("an uncoloured class falls back to text",
+                  fg_map(13, 7), "7777777777777");
+
+        scr_destroy(&scr);
+    }
+
+    /* --- a colour change a run, not a column --- */
+    {
+        /*
+         * The cost of this feature is counted in colour changes: each is four
+         * bytes and a call, about five characters of text on the wire
+         * (test/probes/vducost.c). What keeps that affordable is that a run of
+         * columns wanting one colour costs one change, which is the early
+         * return in highlight().
+         *
+         * Without it every column would emit its own, and a row would cost
+         * eighty changes rather than three -- the row would still *look*
+         * right, which is why the colour map above cannot catch it and this
+         * counts instead.
+         */
+        stub_emit_colours(1);
+        check("a screen to count changes on", start_painting(), 1);
+        scr_set_scheme(&scr, 7, 0);
+
+        static theme th;
+        theme_clear(&th);
+        th.loaded = true;
+        th.colour[TOK_TEXT] = 7;
+        th.colour[TOK_KEYWORD] = 4;
+        th.colour[TOK_COMMENT] = 2;
+        scr_set_theme(&scr, &th);
+
+        static const tok_run RUNS[] = {
+            { 3,  TOK_KEYWORD },
+            { 8,  TOK_TEXT    },
+            { 13, TOK_COMMENT },
+        };
+        scr_set_row_tokens(&scr, RUNS, 3);
+        cap_start();
+        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        const int changes = colour_changes();
+        check("  thirteen columns in three runs", changes <= 4 ? 1 : 0, 1);
+        check("    and it really is about three", changes >= 2 ? 1 : 0, 1);
+
+        /* And a row wanting nothing but the document's own colour emits none
+         * at all, which is what an unhighlighted file must keep costing. */
+        scr_set_theme(&scr, NULL);
+        scr_set_row_tokens(&scr, NULL, 0);
+        cap_start();
+        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        check("  a plain row still costs no colour change at all",
+              colour_changes(), 0);
+
+        scr_destroy(&scr);
+    }
+
+    /* --- the selection still wins --- */
+    {
+        /*
+         * A user who has selected text needs to see what they selected more
+         * than they need to see its syntax, so the selection reverses the pair
+         * over the top of any token colour. Worth pinning: the token lookup
+         * sits in the same function and an `else` in the wrong place would let
+         * a keyword paint straight through a highlight.
+         */
+        stub_emit_colours(1);
+        check("a screen with a selection", start_painting(), 1);
+        scr_set_scheme(&scr, 7, 0);
+
+        static theme th;
+        theme_clear(&th);
+        th.loaded = true;
+        th.colour[TOK_TEXT] = 7;
+        th.colour[TOK_KEYWORD] = 4;
+        scr_set_theme(&scr, &th);
+
+        static const tok_run ALL_KW[] = { { 8, TOK_KEYWORD } };
+        scr_set_row_tokens(&scr, ALL_KW, 1);
+        cap_start();
+        /* columns 2..4 selected: those show the reversed pair, bg as fg */
+        scr_write_line_sel(&scr, scr.topY_, "abcdefgh", 8, 2, 5);
+        check_map("a selection reverses over the token colour",
+                  fg_map(8, 7), "44000444");
+
+        scr_destroy(&scr);
     }
 
     if (failures > 0) {
