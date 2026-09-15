@@ -347,12 +347,6 @@ int main(void) {
         cmd_repaint_rows(&ed, 1, 1);
         int n = cap_read(cap, (int) sizeof(cap));
         check("painting a C row writes colour changes", n > 0 ? 1 : 0, 1);
-        fprintf(stderr, "DEBUG loaded=%d theme=%p n=%d bytes:", ed.syn_.loaded,
-                (void*) ed.scr_.theme_, n);
-        for (int i = 0; i < n && i < 40; i++) {
-            fprintf(stderr, " %d", (unsigned char) cap[i]);
-        }
-        fprintf(stderr, "\n");
         check("  the theme's type colour, for int",
               has_colour(cap, n, 14), 1);
         check("    and its comment colour", has_colour(cap, n, 8), 1);
