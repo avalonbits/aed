@@ -27,7 +27,7 @@ Sizing — how big the buffer is, how much of it stays empty, and why — is in
 
 ---
 
-The editor is fifteen files. Each has a header holding what the other parts need
+The editor is twenty files. Each has a header holding what the other parts need
 from it, and the sections below follow them:
 
 | file | what is in it | sections |
@@ -35,7 +35,12 @@ from it, and the sections below follow them:
 | [`main.c`](../src/main.c) | `main`, and the one number that sizes everything | 1 |
 | [`editor.c`](../src/editor.c) | the key loop, what a key means, the selection | 1, 2, 7 |
 | [`cmd_ops.c`](../src/cmd_ops.c) | one function per command, and the repaint | 2, 6 |
-| [`text_buffer.c`](../src/text_buffer.c) | the document: gap buffer, line index, paging | 3, 4, 5 |
+| [`text_buffer.c`](../src/text_buffer.c) | the document, and the six edits that change it | 3 |
+| [`text_buffer_move.c`](../src/text_buffer_move.c) | the cursor: character, word, line, offset | 3 |
+| [`text_buffer_page.c`](../src/text_buffer_page.c) | the window: settling, and the two slides | 4 |
+| [`text_buffer_range.c`](../src/text_buffer_range.c) | positions, and the spans between them | 5 |
+| [`text_buffer_find.c`](../src/text_buffer_find.c) | searching, including the part on disk | 5 |
+| [`text_buffer_io.c`](../src/text_buffer_io.c) | reading files in and writing them back | 4, 5 |
 | [`char_buffer.c`](../src/char_buffer.c) | the gap buffer itself | 3 |
 | [`line_buffer.c`](../src/line_buffer.c) | the line index, a gap buffer of lengths | 3 |
 | [`doc_store.c`](../src/doc_store.c) | the two scratch files a paged document lives in | 4 |
@@ -47,6 +52,11 @@ from it, and the sections below follow them:
 | [`config.c`](../src/config.c) | the settings file | 8 |
 | [`bootfont.c`](../src/bootfont.c) | which font the machine booted into | 8 |
 | [`conv.c`](../src/conv.c) | character conversions | — |
+
+The six `text_buffer` files are one module. What they share with each other is
+in [`text_buffer_int.h`](../src/text_buffer_int.h), and carries a `tbi_` prefix
+so that a call site says which it is: a `tb_` name is something the rest of the
+editor may call, a `tbi_` name is one of those six talking to another.
 
 [`ftrunc.asm`](../src/ftrunc.asm) is seven lines of assembly, because the fault
 it works around is in a calling sequence that C cannot reach.
@@ -209,6 +219,23 @@ Everything that moves the cursor settles —
 arrow keys and page up and down reach the whole document rather than the window.
 A read-only copy is the exception, for the reason section 5 gives.
 
+**Settling picks one direction and holds it for the whole call.** Each side used
+to be asked about its margin on its own, which is enough only while a window is
+several margins wide — and it is not always. The index holds one slot per 32
+bytes of buffer, so a document of ten-byte lines fills the index at 15,350 bytes
+and the window is *narrower than a single margin*, whatever the buffer's size.
+Both sides are then under it at once and always will be, and asking them
+separately made settling slide up, slide down, and undo itself until its guard
+ran out: ten slides a keystroke with the window exactly where it started. Worse,
+the pair leaked — a slide up put one line in TAIL, a slide down then saw
+something there and evicted a whole chunk against it, and 2,030 bytes left the
+window a turn. A cursor walking up a 20,000 line document stopped at the top of
+the window with the other 184,640 bytes in HEAD and no way back to them.
+
+So **the index bounds the window before the buffer does, whenever lines are
+short**, and everything about paging has to hold at that size rather than at the
+buffer's.
+
 TAIL carries [`STORE_HEADROOM`](../src/doc_store.h#L67) of dead space in front
 of it so text pushed back has somewhere to go. That space is written out at
 open, because on this platform seeking past the end of a file and writing there
@@ -245,6 +272,14 @@ signed comparison.
 A `tb_copy` walker shares the original's buffers, so it must not slide — moving
 the window under the cursor that owns it would turn a repaint into a scroll.
 Painting uses walkers, and painting only ever wants what is on screen.
+
+**A walker owns nothing.** Its two buffers are the original's allocations and
+its store is the same store, so everything that would write to those refuses on
+the walker flag: the edits, the slides, saving, loading, clearing, and
+`tb_destroy`, which would otherwise hand the original's memory back while the
+cursor that owns it is still reading. Every walker in the editor is a local that
+goes out of scope, so the last of those has never been called on one — it is
+guarded because it fails as memory corruption rather than as a wrong answer.
 
 Everything else that has to see text outside the window **streams the document**.
 [`tbi_doc_stream()`](../src/text_buffer_io.c#L749) walks HEAD, then memory, then what
@@ -353,9 +388,9 @@ dropping the machine to the stock 8x8.
 | [`test/bench/`](../test/bench/) | the CPU-bound paths, on the emulator at the real clock |
 | [`test/probes/`](../test/probes/) | questions only the machine can answer, run by hand |
 
-`./test/run.sh <name>` runs one test. The whole suite is about seven seconds,
-which is deliberate: it was forty, and a suite that is run less often finds
-less.
+`./test/run.sh <name>` runs one test. The whole suite is about twenty seconds
+for some 2,200 checks, and staying quick is deliberate: it was forty once, and a
+suite that is run less often finds less.
 
 **Mutation testing is the primary defence.** A test that passes against a
 deliberately broken line is not testing that line. Several of the bugs recorded
@@ -366,6 +401,9 @@ Four things learned the hard way:
 
 * **Check the exit status, and not only the FAIL lines.** A sanitiser abort
   prints no FAIL line at all, so counting them scores a crash as a survivor.
+  Filtering the output to look at one thing hides the rest the same way: a
+  `grep -v` over link rot once carried six rotted documentation links through a
+  whole pull request, reported as green.
 * **An oracle should be something other than a second implementation.** A
   differential test of the range operations against the in-memory ones was tried
   first and does not work, because those were themselves wrong. The tests work
@@ -381,6 +419,8 @@ Four things learned the hard way:
 
 ## 10. Adding something
 
+* **Something on the document** goes in the `text_buffer_*.c` whose job it is,
+  and anything two of them need goes in `text_buffer_int.h` with a `tbi_` name.
 * **A command** needs a function in `cmd_ops.c`, a declaration in `cmd_ops.h`, a
   case in [`ctrlCmds()`](../src/editor.c#L460) or
   [`editCmds()`](../src/editor.c#L555), a row in the help table in
