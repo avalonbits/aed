@@ -384,7 +384,7 @@ int main(void) {
         static const char before[] = "[editor]\r\ntab = 4\r\n";
         stub_file_reset();
         stub_file_set_content(before, (int) sizeof(before) - 1);
-        cfg_update(&cfg, "/config/aed.cfg");
+        cfg_update(&cfg, CFG_PATH);
         check("  and reaches the file",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
         ui_destroy(&ui);
@@ -455,7 +455,7 @@ int main(void) {
         strcpy(cfg.font, "/config/aed/unscii16.bin");
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&cfg, "/config/aed.cfg");
+        cfg_update(&cfg, CFG_PATH);
 
         const char* out = stub_file_bytes();
         check("the new font replaces the old one",
@@ -479,7 +479,7 @@ int main(void) {
         cfg_defaults(&quiet);
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&quiet, "/config/aed.cfg");
+        cfg_update(&quiet, CFG_PATH);
         check("saying nothing leaves the font line alone",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
 
@@ -490,7 +490,7 @@ int main(void) {
         none.font_none = true;
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&none, "/config/aed.cfg");
+        cfg_update(&none, CFG_PATH);
         check("  but asking for none empties it",
               strstr(stub_file_bytes(), "unscii16") == NULL, 1);
         check("  leaving the setting there, with no value",
@@ -587,7 +587,7 @@ int main(void) {
         stub_set_cell(8, 8);
         stub_file_reset();
         stub_file_add("/autoexec.txt", boot, (int) sizeof(boot) - 1);
-        stub_file_add("/config/aed.cfg", cfg16, (int) sizeof(cfg16) - 1);
+        stub_file_add(CFG_PATH, cfg16, (int) sizeof(cfg16) - 1);
         stub_file_add("/config/aed/unscii16.bin", font16, (int) sizeof(font16));
         stub_file_add("doc.txt", doc2, (int) sizeof(doc2) - 1);
         stub_file_set_content(doc2, (int) sizeof(doc2) - 1);
@@ -635,6 +635,57 @@ int main(void) {
         }
         check("  and puts the boot font back on the way out", has_want, 1);
         check("  rather than the stock one", has_stock, 0);
+        ed_destroy(&ed);
+        stub_file_clear_named();
+    }
+
+    /* --- a move that could not finish is not papered over --- */
+    {
+        /*
+         * cfg_migrate keeps the old settings file when the copy fails, so the
+         * next run can try again. The editor writes a fresh settings file when
+         * it finds none -- and doing that here would be found by every run
+         * after it, which would report the move as done and leave the reader's
+         * real settings sitting in the old file, unread, for good.
+         *
+         * One full card at the wrong moment, and their settings are gone
+         * without anything having failed visibly.
+         */
+        static const char old[] = "[editor]\r\ntab = 7\r\n";
+        static const char doc[] = "hi\r\n";
+
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, old, (int) sizeof(old) - 1);
+        stub_file_add("doc.txt", doc, (int) sizeof(doc) - 1);
+        /*
+         * No fallback content: the stub serves it for any name nobody
+         * registered, which would make opening the settings file succeed and
+         * leave an entry behind under that name -- so the check below would be
+         * looking at the stub rather than at what the editor wrote.
+         */
+        stub_file_short_write(4);
+
+        editor ed;
+        check("the editor still starts", ed_init(&ed, 8, "doc.txt") != NULL, 1);
+        stub_file_short_write(-1);
+
+        check("  the old settings file is left to try again from",
+              stub_file_exists(CFG_PATH_OLD), 1);
+        check("    and nothing was written over it",
+              stub_file_exists(CFG_PATH), 0);
+        /*
+         * Existence alone cannot tell the two apart: a settings file written
+         * short is deleted by write_file, so a fresh one attempted here would
+         * leave no trace of itself either -- and neither would its contents,
+         * since only the first few bytes of it ever reach the card.
+         *
+         * What it does leave is the delete. The move makes one, taking away
+         * the half-written file it could not finish; a fresh settings file
+         * attempted afterwards and failing the same way makes a second.
+         */
+        check("      and none was even attempted", stub_deletes(), 1);
         ed_destroy(&ed);
         stub_file_clear_named();
     }

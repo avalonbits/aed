@@ -8,7 +8,7 @@
  *
  * The last of those is the rule that matters most, and it is the one a user
  * would notice breaking: a theme is a view of a document, and what the editor
- * is set to is what aed.cfg keeps.
+ * is set to is what aed.ini keeps.
  */
 
 #include <stdio.h>

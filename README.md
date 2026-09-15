@@ -68,10 +68,15 @@ you are on 2.3.x, be on 2.3.3.
 
 # Configuration
 
-AED keeps its settings in `/config/aed.cfg`, an ordinary INI file. **The first time you
+AED keeps its settings in `/config/aed.ini`, an ordinary INI file. **The first time you
 run it, it writes that file for you**, filled in with the settings it is currently
 using -- including the colours it picked up from your Agon -- so there is something to
 edit rather than a format to guess at.
+
+If you have used an earlier AED, your settings are in `/config/aed.cfg`. The first run
+of this one moves them to the new name and takes the old file away; nothing is lost and
+there is nothing to do. Opening either file gives you syntax highlighting for it, since
+INI is one of the languages AED knows.
 
 `/config` sits alongside `/bin` and `/mos` rather than inside them, since those are for
 executables. The convention is one file per application, or `/config/<app>/` for an

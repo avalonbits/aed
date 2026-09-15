@@ -9,7 +9,7 @@
 #   config/aed/syntax/*.cfg  a grammar per language, read when a file is opened
 #   config/aed/themes/*.cfg  a theme per background, read with the grammar
 #
-# There is deliberately no config/aed.cfg in here. AED writes that itself on
+# There is deliberately no config/aed.ini in here. AED writes that itself on
 # first run, from the colours the machine is already using, and shipping one
 # would overwrite whatever the user had. The fonts stay inert until a settings
 # file names one.

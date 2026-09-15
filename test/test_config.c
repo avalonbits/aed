@@ -564,6 +564,106 @@ int main(void) {
         check("...and only under its own heading", c.ctrl_pause, -1);
     }
 
+    /* --- the settings file used to be called something else --- */
+    {
+        /*
+         * It is an INI file and is named like one now. A card that has been
+         * through an older AED has the settings under the old name, and the
+         * first run of this one moves them: same settings, same directory, new
+         * name, and nothing left behind to wonder about.
+         */
+        static const char OLD[] =
+            "[editor]\r\ntab = 3\r\n[colours]\r\nfg = 9\r\nbg = 2\r\n";
+
+        /* Only the old one: it is copied across and taken away. */
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        cfg_migrate();
+        check("the old name is gone", stub_file_exists(CFG_PATH_OLD), 0);
+        check("  and the new one is there", stub_file_exists(CFG_PATH), 1);
+        {
+            int n = 0;
+            const char* got = stub_file_content(CFG_PATH, &n);
+            check("    holding what the old one held",
+                  (got != NULL && n == (int) sizeof(OLD) - 1
+                   && memcmp(got, OLD, (size_t) n) == 0) ? 1 : 0, 1);
+        }
+        {
+            config cfg;
+            cfg_defaults(&cfg);
+            check("      and it reads back as the same settings",
+                  cfg_load(&cfg, CFG_PATH) ? 1 : 0, 1);
+            check("        tab", cfg.tab_size, 3);
+            check("        fg", cfg.fg, 9);
+            check("        bg", cfg.bg, 2);
+        }
+
+        /*
+         * Both: the move has already happened and something put the old file
+         * back -- an older AED run from the same card, or a backup copied by
+         * hand. The new one wins, and the old one is left where it is rather
+         * than read or removed. It stopped being this program's file.
+         */
+        static const char NEW[] = "[colours]\r\nfg = 1\r\n";
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        stub_file_add(CFG_PATH, NEW, (int) sizeof(NEW) - 1);
+        cfg_migrate();
+        check("with both, the old one is left alone",
+              stub_file_exists(CFG_PATH_OLD), 1);
+        {
+            int n = 0;
+            const char* got = stub_file_content(CFG_PATH, &n);
+            check("  and the new one is not written over",
+                  (got != NULL && n == (int) sizeof(NEW) - 1
+                   && memcmp(got, NEW, (size_t) n) == 0) ? 1 : 0, 1);
+        }
+
+        /* Neither: a first run, and nothing to move. */
+        stub_file_reset();
+        cfg_migrate();
+        check("with neither, nothing is made",
+              stub_file_exists(CFG_PATH), 0);
+
+        /*
+         * A copy that cannot finish leaves the old file exactly where it was
+         * and takes the half-written new one away. Half a settings file would
+         * be read as the whole of them next time.
+         */
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        stub_file_short_write(4);
+        cfg_migrate();
+        stub_file_short_write(-1);
+        check("a copy that fails keeps the old file",
+              stub_file_exists(CFG_PATH_OLD), 1);
+        check("  and leaves no half-written new one",
+              stub_file_exists(CFG_PATH), 0);
+
+        /*
+         * And says so, which is the part that matters. The editor writes a
+         * fresh settings file when it finds none -- and doing that here would
+         * be found by every later run, which would report the move as done and
+         * leave the reader's settings sitting in the old file, unread, for
+         * good. One full card at the wrong moment and they are gone.
+         */
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        stub_file_short_write(4);
+        check("  and says the move is still to do", cfg_migrate() ? 1 : 0, 0);
+        stub_file_short_write(-1);
+
+        /* The cases that are done say so too, so nothing is held back. */
+        stub_file_reset();
+        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        check("a move that finishes says so", cfg_migrate() ? 1 : 0, 1);
+        stub_file_reset();
+        check("and so does having nothing to move", cfg_migrate() ? 1 : 0, 1);
+        stub_file_reset();
+        stub_file_add(CFG_PATH, OLD, (int) sizeof(OLD) - 1);
+        check("and so does having moved already", cfg_migrate() ? 1 : 0, 1);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

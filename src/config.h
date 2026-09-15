@@ -27,7 +27,22 @@
 // file can take a /config/<name>/ directory instead -- AED will want one for
 // syntax definitions -- so the loader takes the path rather than assuming it.
 #define CFG_DIR  "/config"
-#define CFG_PATH CFG_DIR "/aed.cfg"
+
+/*
+ * The settings file, and the one it used to be called.
+ *
+ * It is an INI file and is named like one now. The old name is still read
+ * once: cfg_migrate copies it across and takes it away, so a card that has
+ * been through an older AED comes up with the same settings under the new
+ * name and nothing is left behind to wonder about.
+ *
+ * An .ini beside a .cfg means the move has already happened and something put
+ * the .cfg back -- an older AED run from the same card, or a backup copied by
+ * hand. The .ini wins and the .cfg is left alone rather than read or removed;
+ * it is not this program's to delete once it has stopped being its file.
+ */
+#define CFG_PATH     CFG_DIR "/aed.ini"
+#define CFG_PATH_OLD CFG_DIR "/aed.cfg"
 
 // The file is an INI file: [section] headings, then `name = value` lines, with
 // '#' or ';' starting a comment. Nothing here needs the format's full
@@ -80,6 +95,24 @@ void cfg_defaults(config* cfg);
 // settings simply stay unset. Unknown sections and names are ignored so that a
 // file written for a later version still loads in this one. Section and setting
 // names are matched without regard to case.
+/*
+ * Brings a card written by an older AED up to date, once, before anything
+ * reads the settings.
+ *
+ * Does nothing when the settings file is already there, and nothing when
+ * neither file is -- which is a first run. Otherwise the old file is copied to
+ * the new name and removed. A copy that fails leaves the old file exactly
+ * where it was and takes the half-written new one away, so the next run tries
+ * again rather than reading a truncated file.
+ *
+ * Returns false only in that last case: an old settings file is still waiting
+ * to be moved. The caller must not write a fresh one while that is true. A
+ * card that is full fails the copy, and a fresh file written afterwards would
+ * be found by every later run -- which would report the move as done and
+ * leave the reader's real settings sitting in the old file, unread, for good.
+ */
+bool cfg_migrate(void);
+
 bool cfg_load(config* cfg, const char* path);
 
 // Parses config text directly. Exposed for tests, and so the file reading and
