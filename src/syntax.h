@@ -244,6 +244,15 @@ int syn_lex(const syntax* g, const char* line, int len, int in, int* out_state,
 typedef int (*syn_line_fn)(void* ctx, int y, char* buf, int max);
 
 /*
+ * Whether any rule in this grammar can run past the end of a line.
+ *
+ * False means every line's state is SYN_STATE_NONE, so a caller that would
+ * otherwise work out what the rows above a repaint left open can skip the
+ * whole question. Assembly and BASIC are false; C is true.
+ */
+bool syn_crosses_lines(const syntax* g);
+
+/*
  * The state line `y` begins in, for a view that has just jumped there.
  *
  * Reads back at most SYN_LOOKBACK lines, assumes the line it stops on starts

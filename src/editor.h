@@ -45,6 +45,18 @@ typedef struct _editor {
     bool banner_;
     bool selecting_;
 
+    /*
+     * The grammar the document on screen is written in, and the theme its
+     * colours come from. Both are cleared when the file has no grammar, which
+     * paints it plainly and puts the user's own colours back.
+     *
+     * Held by value, and the editor is a static in main, so this is bss rather
+     * than heap or stack. One grammar at a time: a second open document would
+     * want a second, which is the same question AED_DOC_KB asks.
+     */
+    syntax syn_;
+    theme theme_;
+
     clipboard clip_;
     // Session state, like the clipboard: it does not outlive the editor and
     // opening another file clears it.
@@ -84,6 +96,16 @@ typedef struct _editor {
 #define AED_DOC_KB 72
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
+
+/*
+ * Chooses the grammar and theme for the document now in the buffer, by its
+ * name and by the background in force.
+ *
+ * Called whenever the document changes -- at startup and on CTRL+O. A file no
+ * grammar claims clears both and puts the user's own colours back, which is
+ * what makes a theme a view of a document rather than a setting.
+ */
+void ed_pick_syntax(editor* ed);
 
 // True for the keys that move the cursor without changing the document. Holding
 // shift with one of these is what starts and extends a selection; anything else

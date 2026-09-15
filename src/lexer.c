@@ -693,6 +693,19 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
     return n;
 }
 
+bool syn_crosses_lines(const syntax* g) {
+    if (g == NULL || !g->loaded) {
+        return false;
+    }
+    for (int k = 0; k < g->nrules; k++) {
+        if (g->rules[k].kind == M_SPAN && g->rules[k].multiline != 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
                      char* buf, int bufmax) {
     if (g == NULL || !g->loaded || get == NULL || y <= 0 || buf == NULL
@@ -704,11 +717,7 @@ int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
      * A grammar with nothing that crosses a line can only ever answer NONE, so
      * a jump in an assembly file reads no lines at all. C is the one that pays.
      */
-    bool crosses = false;
-    for (int k = 0; k < g->nrules && !crosses; k++) {
-        crosses = (g->rules[k].kind == M_SPAN && g->rules[k].multiline != 0);
-    }
-    if (!crosses) {
+    if (!syn_crosses_lines(g)) {
         return SYN_STATE_NONE;
     }
 

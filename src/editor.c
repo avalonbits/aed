@@ -72,6 +72,147 @@ static void ed_say(const char* msg) {
     mos_puts("\r\n", 2, 0);
 }
 
+/*
+ * Grammars and themes live beside the settings file, each kind in a directory
+ * of its own, so a user can add one by dropping a file on the card.
+ */
+#define SYNTAX_DIR   CFG_DIR "/aed/syntax"
+#define THEME_DIR    CFG_DIR "/aed/themes"
+#define SYN_PATH_MAX 64
+
+static int join_path(char* out, int max, const char* dir, const char* name) {
+    const int d = (int) strlen(dir);
+    const int n = (int) strlen(name);
+    if (d + 1 + n + 1 > max) {
+        return 0;
+    }
+    memcpy(out, dir, (size_t) d);
+    out[d] = '/';
+    memcpy(out + d + 1, name, (size_t) n);
+    out[d + 1 + n] = 0;
+
+    return d + 1 + n;
+}
+
+/*
+ * The first grammar in the directory that claims this file name.
+ *
+ * Every candidate is read in full before it can be asked, because the
+ * extensions it claims are in the file. Three grammars ship and each is a
+ * couple of kilobytes, so the walk costs a few reads on open; a directory of
+ * dozens would want the header read on its own, which is an optimisation and
+ * not a change of shape.
+ *
+ * A grammar that loads and does not claim the file is left behind by the next
+ * one, and the last is cleared on the way out -- so a miss leaves an empty
+ * grammar rather than whichever file happened to sort last.
+ */
+static bool grammar_for(syntax* g, const char* fname) {
+    // Static, as font_list is and for the same reason: a FILINFO carries a
+    // 256-byte name, and on the stack those bytes take the frame past the 128
+    // an ix displacement reaches.
+    static DIR dir;
+    static FILINFO info;
+    static char path[SYN_PATH_MAX];
+
+    if (ffs_dopen(&dir, SYNTAX_DIR) != 0) {
+        return false;
+    }
+    bool got = false;
+    while (!got) {
+        if (ffs_dread(&dir, &info) != 0 || info.fname[0] == 0) {
+            break;
+        }
+        if ((info.fattrib & AM_DIR) != 0) {
+            continue;
+        }
+        if (join_path(path, SYN_PATH_MAX, SYNTAX_DIR, info.fname) == 0) {
+            continue;
+        }
+        if (!syn_load(g, path)) {
+            continue;
+        }
+        got = syn_covers(g, fname);
+    }
+    ffs_dclose(&dir);
+    if (!got) {
+        syn_clear(g);
+    }
+
+    return got;
+}
+
+// The first theme whose author meant it for this background.
+static bool theme_for(theme* t, int bg) {
+    static DIR dir;
+    static FILINFO info;
+    static char path[SYN_PATH_MAX];
+
+    if (ffs_dopen(&dir, THEME_DIR) != 0) {
+        return false;
+    }
+    bool got = false;
+    while (!got) {
+        if (ffs_dread(&dir, &info) != 0 || info.fname[0] == 0) {
+            break;
+        }
+        if ((info.fattrib & AM_DIR) != 0) {
+            continue;
+        }
+        if (join_path(path, SYN_PATH_MAX, THEME_DIR, info.fname) == 0) {
+            continue;
+        }
+        if (!theme_load(t, path)) {
+            continue;
+        }
+        got = theme_covers(t, bg);
+    }
+    ffs_dclose(&dir);
+    if (!got) {
+        theme_clear(t);
+    }
+
+    return got;
+}
+
+void ed_pick_syntax(editor* ed) {
+    if (ed == NULL) {
+        return;
+    }
+    syn_clear(&ed->syn_);
+    theme_clear(&ed->theme_);
+    scr_set_theme(&ed->scr_, NULL);
+    scr_base_restore(&ed->scr_);
+
+    const char* fname = tb_fname(&ed->buf_);
+    if (fname == NULL || fname[0] == 0) {
+        return;                 // a document with no name has no extension
+    }
+    if (!grammar_for(&ed->syn_, fname)) {
+        return;
+    }
+    if (!theme_for(&ed->theme_, scr_base_bg(&ed->scr_))) {
+        // A grammar with no theme to colour it by would divide the line into
+        // tokens and paint every one of them the same, which is the work
+        // without the result.
+        syn_clear(&ed->syn_);
+
+        return;
+    }
+    scr_set_theme(&ed->scr_, &ed->theme_);
+
+    /*
+     * A theme may move the pair the document is drawn on, and moves only the
+     * active one. What the user chose is untouched and is what aed.cfg keeps,
+     * so opening a file with no grammar -- which calls scr_base_restore above
+     * -- puts their colours back.
+     *
+     * A theme that says nothing about fg and bg leaves both alone, which is
+     * what the three shipped themes do.
+     */
+    scr_theme_scheme(&ed->scr_, ed->theme_.fg, ed->theme_.bg);
+}
+
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
 
@@ -141,6 +282,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
             return NULL;
         }
     }
+
+    // After the load, because the grammar is chosen by the document's name and
+    // the buffer does not have one until it is loaded.
+    ed_pick_syntax(ed);
 
     // Attached after the load, on purpose. tb_load normalises the file's line
     // endings, and those writes go through the same primitives an edit does --

@@ -32,7 +32,136 @@
 #define UI(ed) user_input* ui = &ed->ui_
 #define TB(ed) text_buffer* tb = &ed->buf_
 
-static void fill_screen(screen* scr, text_buffer* tb) {
+/*
+ * A row, joined and lexed, so it can be coloured.
+ *
+ * SYN_ROW_MAX bounds how much of a long line is looked at: past that column a
+ * row paints in the document's own colour. The screen is at most 128 columns,
+ * so this only bites on a line scrolled a long way sideways.
+ *
+ * SYN_ROW_RUNS bounds the tokens in one row. add_run merges neighbours of the
+ * same class and lets the last run swallow the rest when it runs out, so
+ * overflow costs colour rather than correctness -- and the cost of a colour
+ * change is why a cap is wanted at all (test/probes/vducost.c).
+ *
+ * Static rather than on the stack: 512 bytes of frame is wider than an eZ80
+ * index displacement reaches. One row is painted at a time, and the lookback
+ * borrows the same buffer, which never runs while a row is being painted.
+ */
+#define SYN_ROW_MAX  512
+#define SYN_ROW_RUNS 64
+
+static char synRow_[SYN_ROW_MAX];
+static tok_run synRuns_[SYN_ROW_RUNS];
+
+static int row_bytes(const split_line* ln, char* buf, int max) {
+    int n = ln->psz_;
+    if (n > max) {
+        n = max;
+    }
+    if (n > 0) {
+        memcpy(buf, ln->prefix_, (size_t) n);
+    }
+    int m = ln->ssz_;
+    if (n + m > max) {
+        m = max - n;
+    }
+    if (m > 0) {
+        memcpy(buf + n, ln->suffix_, (size_t) m);
+    }
+
+    return n + m;
+}
+
+/*
+ * Hands the screen the colours for the row about to be painted, and returns
+ * what that row leaves open for the row below it.
+ *
+ * With no grammar the screen is told to paint plainly, which is also what it
+ * does for any paint that does not come through here -- scr_paint_span drops
+ * the runs when it is done, so no row can inherit another's colouring.
+ */
+static int set_row_colours(editor* ed, const split_line* ln, int in) {
+    if (!ed->syn_.loaded) {
+        scr_set_row_tokens(&ed->scr_, NULL, 0);
+
+        return SYN_STATE_NONE;
+    }
+    const int len = row_bytes(ln, synRow_, SYN_ROW_MAX);
+    int out = SYN_STATE_NONE;
+    const int n = syn_lex(&ed->syn_, synRow_, len, in, &out,
+                          synRuns_, SYN_ROW_RUNS);
+    scr_set_row_tokens(&ed->scr_, synRuns_, n);
+
+    return out;
+}
+
+// Walks a copy of the document forward, a line at a time. syn_state_before
+// asks for lines in order, which is what lets this be a walk rather than a
+// seek per line.
+typedef struct _back_scan {
+    text_buffer cp;
+    int at;                     // the document line cp is on, counting from 1
+} back_scan;
+
+static int back_get(void* ctx, int y, char* buf, int max) {
+    back_scan* bs = (back_scan*) ctx;
+    const int want = y + 1;     // syn_state_before counts lines from zero
+    while (bs->at < want) {
+        const int now = tb_down(&bs->cp);
+        if (now == bs->at) {
+            return -1;          // the document ended first
+        }
+        bs->at = now;
+    }
+    const split_line ln = tb_curr_line(&bs->cp);
+
+    return row_bytes(&ln, buf, max);
+}
+
+/*
+ * What the top line on screen begins inside, for a view that has just arrived
+ * there.
+ *
+ * Costs nothing for a grammar with nothing that crosses a line, which is every
+ * grammar but C -- syn_state_before answers those without reading a line.
+ */
+static int top_state(editor* ed, int line) {
+    if (!syn_crosses_lines(&ed->syn_) || line <= 1) {
+        return SYN_STATE_NONE;
+    }
+    // Static, as font_list's DIR is and for the same reason: a text_buffer on
+    // the stack joins the frame of whatever this is inlined into and takes it
+    // past the 128 bytes an eZ80 index displacement reaches. One scan at a
+    // time, and it never runs while a row is being painted.
+    static back_scan bs;
+    tb_copy(&bs.cp, &ed->buf_);
+    int from = line - SYN_LOOKBACK;
+    if (from < 1) {
+        from = 1;
+    }
+    tb_pos p;
+    p.line = from;
+    p.x = 0;
+    tb_seek(&bs.cp, p);
+    bs.at = tb_ypos(&bs.cp);
+
+    return syn_state_before(&ed->syn_, line - 1, back_get, &bs,
+                            synRow_, SYN_ROW_MAX);
+}
+
+/*
+ * What the row at `ypos` begins inside.
+ *
+ * The rows above it are on screen and so are in memory, so this walks down
+ * from the top of the screen lexing as it goes rather than reading anything.
+ * Bounded by the screen: at most a screenful of lines, and none at all for a
+ * grammar with nothing that crosses a line -- which is why typing in an
+ * assembly or BASIC file costs exactly what it did before.
+ */
+static int state_at_row(editor* ed, text_buffer* tb, char ypos);
+
+static void fill_screen(editor* ed, text_buffer* tb) {
     // No clear first. scr_write_line pads every row it paints to the full width,
     // so it covers whatever was there -- clearing the area and then painting
     // over all of it writes the whole text area twice, and the blank moment
@@ -42,10 +171,17 @@ static void fill_screen(screen* scr, text_buffer* tb) {
     // of the document, which the loop below stops before. Those are blanked
     // explicitly now. It also used to erase the footer, whose viewport it
     // overlapped; not erasing it is one fewer full-width row per refresh.
+    SCR(ed);
     char ypos = scr->topY_;
     char tpos = tb_ypos(tb);
+    // The rows are painted top to bottom, so what each one leaves open is what
+    // the next begins in and the state carries for nothing. Only the first row
+    // has to be worked out, and only when the grammar has something that can
+    // cross a line.
+    int state = top_state(ed, tpos);
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
+        state = set_row_colours(ed, &ln, state);
         scr_paint_row(scr, ypos, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 
         tb_down(tb);
@@ -63,7 +199,8 @@ static void fill_screen(screen* scr, text_buffer* tb) {
 }
 
 
-static void refresh_screen(screen* scr, text_buffer* tb) {
+static void refresh_screen(editor* ed, text_buffer* tb) {
+    SCR(ed);
     char currY = scr->currY_;
     char currX = scr->currX_;
 
@@ -74,7 +211,7 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
         tb_up(&cp);
         scr->currY_--;
     }
-    fill_screen(scr, &cp);
+    fill_screen(ed, &cp);
 
     scr->currY_ = currY;
     scr->currX_ = currX;
@@ -87,7 +224,8 @@ static void refresh_screen(screen* scr, text_buffer* tb) {
 // Paints `count` screen columns starting at `sx`, one cell per visible row.
 // Used after a VDP region scroll has shifted the text area sideways: only the
 // newly exposed columns are unknown, the rest moved with the hardware.
-static void fill_columns(screen* scr, text_buffer* tb, char sx, int count) {
+static void fill_columns(editor* ed, text_buffer* tb, char sx, int count) {
+    SCR(ed);
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
@@ -121,23 +259,25 @@ static void fill_columns(screen* scr, text_buffer* tb, char sx, int count) {
 // `edited` says whether the current row's text changed. The region scroll moves
 // pixels, which only reproduces the document while the text is unchanged, so an
 // edit that also scrolls must have its row redrawn from the buffer afterwards.
-static void resync_after_scroll(screen* scr, text_buffer* tb, char to_ch,
+static void resync_after_scroll(editor* ed, text_buffer* tb, char to_ch,
                                 int delta, bool edited) {
+    SCR(ed);
     if (delta == 0) {
         return;
     }
 
     if (delta > SCR_MAX_HSCROLL || delta < -SCR_MAX_HSCROLL) {
-        refresh_screen(scr, tb);   // reads the document, so already correct
+        refresh_screen(ed, tb);   // reads the document, so already correct
     } else {
         scr_scroll_h(scr, delta);
         if (delta > 0) {
-            fill_columns(scr, tb, (char)(scr->cols_ - delta), delta);
+            fill_columns(ed, tb, (char)(scr->cols_ - delta), delta);
         } else {
-            fill_columns(scr, tb, 0, -delta);
+            fill_columns(ed, tb, 0, -delta);
         }
         if (edited) {
             split_line ln = tb_curr_line(tb);
+            set_row_colours(ed, &ln, state_at_row(ed, tb, scr->currY_));
             scr_paint_row(scr, scr->currY_, ln.prefix_, ln.psz_,
                           ln.suffix_, ln.ssz_);
         }
@@ -259,6 +399,40 @@ static void row_selection(editor* ed, int line, const split_line* ln,
     }
 }
 
+static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
+    SCR(ed);
+    if (!syn_crosses_lines(&ed->syn_)) {
+        return SYN_STATE_NONE;
+    }
+    const int top = top_line(scr, tb);
+    int state = top_state(ed, top);
+    int rows = ypos - scr->topY_;
+    if (rows <= 0) {
+        return state;
+    }
+
+    // Static for the same reason as the scan above: this is inlined into
+    // cmd_repaint_rows, which already holds a text_buffer of its own.
+    static text_buffer cp;
+    tb_copy(&cp, tb);
+    tb_pos p;
+    p.line = top;
+    p.x = 0;
+    tb_seek(&cp, p);
+    int prev = tb_ypos(&cp);
+    while (rows-- > 0) {
+        const split_line ln = tb_curr_line(&cp);
+        const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
+        syn_lex(&ed->syn_, synRow_, len, state, &state, NULL, 0);
+        if (tb_down(&cp) == prev) {
+            break;
+        }
+        prev = tb_ypos(&cp);
+    }
+
+    return state;
+}
+
 void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     SCR(ed);
     TB(ed);
@@ -291,11 +465,13 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     }
 
     char y = fromY;
+    int state = state_at_row(ed, tb, fromY);
     for (; y <= toY; y++) {
         const split_line ln = tb_curr_line(&cp);
         int from = 0;
         int to = 0;
         row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
+        state = set_row_colours(ed, &ln, state);
         scr_write_line_sel_split(scr, y, ln.prefix_, ln.psz_,
                                  ln.suffix_, ln.ssz_, from, to);
 
@@ -369,7 +545,7 @@ static void reshow(editor* ed) {
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
     scr_place_cursor(scr, prefix, psz);
-    refresh_screen(scr, tb);
+    refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 
@@ -897,6 +1073,11 @@ void cmd_open(editor* ed) {
             break;
     }
 
+    // The document has a new name, so it may be a new language: a .c opened
+    // over a .bas takes C's grammar, and a .txt over either takes none and
+    // gives the user their own colours back.
+    ed_pick_syntax(ed);
+
     // A selection points into the document that just went away, so it goes with
     // it -- its line numbers mean something else now.
     ed->selecting_ = false;
@@ -936,7 +1117,7 @@ static void restore_after_modal(editor* ed, bool moved) {
     } else {
         scr->currY_ = currY;
     }
-    refresh_screen(scr, tb);
+    refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, ch);
 }
 
@@ -1007,11 +1188,12 @@ void cmd_putc(editor* ed, key k) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, tb_peek(tb), moved, true);
+        resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
     }
 }
 
-static void region_up(screen* scr, text_buffer* tb, char ch) {
+static void region_up(editor* ed, text_buffer* tb, char ch) {
+    SCR(ed);
     split_line ln = tb_curr_line(tb);
     scr_scroll_up_split(scr, scr->currY_, scr->bottomY_-1,
                         ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_, ch);
@@ -1027,6 +1209,10 @@ static void region_up(screen* scr, text_buffer* tb, char ch) {
         }
     }
     ln = tb_curr_line(tb);
+    // The row that the scroll exposed: the rows above it moved as pixels and
+    // kept their colours, so only this one has to be worked out.
+    set_row_colours(ed, &ln, state_at_row(ed, &ed->buf_,
+                                          (char)(scr->bottomY_ - 1)));
     scr_paint_row(scr, scr->bottomY_-1,
                   ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
@@ -1037,7 +1223,7 @@ void cmd_show(editor* ed) {
 
     text_buffer cb;
     tb_copy(&cb, tb);
-    fill_screen(scr, &cb);
+    fill_screen(ed, &cb);
     scr_sync_cursor(scr);
 
     const char to_ch = tb_peek(tb);
@@ -1049,13 +1235,12 @@ static void cmd_del_merge(editor* ed) {
     if (!tb_del_merge(tb)) {
         return;
     }
-    SCR(ed);
 
     const char ch = tb_peek(tb);
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
-    region_up(scr, &cp, ch);
+    region_up(ed, &cp, ch);
 }
 
 void cmd_del(editor* ed) {
@@ -1097,7 +1282,7 @@ static void cmd_bksp_merge(editor* ed) {
 
     tb_copy(&cp, tb);
     tb_home(&cp);
-    region_up(scr, &cp, ch);
+    region_up(ed, &cp, ch);
 }
 
 void cmd_bksp(editor* ed) {
@@ -1117,7 +1302,7 @@ void cmd_bksp(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, tb_peek(tb), moved, true);
+        resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
     }
 }
 
@@ -1130,6 +1315,12 @@ void cmd_newl(editor* ed) {
 
     if (!tb_newline(tb)) {
         return;
+    }
+    {
+        // What is left on this row is the text before the break, so it is
+        // lexed as its own line -- which it now is.
+        const split_line cut = { ln.psz_, ln.prefix_, 0, NULL };
+        set_row_colours(ed, &cut, state_at_row(ed, tb, scr->currY_));
     }
     scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
@@ -1159,7 +1350,7 @@ void cmd_del_line(editor* ed) {
 
     tb_copy(&cp, tb);
     tb_home(&cp);
-    region_up(scr, &cp, ch);
+    region_up(ed, &cp, ch);
 }
 
 /*
@@ -1184,7 +1375,7 @@ static void stepped(editor* ed, char from_ch, char to_ch) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_move_cursor(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, to_ch, moved, false);
+        resync_after_scroll(ed, tb, to_ch, moved, false);
     }
 }
 
@@ -1281,7 +1472,7 @@ void cmd_up(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_up(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved, false);
+            resync_after_scroll(ed, tb, to_ch, moved, false);
     }
 }
 
@@ -1322,7 +1513,7 @@ void cmd_down(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int moved = scr_down(scr, from_ch, to_ch, ln.prefix_, ln.psz_);
     if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved, false);
+            resync_after_scroll(ed, tb, to_ch, moved, false);
     }
 }
 
@@ -1341,7 +1532,7 @@ void cmd_home(editor* ed) {
     const int moved = scr_move_cursor(scr, from_ch, tb_peek(tb),
                                       ln.prefix_, ln.psz_);
     if (moved != 0) {
-        resync_after_scroll(scr, tb, tb_peek(tb), moved, false);
+        resync_after_scroll(ed, tb, tb_peek(tb), moved, false);
     }
 }
 
@@ -1357,7 +1548,7 @@ void cmd_end(editor* ed) {
         const int moved = scr_move_cursor(scr, from_ch, to_ch,
                                           ln.prefix_, ln.psz_);
         if (moved != 0) {
-            resync_after_scroll(scr, tb, to_ch, moved, false);
+            resync_after_scroll(ed, tb, to_ch, moved, false);
         }
     }
 }
@@ -1382,7 +1573,7 @@ void cmd_page_up(editor* ed) {
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
     scr_place_cursor(scr, prefix, psz);
-    refresh_screen(scr, tb);
+    refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, ch);
 }
 
@@ -1405,7 +1596,7 @@ void cmd_page_down(editor* ed) {
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
     scr_place_cursor(scr, prefix, psz);
-    refresh_screen(scr, tb);
+    refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, ch);
 }
 
@@ -1451,7 +1642,7 @@ static void jump_to_line(editor* ed, int line) {
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
     scr_place_cursor(scr, prefix, psz);
-    refresh_screen(scr, tb);
+    refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 

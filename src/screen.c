@@ -1281,6 +1281,15 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         scr->curFg_ = scr->fg_;
         scr->curBg_ = scr->bg_;
     }
+    /*
+     * The runs belonged to this row. Dropping them is what makes the promise in
+     * screen.h true -- a paint that does not set its own colouring gets none,
+     * rather than the colouring of whichever row was painted before it, which
+     * would put one line's comments on another line's text.
+     */
+    scr->runs_ = NULL;
+    scr->nruns_ = 0;
+    scr->runAt_ = 0;
     scr_sync_cursor(scr);
 }
 

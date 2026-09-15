@@ -6,6 +6,8 @@
 #   config/aed/unscii8.bin   the three fonts, where the README's example
 #   config/aed/unscii8x10.bin  settings file points at them
 #   config/aed/unscii16.bin
+#   config/aed/syntax/*.cfg  a grammar per language, read when a file is opened
+#   config/aed/themes/*.cfg  a theme per background, read with the grammar
 #
 # There is deliberately no config/aed.cfg in here. AED writes that itself on
 # first run, from the colours the machine is already using, and shipping one
@@ -59,6 +61,13 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/bin" "$STAGE/config/aed"
 cp bin/aed.bin "$STAGE/bin/"
 cp fonts/unscii8.bin fonts/unscii8x10.bin fonts/unscii16.bin "$STAGE/config/aed/"
+
+# Grammars and themes. Unlike the fonts these are not inert: AED looks in these
+# two directories every time a file is opened, so leaving them out of the zip
+# would ship syntax highlighting that never highlights anything.
+mkdir -p "$STAGE/config/aed/syntax" "$STAGE/config/aed/themes"
+cp config/aed/syntax/*.cfg "$STAGE/config/aed/syntax/"
+cp config/aed/themes/*.cfg "$STAGE/config/aed/themes/"
 
 rm -f "$OUT"
 (cd "$STAGE" && zip -q -r -X "$OLDPWD/$OUT" .)

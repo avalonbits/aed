@@ -190,6 +190,14 @@ char scr_bg(screen* scr);
 char scr_base_fg(screen* scr);
 char scr_base_bg(screen* scr);
 
+/*
+ * The tallest screen anything here has to account for.
+ *
+ * No documented mode is taller than 96 rows -- see rows_ above -- so an array
+ * with one entry a row is bounded by this rather than by a mode nobody has.
+ */
+#define SCR_MAX_ROWS 96
+
 // The theme in force, or NULL to paint plainly. The screen does not own it.
 void scr_set_theme(screen* scr, const theme* t);
 
