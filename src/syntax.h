@@ -134,6 +134,7 @@ typedef struct _syn_rule {
     char close[SYN_LIT_MAX];
     char nclose;
     char escape;                // 0 for none
+    char multiline;             // M_SPAN only: may run past the line end
     int word_at;                // first offset in the grammar's word index
     int word_n;
 } syn_rule;
@@ -165,6 +166,19 @@ bool syn_load(syntax* g, const char* path);
 bool syn_covers(const syntax* g, const char* fname);
 
 /*
+ * What a line is left in the middle of, carried to the line below.
+ *
+ * Zero means the line ended cleanly. Anything else is one more than the index
+ * of the `span` rule still open, so the state is a single small integer and a
+ * screen's worth of it is one variable rather than an array.
+ *
+ * Only a `span` marked `multiline` can produce a non-zero state. A string that
+ * runs to the end of its line closes there, which is what C, assembly and
+ * BASIC all do and what stops one stray quote colouring the rest of a file.
+ */
+#define SYN_STATE_NONE 0
+
+/*
  * Colours one line, as runs.
  *
  * Writes at most `max` runs and returns how many. Columns are byte offsets
@@ -172,9 +186,62 @@ bool syn_covers(const syntax* g, const char* fname);
  * expanded. Runs come out in order and cover the line end to end, so the
  * painting can walk them forward without searching.
  *
- * A line is lexed on its own: nothing here carries state from the line above,
- * which is why a grammar in this step has no rule that crosses a line.
+ * `in` is what the line above was left in the middle of, and `*out_state` is
+ * what this line leaves for the line below; pass SYN_STATE_NONE for a line
+ * known to start clean, and NULL for out_state when the answer is not wanted.
+ * Painting a screen means holding one of these across the rows, top to bottom.
  */
-int syn_lex(const syntax* g, const char* line, int len, tok_run* out, int max);
+int syn_lex(const syntax* g, const char* line, int len, int in, int* out_state,
+            tok_run* out, int max);
+
+/*
+ * How far back to look for the state of a line that is landed on rather than
+ * scrolled to.
+ *
+ * Scrolling carries the state forward a row at a time for nothing. A jump --
+ * CTRL+G, CTRL+END, a find result, a window slide -- arrives with no state in
+ * hand, and the only honest way to get one is to read back until a line that
+ * certainly starts clean. Reading back forever is not affordable, so this is
+ * the bound: a block comment longer than this many lines paints its tail
+ * plainly until the view is scrolled through it.
+ *
+ * 200 lines is about 8 KB to scan, on a jump the user just asked for.
+ */
+#define SYN_LOOKBACK 200
+
+/*
+ * The longest line the lookback reads.
+ *
+ * Only the scan behind a jump uses this; painting works from the real line.
+ * A line longer than the buffer it is given is read as its first bytes, so a
+ * comment opened past that column during a lookback is missed -- the same
+ * class of bounded approximation as SYN_LOOKBACK itself. This is the size the
+ * caller's buffer should be; the scan takes one rather than holding it,
+ * because a 256 byte frame is wider than an eZ80 index displacement reaches
+ * and every function here has to stay inside one (see test/frames.sh).
+ */
+#define SYN_SCAN_MAX 256
+
+/*
+ * Reads line `y` into `buf`, returning its length, or -1 when there is no such
+ * line. Lines are numbered from 0.
+ *
+ * A callback rather than a text_buffer so that the lexer stays a pure function
+ * of text: the editor passes its walker, and a test passes an array.
+ */
+typedef int (*syn_line_fn)(void* ctx, int y, char* buf, int max);
+
+/*
+ * The state line `y` begins in, for a view that has just jumped there.
+ *
+ * Reads back at most SYN_LOOKBACK lines, assumes the line it stops on starts
+ * clean, and lexes forward from there. Returns SYN_STATE_NONE for a grammar
+ * with no multiline rule in it, without reading anything -- which is every
+ * grammar except C so far, and is what keeps a jump in an assembly file free.
+ *
+ * `buf` is scratch for one line at a time, SYN_SCAN_MAX bytes by preference.
+ */
+int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
+                     char* buf, int bufmax);
 
 #endif  // _SYNTAX_H_
