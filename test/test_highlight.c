@@ -327,6 +327,143 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- editing and scrolling keep the colouring --- */
+    {
+        /*
+         * Reported from a real session: opening a file coloured it, and then
+         * typing left the characters just typed plain, scrolling lost the
+         * colouring altogether, and pressing return brought it back.
+         *
+         * One cause for all three. Painting a row is not one function: a full
+         * repaint goes through fill_screen, a range through cmd_repaint_rows,
+         * and an edit or a scroll through the screen's own narrow paths --
+         * scr_putc, scr_scroll_up_split, scr_down. Only the first two set the
+         * row's colouring, and since a paint that sets none now gets none, the
+         * rest painted plainly.
+         *
+         * Each of these drives a real command and looks for a token colour in
+         * what reached the wire. `int` is a type and gets 14 from the theme
+         * above; nothing else on these rows is 14.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static char doc[1024];
+        int k = 0;
+        for (int i = 0; i < 20; i++) {
+            k += sprintf(doc + k, "int a%d;\r\n", i);
+        }
+        stub_file_add("/edit.c", doc, k);
+        tb_load(&ed.buf_, "/edit.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;           /* a short screen, so the edge is near */
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+
+        cap_start();
+        cmd_show(&ed);
+        int n = cap_read(cap, (int) sizeof(cap));
+        check("opening colours the document", has_colour(cap, n, 14), 1);
+
+        tb_end(&ed.buf_);
+        const key ch = { 'x', VK_X };
+        cap_start();
+        cmd_putc(&ed, ch);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  typing keeps it", has_colour(cap, n, 14), 1);
+
+        cap_start();
+        cmd_bksp(&ed);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  backspace keeps it", has_colour(cap, n, 14), 1);
+
+        cap_start();
+        cmd_newl(&ed);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  return keeps it", has_colour(cap, n, 14), 1);
+
+        tb_home(&ed.buf_);
+        cap_start();
+        cmd_del(&ed);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  delete keeps it", has_colour(cap, n, 14), 1);
+
+        /* Down to the bottom row, then one more, which scrolls the view. */
+        while (ed.scr_.currY_ < ed.scr_.bottomY_ - 1) {
+            cmd_down(&ed);
+        }
+        cap_start();
+        cmd_down(&ed);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  scrolling off the bottom keeps it",
+              has_colour(cap, n, 14), 1);
+
+        /*
+         * Moving the cursor up repaints no row -- scr_up moves the cursor and
+         * nothing else -- so there is nothing to colour and nothing to check.
+         * What matters is that the next row painted is still right, which the
+         * repaint below asks for directly.
+         */
+        cmd_up(&ed);
+        cap_start();
+        cmd_repaint_rows(&ed, ed.scr_.currY_, ed.scr_.currY_);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  and the row is still coloured afterwards",
+              has_colour(cap, n, 14), 1);
+
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- opening a comment recolours what is below it --- */
+    {
+        /*
+         * The state a row leaves is what the row below begins in, so typing
+         * the second character of a comment opener changes every row under it.
+         * The edit paths repaint only their own row, so they compare what the
+         * row now leaves against what the row below was painted with and carry
+         * on down when they differ.
+         *
+         * Without that the screen shows a comment that stops at the end of the
+         * line it was opened on, until something else forces a full repaint.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static char doc2[512];
+        int k2 = 0;
+        for (int i = 0; i < 8; i++) {
+            k2 += sprintf(doc2 + k2, "int b%d;\r\n", i);
+        }
+        stub_file_add("/open.c", doc2, k2);
+        tb_load(&ed.buf_, "/open.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        tb_end(&ed.buf_);
+        const key slash = { '/', VK_SLASH };
+        const key star = { '*', VK_8 };
+        cmd_putc(&ed, slash);
+        cap_start();
+        cmd_putc(&ed, star);
+        const int n2 = cap_read(cap, (int) sizeof(cap));
+        check("opening a block comment paints the comment colour",
+              has_colour(cap, n2, 8), 1);
+        /* The edited row still starts with `int`, so the type colour is on it
+         * legitimately. The rows under it are the ones that must have gone
+         * over to comment entirely. */
+        cap_start();
+        cmd_repaint_rows(&ed, 3, 3);
+        const int n3 = cap_read(cap, (int) sizeof(cap));
+        check("  a row below it is comment", has_colour(cap, n3, 8), 1);
+        check("    and is no longer a type", has_colour(cap, n3, 14), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
     /* --- a row's colouring does not outlive the row --- */
     {
         /*

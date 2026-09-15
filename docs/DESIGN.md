@@ -91,8 +91,8 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L25) ·
-[`ed_init()`](../src/editor.c#L216) ·
-[`ed_run()`](../src/editor.c#L517) ·
+[`ed_init()`](../src/editor.c#L219) ·
+[`ed_run()`](../src/editor.c#L520) ·
 [`read_input()`](../src/editor.c#L751) ·
 [`ctrlCmds()`](../src/editor.c#L607) ·
 [`editCmds()`](../src/editor.c#L702) ·
@@ -440,6 +440,6 @@ Four things learned the hard way:
 * **If it reads a range**, it streams. There has been one wrong second walk over
   the document already.
 * **If it owns the selection**, say so in
-  [`owns_selection()`](../src/editor.c#L374), or the loop will take the
+  [`owns_selection()`](../src/editor.c#L377), or the loop will take the
   selection away before the command runs.
 * **Anything on a hot path** is measured on the emulator before and after.

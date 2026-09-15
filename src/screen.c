@@ -1053,9 +1053,20 @@ int scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz)
     (void) ch;
     scr_hide_cursor(scr);
 
-    // Repaint from where the inserted character starts, not from the cursor:
-    // the cursor now sits after it, and a tab starts several columns back.
-    const int at = scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
+    /*
+     * Repaint from where the inserted character starts, rather than from the
+     * cursor: the cursor now sits after it, and a tab starts several columns
+     * back.
+     *
+     * With a theme in force the whole row goes instead. What is already on the
+     * row can change colour because of the character just typed -- the `*` of
+     * a `/*` turns the slash before it into the start of a comment, and a
+     * quote turns the rest of the line into a string -- so there is no column
+     * left of the cursor that is safe to leave alone.
+     */
+    const int at = scr->theme_ != NULL
+                 ? scr->originX_
+                 : scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
     const int scrolled = scr_place_cursor(scr, prefix, psz);
     if (scrolled == 0) {
         scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz, at);
@@ -1078,7 +1089,15 @@ int scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
     const int scrolled = scr_place_cursor(scr, prefix, psz);
     if (scrolled == 0) {
-        scr_paint_tail(scr, suffix, ssz);
+        if (scr->theme_ != NULL) {
+            // The whole row, for the reason scr_putc paints one: deleting a
+            // character can change the colour of what is left of the cursor,
+            // and scr_paint_tail starts at the cursor.
+            scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz,
+                           scr->originX_);
+        } else {
+            scr_paint_tail(scr, suffix, ssz);
+        }
         scr_sync_cursor(scr);
         scr_show_cursor_ch(scr, ssz > 0 ? suffix[0] : scr->cursor_);
     }

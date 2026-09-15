@@ -81,6 +81,27 @@ static int row_bytes(const split_line* ln, char* buf, int max) {
  * does for any paint that does not come through here -- scr_paint_span drops
  * the runs when it is done, so no row can inherit another's colouring.
  */
+/*
+ * After an edit has repainted its own row, the rows below it may be inside
+ * something different. Repaints them when they are, and leaves the screen
+ * alone when they are not, which is almost always.
+ */
+static void resync_rows_below(editor* ed, char y, int out) {
+    SCR(ed);
+    if (!syn_crosses_lines(&ed->syn_) || ed->synTopLine_ == 0) {
+        return;
+    }
+    const char next = (char)(y + 1);
+    if (next >= scr->bottomY_ || next >= SCR_MAX_ROWS) {
+        return;
+    }
+    if (ed->rowSyn_[next] == (char) out) {
+        return;
+    }
+    ed->rowSyn_[next] = (char) out;
+    cmd_repaint_rows(ed, next, (char)(scr->bottomY_ - 1));
+}
+
 static int set_row_colours(editor* ed, const split_line* ln, int in) {
     if (!ed->syn_.loaded) {
         scr_set_row_tokens(&ed->scr_, NULL, 0);
@@ -399,18 +420,15 @@ static void row_selection(editor* ed, int line, const split_line* ln,
     }
 }
 
-static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
+/*
+ * Fills rowSyn_ for every row on screen, from one walk down the document.
+ *
+ * The walk is the expensive part -- a line of C costs about a millisecond and
+ * a half to lex -- so it is done once for a view and read back per row, rather
+ * than once per row painted.
+ */
+static void fill_row_states(editor* ed, text_buffer* tb, int top) {
     SCR(ed);
-    if (!syn_crosses_lines(&ed->syn_)) {
-        return SYN_STATE_NONE;
-    }
-    const int top = top_line(scr, tb);
-    int state = top_state(ed, top);
-    int rows = ypos - scr->topY_;
-    if (rows <= 0) {
-        return state;
-    }
-
     // Static for the same reason as the scan above: this is inlined into
     // cmd_repaint_rows, which already holds a text_buffer of its own.
     static text_buffer cp;
@@ -419,18 +437,42 @@ static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
     p.line = top;
     p.x = 0;
     tb_seek(&cp, p);
+
+    int state = top_state(ed, top);
     int prev = tb_ypos(&cp);
-    while (rows-- > 0) {
+    for (char y = scr->topY_; y < scr->bottomY_ && y < SCR_MAX_ROWS; y++) {
+        ed->rowSyn_[y] = (char) state;
         const split_line ln = tb_curr_line(&cp);
         const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
         syn_lex(&ed->syn_, synRow_, len, state, &state, NULL, 0);
         if (tb_down(&cp) == prev) {
+            // Past the end of the document. The rows below it are blank, and a
+            // blank row leaves what it was given.
+            for (char rest = (char)(y + 1);
+                 rest < scr->bottomY_ && rest < SCR_MAX_ROWS; rest++) {
+                ed->rowSyn_[rest] = (char) state;
+            }
             break;
         }
         prev = tb_ypos(&cp);
     }
+    ed->synTopLine_ = top;
+}
 
-    return state;
+static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
+    SCR(ed);
+    if (!syn_crosses_lines(&ed->syn_)) {
+        return SYN_STATE_NONE;
+    }
+    if (ypos < scr->topY_ || ypos >= SCR_MAX_ROWS) {
+        return SYN_STATE_NONE;
+    }
+    const int top = top_line(scr, tb);
+    if (ed->synTopLine_ != top) {
+        fill_row_states(ed, tb, top);
+    }
+
+    return ed->rowSyn_[ypos];
 }
 
 void cmd_repaint_rows(editor* ed, char fromY, char toY) {
@@ -465,13 +507,28 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     }
 
     char y = fromY;
+    char last = toY;
     int state = state_at_row(ed, tb, fromY);
-    for (; y <= toY; y++) {
+    for (; y <= last; y++) {
         const split_line ln = tb_curr_line(&cp);
         int from = 0;
         int to = 0;
         row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
         state = set_row_colours(ed, &ln, state);
+        /*
+         * What this row leaves is what the next one begins in. When that
+         * differs from what the next row was painted with -- a comment just
+         * opened or closed on this row -- the rest of the screen is wrong and
+         * is repainted, which is what makes typing the second character of a
+         * comment opener recolour everything below it.
+         */
+        if (ed->synTopLine_ != 0 && y + 1 < SCR_MAX_ROWS
+                && y + 1 < scr->bottomY_) {
+            if (ed->rowSyn_[y + 1] != (char) state) {
+                ed->rowSyn_[y + 1] = (char) state;
+                last = (char)(scr->bottomY_ - 1);
+            }
+        }
         scr_write_line_sel_split(scr, y, ln.prefix_, ln.psz_,
                                  ln.suffix_, ln.ssz_, from, to);
 
@@ -513,6 +570,7 @@ void cmd_repaint_span(editor* ed, char y, int from_col, int to_col) {
     int from = 0;
     int to = 0;
     row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
+    set_row_colours(ed, &ln, state_at_row(ed, tb, y));
     scr_write_line_span_split(scr, y, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_,
                               from, to, from_col, to_col);
     scr_sync_cursor(scr);
@@ -1186,15 +1244,20 @@ void cmd_putc(editor* ed, key k) {
         return;
     }
     split_line ln = tb_curr_line(tb);
+    const int out = set_row_colours(ed, &ln,
+                                    state_at_row(ed, tb, scr->currY_));
     const int moved = scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
         resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
+    } else {
+        resync_rows_below(ed, scr->currY_, out);
     }
 }
 
 static void region_up(editor* ed, text_buffer* tb, char ch) {
     SCR(ed);
     split_line ln = tb_curr_line(tb);
+    set_row_colours(ed, &ln, state_at_row(ed, tb, scr->currY_));
     scr_scroll_up_split(scr, scr->currY_, scr->bottomY_-1,
                         ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_, ch);
 
@@ -1258,6 +1321,18 @@ void cmd_del(editor* ed) {
     if (!tb_del(tb)) {
         return;
     }
+    if (ed->syn_.loaded) {
+        /*
+         * scr_del paints from the cursor, and a deletion can change the colour
+         * of what is left of it -- taking the second character out of a `/*`
+         * ends a comment that was covering the rest of the line. The whole row
+         * goes instead, which is what the other edits do.
+         */
+        cmd_repaint_rows(ed, scr->currY_, scr->currY_);
+        scr_show_cursor_ch(scr, tb_peek(tb));
+
+        return;
+    }
     int sz = 0;
     char* suffix = tb_suffix(tb, &sz);
     scr_del(scr, suffix, sz);
@@ -1300,9 +1375,13 @@ void cmd_bksp(editor* ed) {
         return;
     }
     split_line ln = tb_curr_line(tb);
+    const int out = set_row_colours(ed, &ln,
+                                    state_at_row(ed, tb, scr->currY_));
     const int moved = scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
         resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
+    } else {
+        resync_rows_below(ed, scr->currY_, out);
     }
 }
 
@@ -1464,6 +1543,7 @@ void cmd_up(editor* ed) {
         tb_copy(&cp, tb);
         tb_home(&cp);
         const split_line cl = tb_curr_line(&cp);
+        set_row_colours(ed, &cl, state_at_row(ed, tb, scr->topY_));
         scr_scroll_down_split(scr, scr->topY_, scr->bottomY_-1,
                               cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
@@ -1505,6 +1585,8 @@ void cmd_down(editor* ed) {
         tb_copy(&cp, tb);
         tb_home(&cp);
         const split_line cl = tb_curr_line(&cp);
+        set_row_colours(ed, &cl, state_at_row(ed, tb,
+                                              (char)(scr->bottomY_ - 1)));
         scr_scroll_up_split(scr, scr->topY_, scr->bottomY_-1,
                             cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
