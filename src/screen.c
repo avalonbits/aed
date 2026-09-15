@@ -208,6 +208,8 @@ static void get_active_colours(screen* scr) {
 
     scr->fg_ = fg;
     scr->bg_ = bg;
+    scr->baseFg_ = fg;
+    scr->baseBg_ = bg;
     scr->entryFg_ = fg;
     scr->entryBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
@@ -693,13 +695,45 @@ char scr_tab_size(screen* scr) {
     return scr->tab_size_;
 }
 
+// The user's own choice, from the settings file or the colour picker. It moves
+// both pairs: this is what the editor is set to, so it is what a theme reverts
+// to and what gets written back out.
 void scr_set_scheme(screen* scr, char fg, char bg) {
     if (fg < 0 || bg < 0 || fg >= scr->colors_ || bg >= scr->colors_) {
         return;   // outside what this screen mode can show
     }
     scr->fg_ = fg;
     scr->bg_ = bg;
+    scr->baseFg_ = fg;
+    scr->baseBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
+}
+
+// A theme's choice, which is a view of the document rather than a setting. The
+// base pair is left alone, so closing the file or opening one no theme covers
+// gives the user their own colours back -- and so the settings file never
+// records a colour the user did not pick.
+void scr_theme_scheme(screen* scr, char fg, char bg) {
+    if (fg < 0 || bg < 0 || fg >= scr->colors_ || bg >= scr->colors_) {
+        return;
+    }
+    scr->fg_ = fg;
+    scr->bg_ = bg;
+    set_colours(scr->fg_, scr->bg_);
+}
+
+void scr_base_restore(screen* scr) {
+    scr->fg_ = scr->baseFg_;
+    scr->bg_ = scr->baseBg_;
+    set_colours(scr->fg_, scr->bg_);
+}
+
+char scr_base_fg(screen* scr) {
+    return scr->baseFg_;
+}
+
+char scr_base_bg(screen* scr) {
+    return scr->baseBg_;
 }
 
 char scr_fg(screen* scr) {
