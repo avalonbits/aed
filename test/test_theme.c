@@ -26,6 +26,18 @@
 
 static int failures = 0;
 
+/* The screen asks for a row's colouring; these tests answer with a fixed set. */
+static const tok_run* fixed_runs = NULL;
+static int fixed_n = 0;
+
+static int answer_fixed(void* ctx, char ypos, const char* pre, int presz,
+                        const char* suf, int sufsz, const tok_run** runs) {
+    (void) ctx; (void) ypos; (void) pre; (void) presz; (void) suf; (void) sufsz;
+    *runs = fixed_runs;
+
+    return fixed_n;
+}
+
 static void check(const char* name, int got, int want) {
     if (got == want) {
         fprintf(stderr, "PASS  %-54s got %d\n", name, got);
@@ -358,7 +370,9 @@ int main(void) {
 
         /* Without a theme, nothing is coloured. */
         scr_set_theme(&scr, NULL);
-        scr_set_row_tokens(&scr, RUNS, 3);
+        fixed_runs = RUNS;
+        fixed_n = 3;
+        scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
         scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
         check_map("no theme paints the row in one colour",
@@ -366,7 +380,9 @@ int main(void) {
 
         /* With it, each run takes its class's colour. */
         scr_set_theme(&scr, &th);
-        scr_set_row_tokens(&scr, RUNS, 3);
+        fixed_runs = RUNS;
+        fixed_n = 3;
+        scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
         scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
         check_map("a theme colours each run", fg_map(13, 7), "4447777722222");
@@ -374,7 +390,9 @@ int main(void) {
         /* A class the theme says nothing about falls back to its text colour,
          * so a partial theme still paints a whole row. */
         static const tok_run ODD[] = { { 13, TOK_OPERATOR } };
-        scr_set_row_tokens(&scr, ODD, 1);
+        fixed_runs = ODD;
+        fixed_n = 1;
+        scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
         scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
         check_map("an uncoloured class falls back to text",
@@ -414,7 +432,9 @@ int main(void) {
             { 8,  TOK_TEXT    },
             { 13, TOK_COMMENT },
         };
-        scr_set_row_tokens(&scr, RUNS, 3);
+        fixed_runs = RUNS;
+        fixed_n = 3;
+        scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
         scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
         const int changes = colour_changes();
@@ -424,7 +444,7 @@ int main(void) {
         /* And a row wanting nothing but the document's own colour emits none
          * at all, which is what an unhighlighted file must keep costing. */
         scr_set_theme(&scr, NULL);
-        scr_set_row_tokens(&scr, NULL, 0);
+        scr_set_colourer(&scr, NULL, NULL, NULL);
         cap_start();
         scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
         check("  a plain row still costs no colour change at all",
@@ -454,7 +474,9 @@ int main(void) {
         scr_set_theme(&scr, &th);
 
         static const tok_run ALL_KW[] = { { 8, TOK_KEYWORD } };
-        scr_set_row_tokens(&scr, ALL_KW, 1);
+        fixed_runs = ALL_KW;
+        fixed_n = 1;
+        scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
         /* columns 2..4 selected: those show the reversed pair, bg as fg */
         scr_write_line_sel(&scr, scr.topY_, "abcdefgh", 8, 2, 5);

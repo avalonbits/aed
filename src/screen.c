@@ -338,6 +338,9 @@ screen *scr_init(screen* scr, char cursor) {
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
     scr->theme_ = NULL;
+    scr->colour_ = NULL;
+    scr->cellColour_ = NULL;
+    scr->colourCtx_ = NULL;
     scr->runs_ = NULL;
     scr->nruns_ = 0;
     scr->runAt_ = 0;
@@ -1033,9 +1036,23 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
     ch = cursor_glyph(scr, ch);
     out_flush();
 
+    /*
+     * What the cell belongs in rather than what the document is drawn in: the
+     * cursor puts a token's colour back when it moves off one. Asked now, so
+     * it describes where the cursor is rather than where it was when somebody
+     * last remembered to work it out.
+     */
+    char fg = scr->fg_;
+    if (scr->theme_ != NULL && scr->cellColour_ != NULL) {
+        const char c = scr->cellColour_(scr->colourCtx_);
+        if (c >= 0 && c < scr->colors_) {
+            fg = c;
+        }
+    }
+
     char vdu[6];
+    vdu[1] = fg;
     vdu[0] = 17;
-    vdu[1] = scr->fg_;
     vdu[2] = 17;
     vdu[3] = (char) (scr->bg_ + 128);
     vdu[4] = ch;
@@ -1053,9 +1070,20 @@ int scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz)
     (void) ch;
     scr_hide_cursor(scr);
 
-    // Repaint from where the inserted character starts, not from the cursor:
-    // the cursor now sits after it, and a tab starts several columns back.
-    const int at = scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
+    /*
+     * Repaint from where the inserted character starts, rather than from the
+     * cursor: the cursor now sits after it, and a tab starts several columns
+     * back.
+     *
+     * With a theme in force the whole row goes instead. What is already on the
+     * row can change colour because of the character just typed -- the `*` of
+     * a `/*` turns the slash before it into the start of a comment, and a
+     * quote turns the rest of the line into a string -- so there is no column
+     * left of the cursor that is safe to leave alone.
+     */
+    const int at = scr->theme_ != NULL
+                 ? scr->originX_
+                 : scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
     const int scrolled = scr_place_cursor(scr, prefix, psz);
     if (scrolled == 0) {
         scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz, at);
@@ -1078,7 +1106,15 @@ int scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
     scr_hide_cursor(scr);
     const int scrolled = scr_place_cursor(scr, prefix, psz);
     if (scrolled == 0) {
-        scr_paint_tail(scr, suffix, ssz);
+        if (scr->theme_ != NULL) {
+            // The whole row, for the reason scr_putc paints one: deleting a
+            // character can change the colour of what is left of the cursor,
+            // and scr_paint_tail starts at the cursor.
+            scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz,
+                           scr->originX_);
+        } else {
+            scr_paint_tail(scr, suffix, ssz);
+        }
         scr_sync_cursor(scr);
         scr_show_cursor_ch(scr, ssz > 0 ? suffix[0] : scr->cursor_);
     }
@@ -1178,7 +1214,7 @@ void scr_clear_textarea(screen* scr, char top, char bottom) {
 // Called once a column, so the early return is what keeps a run of columns in
 // one colour down to a single change -- see the cost of one in
 // test/probes/vducost.c.
-static void highlight(screen* scr, int col) {
+static void highlight(screen* scr, int col, int byte) {
     char fg = scr->fg_;
     char bg = scr->bg_;
 
@@ -1186,10 +1222,22 @@ static void highlight(screen* scr, int col) {
         fg = scr->bg_;
         bg = scr->fg_;
     } else if (scr->theme_ != NULL && scr->runs_ != NULL) {
-        // The runs are in column order and so is this walk, so the cursor only
-        // ever moves forward: colouring a row is one pass over its runs.
+        /*
+         * `byte` rather than `col`, and the difference is a tab. A run ends at
+         * a byte offset into the line, which is what the lexer counts in;
+         * `col` is a screen column, which a tab moves by more than one. Using
+         * the column here coloured everything after the first tab a column
+         * early -- the last character of every token on the line lost its
+         * colour and the character before it gained one.
+         *
+         * The selection above stays in columns: it is worked out from the
+         * screen, and it is what the user drew.
+         *
+         * The runs are in order and so is this walk, so the cursor only ever
+         * moves forward: colouring a row is one pass over its runs.
+         */
         while (scr->runAt_ < scr->nruns_
-               && col >= scr->runs_[scr->runAt_].end) {
+               && byte >= scr->runs_[scr->runAt_].end) {
             scr->runAt_++;
         }
         if (scr->runAt_ < scr->nruns_) {
@@ -1213,14 +1261,15 @@ void scr_set_theme(screen* scr, const theme* t) {
     scr->theme_ = t;
 }
 
-void scr_set_row_tokens(screen* scr, const tok_run* runs, int n) {
-    scr->runs_ = runs;
-    scr->nruns_ = n;
-    scr->runAt_ = 0;
+void scr_set_colourer(screen* scr, scr_colourer rows, scr_cell_colourer cell,
+                      void* ctx) {
+    scr->colour_ = rows;
+    scr->cellColour_ = cell;
+    scr->colourCtx_ = ctx;
 }
 
 static int emit_span(screen* scr, const char* buf, int sz, int col,
-                     int from_col, int stop_col) {
+                     int from_col, int stop_col, int* byte) {
     const int tab = scr->tab_size_ > 0 ? scr->tab_size_ : 1;
 
     for (int i = 0; i < sz && col < stop_col; i++) {
@@ -1230,11 +1279,13 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
         }
         for (int w = 0; w < width && col < stop_col; w++, col++) {
             if (col >= from_col) {
-                highlight(scr, col);
+                highlight(scr, col, *byte);
                 out_ch(buf[i] == '\t' ? ' ' : buf[i]);
             }
         }
-        continue;
+        // One byte of the line, however many columns it took. A tab's columns
+        // all belong to the tab.
+        (*byte)++;
     }
 
     return col;
@@ -1251,6 +1302,22 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         return;
     }
 
+    /*
+     * The row's colouring, asked for here so that every path that paints a row
+     * gets one without having to know it should.
+     */
+    scr->runs_ = NULL;
+    scr->nruns_ = 0;
+    if (scr->theme_ != NULL && scr->colour_ != NULL) {
+        const tok_run* runs = NULL;
+        const int n = scr->colour_(scr->colourCtx_, ypos, pre, presz,
+                                   suf, sufsz, &runs);
+        if (n > 0 && runs != NULL) {
+            scr->runs_ = runs;
+            scr->nruns_ = n;
+        }
+    }
+
     scr_tab(scr, from - scr->originX_, ypos);
     // The document's own pair is what is set coming in, which is the same
     // assumption the selection flag used to make.
@@ -1258,18 +1325,21 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     scr->curBg_ = scr->bg_;
     scr->runAt_ = 0;
     int col = 0;
+    // The two halves are one line as far as the lexer is concerned, so the
+    // byte count runs across both of them.
+    int byte = 0;
     if (pre != NULL && presz > 0) {
-        col = emit_span(scr, pre, presz, col, from, stop);
+        col = emit_span(scr, pre, presz, col, from, stop, &byte);
     }
     if (suf != NULL && sufsz > 0) {
-        col = emit_span(scr, suf, sufsz, col, from, stop);
+        col = emit_span(scr, suf, sufsz, col, from, stop, &byte);
     }
     // The padding past the end of the text is highlighted too when the
     // selection runs through the line break, which is how a selected newline
     // shows up as anything at all.
     for (; col < stop; col++) {
         if (col >= from) {
-            highlight(scr, col);
+            highlight(scr, col, byte);
             out_ch(' ');
         }
     }
@@ -1281,12 +1351,7 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         scr->curFg_ = scr->fg_;
         scr->curBg_ = scr->bg_;
     }
-    /*
-     * The runs belonged to this row. Dropping them is what makes the promise in
-     * screen.h true -- a paint that does not set its own colouring gets none,
-     * rather than the colouring of whichever row was painted before it, which
-     * would put one line's comments on another line's text.
-     */
+    // The runs belonged to this row, and the next row asks for its own.
     scr->runs_ = NULL;
     scr->nruns_ = 0;
     scr->runAt_ = 0;
@@ -1336,8 +1401,16 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
 
     scr_tab(scr, scr->currX_, scr->currY_);
     int col = at;
+    /*
+     * This paints from the cursor and so cannot know where the line began,
+     * which means it cannot count bytes from the start of it. That is why the
+     * paths that colour a row -- scr_putc, scr_bksp -- paint the row whole
+     * when a theme is in force and leave this to the uncoloured case, where
+     * the count is never read.
+     */
+    int byte = at;
     if (suf != NULL && sufsz > 0) {
-        col = emit_span(scr, suf, sufsz, col, at, stop);
+        col = emit_span(scr, suf, sufsz, col, at, stop, &byte);
     }
     out_run(' ', stop - col);
     scr_sync_cursor(scr);

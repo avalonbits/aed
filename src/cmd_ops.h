@@ -64,6 +64,16 @@ void cmd_open(editor* ed);
 // document knowledge, so it lives here rather than in the view.
 void cmd_repaint_rows(editor* ed, char fromY, char toY);
 
+/*
+ * Gives the screen somewhere to ask about colour. Called once, at startup.
+ *
+ * Everything that paints a row then gets its colouring without knowing there
+ * is such a thing, which is the difference between this and handing it over at
+ * each paint: a path that has never heard of syntax highlighting is coloured,
+ * and a new one is coloured the day it is written.
+ */
+void ed_attach_colourer(editor* ed);
+
 // Repaints one row, but only document columns [from_col, to_col). Used when a
 // selection grows or shrinks within a row: the columns either side of the
 // change already show what they should.

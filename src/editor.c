@@ -179,6 +179,9 @@ void ed_pick_syntax(editor* ed) {
     if (ed == NULL) {
         return;
     }
+    // What was worked out about the rows on screen belongs to the document that
+    // was there before this one.
+    ed->synTopLine_ = 0;
     syn_clear(&ed->syn_);
     theme_clear(&ed->theme_);
     scr_set_theme(&ed->scr_, NULL);
@@ -283,6 +286,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         }
     }
 
+    // Somewhere for the screen to ask about colour. Once, before anything is
+    // painted: every paint from here on is coloured without knowing it.
+    ed_attach_colourer(ed);
+
     // After the load, because the grammar is chosen by the document's name and
     // the buffer does not have one until it is loaded.
     ed_pick_syntax(ed);
@@ -348,6 +355,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         }
         scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->buf_));
     }
+
 
     // Last, so that no failure above has to take it back down again.
     keys_open();
@@ -519,6 +527,7 @@ void ed_run(editor* ed) {
     screen* scr = &ed->scr_;
 
     for (;;) {
+
         // Not while a chord is held down. The footer sits on the bottom row,
         // so drawing it means moving the cursor off the text, writing, and
         // moving back -- and doing that between keystrokes is what stops the
