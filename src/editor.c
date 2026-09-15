@@ -542,8 +542,12 @@ void ed_run(editor* ed) {
          * include losing its colour the first time the cursor left it, and
          * coming back correctly every time after.
          *
-         * And it costs a lex of one row, which happens here while waiting for
-         * a key rather than on the keystroke itself.
+         * It costs a lex of one row. That is spent after the last command has
+         * finished painting and before the read below blocks, so it is off the
+         * path between a key arriving and the screen changing -- but somebody
+         * typing steadily does wait for it between keystrokes, and somebody
+         * who pauses does not. It is not free, and it is not paid while the
+         * read is waiting.
          */
         cmd_sync_cursor_colour(ed);
 
