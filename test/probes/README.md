@@ -8,6 +8,17 @@ copy one into an AgonDev project with `NAME = <probe>` and run it on the device.
   this instead.
 
 See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
+- `vducost.c` — what a colour change costs while painting. Sends the same 80
+  bytes as 1, 3, 5, 9 and 17 writes with a four-byte VDU write between each
+  pair, which is a row carrying 0, 2, 4, 8 and 16 colour changes. Written for
+  the syntax highlighting design in `.internal/docs/SYNTAX.md`, which needed to
+  know whether per-token colours are affordable before a lexer was worth
+  writing.
+
+  Fitting the cases gives 11.1 us a byte and 8.6 us a call on MOS 3.0.2, 14.1
+  and 18.4 on console8, against a wire floor of 8.68 us a byte at 1,152,000
+  bits a second. A colour change costs about five characters of text, linearly,
+  with no per-call cliff. Runs headless: results go to `/vducost.out`.
 - `lastcol.c` — writes one character in a chosen column, over and over, and
   counts key events beside it. Hold CTRL+SHIFT and tap an arrow: if the counter
   keeps up, the writes are harmless; if it freezes until the keys are released,
