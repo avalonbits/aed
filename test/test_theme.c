@@ -486,6 +486,41 @@ int main(void) {
         scr_destroy(&scr);
     }
 
+    /* --- a theme too big to hold is refused, not half read --- */
+    {
+        /*
+         * The same fault the grammar loader had, in the file beside it. Half a
+         * theme colours some classes and leaves the rest on the document's own
+         * colour, which looks like a theme somebody wrote with gaps in it
+         * rather than a file that did not fit.
+         */
+        static char big[4096];
+        int at = sprintf(big, "[theme]\nname = big\ncovers = 0\n[colours]\n"
+                              "comment = 8\n");
+        while (at < 3000) {
+            at += sprintf(big + at, "# padding to make this file too long\n");
+        }
+        stub_file_reset();
+        stub_file_add("/big.cfg", big, at);
+
+        static theme fat;
+        theme_clear(&fat);
+        check("a theme longer than the loader can hold is refused",
+              theme_load(&fat, "/big.cfg") ? 1 : 0, 0);
+        check("  and nothing of it is left behind", fat.loaded ? 1 : 0, 0);
+
+        int fits = sprintf(big, "[theme]\nname = fits\ncovers = 0\n[colours]\n"
+                                "comment = 8\n");
+        while (fits < 700) {
+            fits += sprintf(big + fits, "# padding that still fits\n");
+        }
+        stub_file_reset();
+        stub_file_add("/fits.cfg", big, fits);
+        theme_clear(&fat);
+        check("one that fits loads", theme_load(&fat, "/fits.cfg") ? 1 : 0, 1);
+        check("  with its colours", theme_colour(&fat, TOK_COMMENT), 8);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

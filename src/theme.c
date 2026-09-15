@@ -140,6 +140,18 @@ bool theme_load(theme* t, const char* path) {
     }
     const unsigned got = mos_fread(fh, buf, (unsigned) sizeof(buf) - 1);
     mos_fclose(fh);
+    if (got >= (unsigned) sizeof(buf) - 1) {
+        /*
+         * As long as there is room for, so there may be more of it. Half a
+         * theme colours some classes and leaves others on the document's own
+         * colour, which reads as a theme somebody wrote badly.
+         *
+         * This bounds the file rather than the theme: a theme is a colour per
+         * class and a handful of numbers, and the comments around them are
+         * what fill a buffer.
+         */
+        return false;
+    }
     if (got == 0) {
         return false;
     }

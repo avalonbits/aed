@@ -612,6 +612,14 @@ int main(void) {
         syn_clear(&g);
         check("the BASIC grammar loads", syn_load(&g, "/bas.cfg") ? 1 : 0, 1);
         check("  and claims a .bas file", syn_covers(&g, "/hello.bas") ? 1 : 0, 1);
+        /*
+         * And not a .bbc one. That is tokenised BASIC -- the bytes a machine
+         * runs, with every keyword replaced by one of them -- so there is no
+         * text in it for a grammar to find. Claiming it would colour a binary
+         * by the few bytes that happen to spell something.
+         */
+        check("  and leaves tokenised BASIC alone",
+              syn_covers(&g, "/hello.bbc") ? 1 : 0, 0);
         check("  and leaves a .c file alone",
               syn_covers(&g, "/main.c") ? 1 : 0, 0);
         check("  BASIC is case insensitive", g.nocase ? 1 : 0, 1);
@@ -693,6 +701,48 @@ int main(void) {
         check_lex("fg = 9    ; trailing", &g, "YYTTTNTTTTCCCCCCCCCC");
         check_lex("font = /config/aed/unscii16.bin", &g,
                   "YYYYTTTTTTTTTTTTTTTTTTTTTTTTTTT");
+    }
+
+    /* --- a grammar too big to hold is refused, not half read --- */
+    {
+        /*
+         * Found by adding three lines of comment to the BASIC grammar. It was
+         * seven bytes under the buffer; the comment pushed it over; the rules
+         * past the cut were dropped; and BASIC went on colouring its keywords
+         * while leaving its functions and numbers plain. Nothing said so.
+         *
+         * Half a grammar is worse than none. It reads as a grammar somebody
+         * wrote badly rather than a file that did not fit, and the difference
+         * is a long time spent looking in the wrong place.
+         */
+        static char big[8192];
+        int at = 0;
+        at += sprintf(big + at,
+                      "[syntax]\nname = big\nextensions = .big\n[match]\n"
+                      "storage.type = words int\n");
+        /* Comment lines, to push it past what the loader can hold. */
+        while (at < 6000) {
+            at += sprintf(big + at, "# padding to make this file too long\n");
+        }
+        stub_file_reset();
+        stub_file_add("/big.cfg", big, at);
+        syn_clear(&g);
+        check("a grammar longer than the loader can hold is refused",
+              syn_load(&g, "/big.cfg") ? 1 : 0, 0);
+        check("  and nothing of it is left behind", g.loaded ? 1 : 0, 0);
+
+        /* And one that fits still loads, rules and all. */
+        int fits = sprintf(big,
+                           "[syntax]\nname = fits\nextensions = .fits\n"
+                           "[match]\nstorage.type = words int\n");
+        while (fits < 3000) {
+            fits += sprintf(big + fits, "# padding that still fits\n");
+        }
+        stub_file_reset();
+        stub_file_add("/fits.cfg", big, fits);
+        syn_clear(&g);
+        check("one that fits loads", syn_load(&g, "/fits.cfg") ? 1 : 0, 1);
+        check_lex("int", &g, "YYY");
     }
 
     if (failures > 0) {
