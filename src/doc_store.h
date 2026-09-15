@@ -20,6 +20,7 @@
 #define _DOC_STORE_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /*
  * The document either side of what is in memory, on disk.
@@ -104,8 +105,12 @@ void store_destroy(doc_store* st);
 bool store_tail_append(doc_store* st, const char* buf, int n);
 
 // How much document is on each side. Both are bytes, not lines.
-int store_head_bytes(const doc_store* st);
-int store_tail_bytes(const doc_store* st);
+static inline int store_head_bytes(const doc_store* st) {
+    return (st == NULL || !st->open_) ? 0 : st->head_len_;
+}
+static inline int store_tail_bytes(const doc_store* st) {
+    return (st == NULL || !st->open_) ? 0 : st->tail_end_ - st->tail_start_;
+}
 
 // Sliding down: memory's front goes to HEAD, TAIL's front comes into memory.
 bool store_head_push(doc_store* st, const char* buf, int n);

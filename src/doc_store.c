@@ -195,14 +195,6 @@ void store_destroy(doc_store* st) {
     st->tail_end_ = STORE_HEADROOM;
 }
 
-int store_head_bytes(const doc_store* st) {
-    return (st == NULL || !st->open_) ? 0 : st->head_len_;
-}
-
-int store_tail_bytes(const doc_store* st) {
-    return (st == NULL || !st->open_) ? 0 : st->tail_end_ - st->tail_start_;
-}
-
 bool store_tail_has_room(const doc_store* st, int n) {
     return st != NULL && st->open_ && n >= 0 && st->tail_start_ >= n;
 }

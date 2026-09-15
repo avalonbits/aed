@@ -48,6 +48,20 @@ typedef struct _char_buffer  {
     char* hi_;      // where the live bytes end
 } char_buffer;
 
+// How much lies either side of the cursor, without the pointer that goes with
+// it. Here rather than in the .c for the reason line_buffer.h gives for its
+// own accessors: settling asks for both on every cursor movement of a paged
+// document -- twice over, because tb_up and tb_down each settle -- and throws
+// the pointers away. There is no link-time optimisation on this toolchain, so
+// a call across a translation unit stays a call however small the body is.
+static inline int cb_prefix_size(const char_buffer* cb) {
+    return (int) (cb->curr_ - cb->lo_);
+}
+
+static inline int cb_suffix_size(const char_buffer* cb) {
+    return (int) (cb->hi_ - cb->cend_);
+}
+
 // Setup ops.
 char_buffer* cb_init(char_buffer* cb, int size);
 void cb_destroy(char_buffer* cb);
