@@ -6,7 +6,7 @@ was picked against a measurement rather than a guess:
 | | where | value |
 |---|---|---|
 | how much RAM a document gets | [`AED_DOC_KB`](../src/editor.h#L79) | 256 |
-| how much of the buffer stays empty | [`prime_spare`](../src/text_buffer.c#L1256) | a quarter |
+| how much of the buffer stays empty | [`tbi_prime_spare`](../src/text_buffer_page.c#L196) | a quarter |
 | how far a slide moves | [`TB_CHUNK`](../src/text_buffer.h#L51) | 2 KiB |
 | how close the cursor may get to an end | [`TB_MARGIN`](../src/text_buffer.h#L52) | 16 KiB |
 
@@ -30,7 +30,7 @@ open document would cost. Read section 4 of that first.
 ## 1. What 256 buys
 
 `main` passes [`AED_DOC_KB`](../src/editor.h#L79) to `ed_init`, which reaches
-[`tb_init`](../src/text_buffer.c#L44), and that number is split two ways:
+[`tb_init`](../src/text_buffer.c#L40), and that number is split two ways:
 
 ```c
 int line_count = mem_kb << 5;                   // 8,192 line slots
@@ -126,7 +126,7 @@ described in `DESIGN.md` section 3 is why it does not.
 
 The 64 KiB row is worse than slow. After the arrow walk, a seek from line 7509
 back to line 1 left the cursor on 7509. Its window holds 47,602 bytes against
-`2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer.c#L1176) has
+`2 * TB_MARGIN` of 32,768, so [`tb_settle`](../src/text_buffer_page.c#L118) has
 almost no room to work in. The same row seeked correctly in a run without the
 arrow walk first, which makes it a state-dependent failure -- and it still
 happens after the free space moved to the ends, so the room `tb_settle` has is
@@ -213,7 +213,7 @@ costs anything:
 * At open `head_len_` is zero and `TAIL` still has to start at a non-zero
   offset, so the bytes below it still have to exist before `TAIL` is appended
   after them. That is the headroom write, unchanged, and for the reason
-  [`STORE_HEADROOM`](../src/doc_store.h#L66) records: FatFS clips a seek past
+  [`STORE_HEADROOM`](../src/doc_store.h#L67) records: FatFS clips a seek past
   the end of a file rather than extending it.
 * All four push and pop operations already read as "seek to an offset on a
   held handle and transfer". They would be identical.
@@ -224,7 +224,7 @@ covers the eZ80 side only — see section 8 on what the emulator does not model.
 
 Against those small wins, the two sides would share one address space, so a
 mistake in one could reach the other; today a head write cannot touch the tail's
-file at all. [`store_tail_has_room`](../src/doc_store.h#L138) would have to
+file at all. [`store_tail_has_room`](../src/doc_store.h#L143) would have to
 account for both, so a push back could fail because the *head* grew.
 
 ## 7. What a second document would cost
