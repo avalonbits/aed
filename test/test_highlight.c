@@ -33,6 +33,7 @@ static void check(const char* name, int got, int want) {
 static const char C_CFG[] =
     "[syntax]\nname = C\nextensions = .c .h\n"
     "[match]\ncomment.block = span '/*' '*/' multiline\n"
+    "string.quoted.double = span '\"' '\"' escape \\\n"
     "storage.type = words int\n";
 
 static const char ASM_CFG[] =
@@ -42,7 +43,7 @@ static const char ASM_CFG[] =
 /* Says nothing about fg and bg, so it colours tokens and moves no pair. */
 static const char DARK[] =
     "[theme]\nname = dark\ncovers = 0 1 4\n"
-    "[colours]\ncomment = 8\ntype = 14\n";
+    "[colours]\ncomment = 8\ntype = 14\nstring = 10\n";
 
 /* Asks for its own pair, which is the case the base/active rule is about. */
 static const char BOLD[] =
@@ -145,6 +146,46 @@ static int count_asks(void* ctx, char ypos, const char* pre, int presz,
     asked++;
 
     return 0;
+}
+
+/* The colour in force when `target` is first written. */
+static int colour_at_char(const char* b, int n, char target) {
+    int fg = -1;
+    for (int i = 0; i < n; i++) {
+        const unsigned char c = (unsigned char) b[i];
+        if (c == 17 && i + 1 < n) {
+            const unsigned char v = (unsigned char) b[i + 1];
+            if (v < 128) {
+                fg = v;
+            }
+            i++;
+            continue;
+        }
+        if (c == (unsigned char) target) {
+            return fg;
+        }
+    }
+
+    return -1;
+}
+
+/*
+ * The pair left set on the wire by whatever was just captured, starting from
+ * the pair that was set going in.
+ */
+static void pair_after(const char* b, int n, int* fg, int* bg) {
+    for (int i = 0; i + 1 < n; i++) {
+        if ((unsigned char) b[i] != 17) {
+            continue;
+        }
+        const int v = (unsigned char) b[i + 1];
+        if (v >= 128) {
+            *bg = v - 128;
+        } else {
+            *fg = v;
+        }
+        i++;
+    }
 }
 
 static long mark = 0;
@@ -546,14 +587,18 @@ int main(void) {
     /* --- the cursor puts back the colour it stood on --- */
     {
         /*
-         * Moving the cursor off a cell means putting back what was there, and
-         * what was there may be part of a token. The screen asks for that
-         * colour at the moment it needs it, so it describes where the cursor
-         * is rather than where it was when something last thought to say.
+         * Reported twice, and the second time was the interesting one: moving
+         * the cursor along a line left letters discoloured and then coloured
+         * again as it went.
          *
-         * An earlier version was told the colour once per command, which was
-         * right until anything moved -- and wrong on the very first key, when
-         * nothing had told it yet.
+         * The cell being put back is the one the cursor is leaving, and by the
+         * time the screen puts it back the document's cursor has already moved
+         * -- tb_prev runs first. Answering for "the cell under the cursor"
+         * therefore answered for the cell being arrived at, which is the same
+         * colour inside a token and the wrong one at either end of it.
+         *
+         * `int x;`, with the cursor stepping right off the `t` and onto the
+         * space. The cell left behind is a type; the one arrived at is not.
          */
         files();
         setup(&ed, 0);
@@ -561,33 +606,37 @@ int main(void) {
         ed_pick_syntax(&ed);
         tb_home(&ed.buf_);
         ed.scr_.currY_ = 1;
+        cmd_show(&ed);                  /* which is what fills the model in */
+
+        cmd_right(&ed);
+        cmd_right(&ed);                 /* on the `t`, the last of the type */
 
         stub_emit_colours(1);
         cap_start();
-        scr_hide_cursor_ch(&ed.scr_, 'i');
+        cmd_right(&ed);                 /* off it, onto the space */
         int nc = cap_read(cap, (int) sizeof(cap));
-        check("the cursor standing on a type puts that colour back",
+        check("stepping off a type puts the type's colour back",
               has_colour(cap, nc, 14), 1);
-        check("  rather than the document's own", has_colour(cap, nc, 15), 0);
 
-        /* Off the end of the token, where the theme says nothing. */
-        for (int i = 0; i < 4; i++) {
-            cmd_right(&ed);
-        }
+        /* And stepping off the space does not claim it was one. */
         cap_start();
-        scr_hide_cursor_ch(&ed.scr_, ';');
+        cmd_right(&ed);
         nc = cap_read(cap, (int) sizeof(cap));
-        check("  and on plain text puts the document's own back",
+        check("  and stepping off plain text does not",
               has_colour(cap, nc, 14), 0);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
 
+        files();
         setup(&ed, 0);
         named(&ed, "/cursor.txt");
         ed_pick_syntax(&ed);
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
         stub_emit_colours(1);
         cap_start();
-        scr_hide_cursor_ch(&ed.scr_, 'i');
+        cmd_right(&ed);
         nc = cap_read(cap, (int) sizeof(cap));
         check("  a document with no grammar asks for no colour",
               has_colour(cap, nc, 14), 0);
@@ -634,14 +683,15 @@ int main(void) {
          * worked out again -- which on a screenful of C costs a lex a row and
          * measured 141 milliseconds a keystroke before the shift existed.
          *
-         * The check is the invariant the shift maintains: the answers still
-         * describe this document. Without the shift the line count they were
-         * written under is one behind, and the next read throws them away.
+         * The check is the invariant an edit maintains: the answers stop at
+         * the line that changed, and everything above it is still held. They
+         * are never thrown away wholesale, which is what left the cursor with
+         * nothing to consult.
          */
-        check("  and what is known about the rows still describes it",
-              ed.synLines_, tb_ymax(&ed.buf_));
-        check("    and has not been thrown away",
-              ed.synTopLine_ != 0 ? 1 : 0, 1);
+        check("  what was known above the split is still held",
+              ed.synFirst_, 1);
+        check("    and none of it was thrown away",
+              ed.synKnown_ > 0 ? 1 : 0, 1);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }
@@ -774,10 +824,12 @@ int main(void) {
               ed.scr_.bottomY_ - 1);
 
         check("  and the painted screen left its answers behind",
-              ed.synTopLine_, 1);
+              ed.synTop_, 1);
         cmd_down(&ed);                  /* line 5 scrolls into view */
         check("  the view has moved down one", tb_ypos(&ed.buf_), 5);
-        check("    and the answers moved with it", ed.synTopLine_, 2);
+        check("    and the top row draws the line below", ed.synTop_, 2);
+        check("      while the answers themselves did not move",
+              ed.synFirst_, 1);
 
         /*
          * The row that came in from below, first. Its state is the one nothing
@@ -840,7 +892,7 @@ int main(void) {
         tb_home(&ed.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
-        check("the screen left its answers behind", ed.synTopLine_, 1);
+        check("the screen left its answers behind", ed.synTop_, 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 3, 3);
@@ -852,7 +904,7 @@ int main(void) {
         cmd_end(&ed);
         cmd_del(&ed);
         check("  joining takes a line out", tb_ymax(&ed.buf_), 8);
-        check("    and the answers survived it", ed.synTopLine_ != 0 ? 1 : 0, 1);
+        check("    and the answers survived it", ed.synFirst_ != 0 ? 1 : 0, 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 2, 2);
@@ -935,6 +987,243 @@ int main(void) {
         const int nb = cap_read(cap, (int) sizeof(cap));
         check("  and its first character is still a type",
               column_of_colour(cap, nb, 14), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- an edit renumbers the answers below it --- */
+    {
+        /*
+         * Adding or removing a line does not change what the lines below it
+         * begin inside -- the same text still runs into them -- but it does
+         * change what they are called. The answers are renumbered to follow.
+         *
+         * Checked well below the edit, on a row the edit did not repaint. The
+         * rows it does repaint write their own answers as they go, so a
+         * renumbering that went the wrong way is invisible there.
+         *
+         *   1 int a;      2 /_* x      3 still      4 *_/ int b;     5 int c;
+         *
+         * Row 4 begins inside the comment. Put a line in at the top and that
+         * becomes row 5, still inside it.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char RN[] =
+            "int a;\r\n/* x\r\nstill\r\n*/ int b;\r\nint c;\r\nint d;\r\n";
+        stub_file_add("/rn.c", RN, (int) sizeof(RN) - 1);
+        tb_load(&ed.buf_, "/rn.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 7;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 4, 4);
+        int nr = cap_read(cap, (int) sizeof(cap));
+        check("the line that closes the comment is inside it",
+              column_of_colour(cap, nr, 8), 0);
+
+        /* A line in at the very top, which moves everything down one. */
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_newl(&ed);
+        check("  the document gained a line", tb_ymax(&ed.buf_), 8);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 5, 5);
+        nr = cap_read(cap, (int) sizeof(cap));
+        check("    and it is still inside it, a row further down",
+              column_of_colour(cap, nr, 8), 0);
+
+        /* And taking the line back out puts everything where it was. The
+         * split left the cursor on the second half, so this steps back onto
+         * the blank line it made. */
+        cmd_up(&ed);
+        cmd_del(&ed);
+        check("  the document lost it again", tb_ymax(&ed.buf_), 7);
+
+        /*
+         * The line under it first, which is outside the comment while its
+         * neighbours are inside one -- so it is the row that shows a
+         * renumbering off by one in either direction. Checking a row whose
+         * neighbours share its state proves nothing, and checking it after the
+         * row above proves nothing either: painting a row writes the answer
+         * for the row below, which repairs exactly what is being looked for.
+         */
+        cap_start();
+        cmd_repaint_rows(&ed, 5, 5);
+        nr = cap_read(cap, (int) sizeof(cap));
+        check("    the line after it is outside the comment",
+              column_of_colour(cap, nr, 14), 0);
+        check("      rather than inside it", has_colour(cap, nr, 8), 0);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 4, 4);
+        nr = cap_read(cap, (int) sizeof(cap));
+        check("    and the comment's last line is back where it started",
+              column_of_colour(cap, nr, 8), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- typing beside a string, then taking it back out --- */
+    {
+        /*
+         * Reported from a real session: text typed between `(` and the quote
+         * coloured correctly, and a backspace then turned everything before
+         * the quote into string colour, which stayed until the cursor was
+         * walked over it.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char PR[] = "printf(\"hi\");\r\nint b;\r\nint c;\r\n";
+        stub_file_add("/pr.c", PR, (int) sizeof(PR) - 1);
+        tb_load(&ed.buf_, "/pr.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        ed.scr_.cols_ = 40;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        /* To just after the `(`, which is byte 7. */
+        for (int i = 0; i < 7; i++) {
+            cmd_right(&ed);
+        }
+        check("the cursor is after the bracket", tb_xpos(&ed.buf_), 8);
+
+        const key kx = { 'x', VK_X };
+        cap_start();
+        cmd_putc(&ed, kx);
+        int np = cap_read(cap, (int) sizeof(cap));
+        check("  typing beside the string leaves the name plain",
+              colour_at_char(cap, np, 'p'), 15);
+        check("    and the string still a string",
+              colour_at_char(cap, np, 'h'), 10);
+
+        /*
+         * The colour the text is written in, rather than where a colour change
+         * lands. The cursor writes its own cell before the row is painted, so
+         * counting columns from the start of the capture counts that too --
+         * and the cell's colour is exactly what went wrong here.
+         */
+        cap_start();
+        cmd_bksp(&ed);
+        np = cap_read(cap, (int) sizeof(cap));
+        check("  and taking it back out leaves it plain too",
+              colour_at_char(cap, np, 'p'), 15);
+        check("    with the string still a string",
+              colour_at_char(cap, np, 'h'), 10);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- the screen knows what colour it left set --- */
+    {
+        /*
+         * A standing check, and the one that would have caught the last bug
+         * rather than leaving it to be reported.
+         *
+         * curFg_ and curBg_ are what the screen believes the VDP holds, and a
+         * row that wants the colour it already has writes nothing. A belief
+         * that is wrong therefore does not show where it is wrong -- it shows
+         * as the *next* thing painted coming out in whatever was really set.
+         * The cursor drew a cell in a string's colour, recorded nothing, and
+         * the name in front of the string was painted green.
+         *
+         * Checked one writer at a time rather than one command at a time. A
+         * command ends by drawing the cursor, which sets the pair and records
+         * it, so a lie told in the middle is true again by the end -- which is
+         * exactly why this went unnoticed until somebody used the editor.
+         *
+         * Anything added to screen.c that emits a colour belongs in this list.
+         */
+        files();
+        setup(&ed, 0);
+        stub_emit_colours(1);
+        static const char INV[] =
+            "printf(\"hi\");\r\nint b;\r\n/* c\r\nstill\r\n*/ int d;\r\nint e;\r\n";
+        stub_file_add("/inv.c", INV, (int) sizeof(INV) - 1);
+        tb_load(&ed.buf_, "/inv.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        ed.scr_.cols_ = 40;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        /* On the quote, so the cursor cell is a colour the document is not. */
+        for (int i = 0; i < 7; i++) {
+            cmd_right(&ed);
+        }
+
+        int fg = ed.scr_.curFg_;
+        int bg = ed.scr_.curBg_;
+        cap_start();
+        scr_hide_cursor_ch(&ed.scr_, '"');
+        int n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("hiding the cursor records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+        check("  and it left the cell's own colour", fg, 10);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_show_cursor_ch(&ed.scr_, '"');
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("showing the cursor records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_paint_row(&ed.scr_, 2, "int b;", 6, NULL, 0);
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("painting a row records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_write_line(&ed.scr_, 2, "int b;", 6);
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("writing a line records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        fg = ed.scr_.curFg_;
+        bg = ed.scr_.curBg_;
+        cap_start();
+        scr_write_line_sel(&ed.scr_, 2, "int b;", 6, 1, 3);
+        n = cap_read(cap, (int) sizeof(cap));
+        pair_after(cap, n, &fg, &bg);
+        check("writing one with a selection records what it left set",
+              (fg == ed.scr_.curFg_ && bg == ed.scr_.curBg_) ? 1 : 0, 1);
+
+        /*
+         * And the one that matters in practice: a row painted straight after
+         * the cursor drew in a token's colour comes out in the document's.
+         */
+        for (int i = 0; i < 7; i++) {
+            cmd_left(&ed);
+        }
+        for (int i = 0; i < 7; i++) {
+            cmd_right(&ed);
+        }
+        scr_hide_cursor_ch(&ed.scr_, '"');
+        cap_start();
+        scr_paint_row(&ed.scr_, 2, "int b;", 6, NULL, 0);
+        n = cap_read(cap, (int) sizeof(cap));
+        check("  and a row painted after it is the document's colour",
+              colour_at_char(cap, n, 'b'), 15);
+
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }

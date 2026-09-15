@@ -118,6 +118,9 @@ void scr_show_cursor_ch(screen* scr, char ch) {
     vdu[8] = 17;
     vdu[9] = (char) (scr->bg_ + 128);
     mos_puts(vdu, sizeof(vdu), 0);
+    // What it leaves set, so the next thing painted knows.
+    scr->curFg_ = scr->fg_;
+    scr->curBg_ = scr->bg_;
 }
 
 static void scr_show_cursor(screen* scr) {
@@ -1044,20 +1047,39 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
      */
     char fg = scr->fg_;
     if (scr->theme_ != NULL && scr->cellColour_ != NULL) {
-        const char c = scr->cellColour_(scr->colourCtx_);
+        // This cell: the screen has not moved yet, so currX_ and currY_ still
+        // name the one being put back.
+        const char c = scr->cellColour_(scr->colourCtx_, scr->currY_,
+                                        scr->originX_ + scr->currX_);
         if (c >= 0 && c < scr->colors_) {
             fg = c;
         }
     }
 
-    char vdu[6];
-    vdu[1] = fg;
+    /*
+     * And the document's own pair afterwards, when this drew in something
+     * else.
+     *
+     * Everything that paints a row starts by assuming the pair coming in is
+     * the document's -- scr_paint_span says so and sets curFg_ from it without
+     * writing anything. While this only ever drew in that pair the assumption
+     * held for nothing; now that it draws a token's colour, leaving it set
+     * paints the front of the next row in it. That showed as the name before a
+     * string turning the string's colour after a backspace, and staying that
+     * way until the cursor was walked back over it.
+     */
+    char vdu[10];
     vdu[0] = 17;
+    vdu[1] = fg;
     vdu[2] = 17;
     vdu[3] = (char) (scr->bg_ + 128);
     vdu[4] = ch;
     vdu[5] = 8;
-    mos_puts(vdu, sizeof(vdu), 0);
+    mos_puts(vdu, 6, 0);
+    // What it leaves set. Recorded rather than undone: the next thing painted
+    // reads this and writes a colour only if it needs a different one.
+    scr->curFg_ = fg;
+    scr->curBg_ = scr->bg_;
 }
 
 static void scr_hide_cursor(screen* scr) {
@@ -1319,10 +1341,17 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     }
 
     scr_tab(scr, from - scr->originX_, ypos);
-    // The document's own pair is what is set coming in, which is the same
-    // assumption the selection flag used to make.
-    scr->curFg_ = scr->fg_;
-    scr->curBg_ = scr->bg_;
+    /*
+     * curFg_ and curBg_ are what the VDP actually holds, and this used to
+     * overwrite them with what it assumed: the document's own pair. Anything
+     * that had drawn in another colour and not put it back therefore painted
+     * the front of this row in that colour, silently, because highlight sees
+     * no difference from what it believes and writes nothing.
+     *
+     * Not assumed any more. Everything that emits a colour records what it
+     * left set, so a row that really does begin in the document's pair still
+     * writes nothing, and one that does not, writes.
+     */
     scr->runAt_ = 0;
     int col = 0;
     // The two halves are one line as far as the lexer is concerned, so the

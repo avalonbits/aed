@@ -58,37 +58,35 @@ typedef struct _editor {
     theme theme_;
 
     /*
-     * The lexer state each screen row begins in, and the document line the
-     * top row held when they were worked out. Zero means nothing here can be
-     * trusted.
+     * What each line on screen begins inside, and which line is drawn where.
      *
-     * Only a grammar that crosses lines needs this, and only C does so far.
-     * Without it, painting one row means lexing every row above it to find out
-     * what it is inside -- 28 rows on a half-screen cursor, which measured 45
-     * milliseconds a keystroke on an Agon. With it that is paid once per view
-     * and the keystroke is a single row again.
+     * Keyed by document line rather than by screen row, and that is the whole
+     * of it. A line begins inside what it begins inside; which row it happens
+     * to be drawn on has nothing to do with that. Keyed by row, scrolling threw
+     * every answer away although the document had not changed, and the code
+     * that chased rows around had cases it could not express and gave up in --
+     * after which the cursor had nothing to consult and rubbed the colouring
+     * out of each cell it crossed.
      *
-     * What makes one walk enough: the rows above the cursor cannot change
-     * while the cursor is where it is. Editing them means moving there, which
-     * changes the row being asked about; scrolling changes the top line, which
-     * is the key. The one case left is an edit that changes what its own row
-     * leaves open -- typing the second character of a comment opener -- and
-     * the edit paths handle that by repainting the rows below it.
+     * `synFirst_` is the first line an answer is held for and `synKnown_` how
+     * many consecutive lines from it. So the answers are a window that grows
+     * downwards when a line below it is asked about and is refilled when one
+     * above it is. Zero is a starting point rather than a failure: there is no
+     * state this can be left in that means give up.
+     *
+     * Only a grammar that crosses lines needs any of it, and only C does so
+     * far. Without it, painting one row means lexing every row above to find
+     * out what it is inside -- 28 rows on a half-screen cursor, which measured
+     * 45 milliseconds a keystroke on an Agon.
+     *
+     * `synTop_` is the one thing here about the view: which line row topY_
+     * draws. Painting is asked about rows, and this is what turns a row into a
+     * line.
      */
-    char rowSyn_[SCR_MAX_ROWS];
-    /*
-     * What the answers above describe: the document line the top row held, and
-     * how many lines the document had.
-     *
-     * Both, because either changing makes them describe the wrong rows. The
-     * line count is the one that catches an insertion or a deletion, which
-     * moves every row below it -- and for C that is the difference between a
-     * row being inside a block comment and not. Checking here rather than
-     * at each command that can change it means there is no list of those to
-     * keep up to date.
-     */
-    int synTopLine_;
-    int synLines_;
+    char lineSyn_[SCR_MAX_ROWS];
+    int synFirst_;
+    int synKnown_;
+    int synTop_;
 
     clipboard clip_;
     // Session state, like the clipboard: it does not outlive the editor and
