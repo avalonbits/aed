@@ -220,7 +220,7 @@ find anything, only hand back what it was given last.
 The window moves in [`TB_CHUNK`](../src/text_buffer.h#L51) of 2 KB, whole lines
 only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
 [`tb_settle()`](../src/text_buffer_page.c#L118) notices a margin has been crossed and
-slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L340) sends
+slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L381) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
 [`tb_slide_up()`](../src/text_buffer_page.c#L508) is the exact reverse.
 

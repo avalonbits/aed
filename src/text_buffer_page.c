@@ -149,6 +149,47 @@ bool tb_settle(text_buffer* tb) {
 
         const bool can_down = ssz < TB_MARGIN && store_tail_bytes(tb->store_) > 0;
         const bool can_up = psz < TB_MARGIN && store_head_bytes(tb->store_) > 0;
+
+        // A window too narrow to hold both margins cannot satisfy them however
+        // the text is arranged, and then asking each side about its own margin
+        // is the wrong question: both answers are yes for ever, and a slide
+        // that fixes one breaks the other. Settling alternates, a slide each
+        // way per keystroke, and the document is read off the card twice over
+        // for nothing.
+        //
+        // That window is ordinary rather than exotic. The index holds one slot
+        // per 32 bytes, so a document of short lines fills it with the buffer
+        // part empty: ten-byte lines in a 48 KiB buffer give a 15,350 byte
+        // window, and climbing 42,000 of them took 725,746 reads where a
+        // healthy window needs under 200.
+        //
+        // So the goal changes with the size. When both margins fit, keep them.
+        // When they cannot, centre the cursor instead -- the most screenfuls
+        // either side that the window can give -- and only move when a slide
+        // would improve the balance by more than it costs. That is what stops
+        // the alternation: a slide shifts the difference by two chunks, so
+        // requiring one chunk of improvement leaves nothing to undo.
+        //
+        // Only where centring can mean anything. A buffer smaller than a few
+        // chunks cannot be balanced a chunk at a time -- at the 1 KiB the
+        // tests use, one chunk is twice the whole buffer -- so those keep the
+        // margin rule, which is what they were written against.
+        if (psz + ssz < 2 * TB_MARGIN && psz + ssz >= 4 * TB_CHUNK) {
+            const int diff = psz - ssz;
+            if (diff > TB_CHUNK && store_tail_bytes(tb->store_) > 0) {
+                dir = 1;
+            } else if (-diff > TB_CHUNK && store_head_bytes(tb->store_) > 0) {
+                dir = -1;
+            } else {
+                break;
+            }
+            if (!(dir > 0 ? tb_slide_down(tb) : tb_slide_up(tb))) {
+                break;
+            }
+            moved = true;
+            continue;
+        }
+
         if (dir == 0) {
             if (can_down && can_up) {
                 dir = ssz <= psz ? 1 : -1;      // the emptier side first
@@ -403,7 +444,20 @@ bool tb_slide_down(text_buffer* tb) {
     // that a slide near the top of a document -- where there is barely anything
     // in front of the cursor to send -- would take in a whole chunk against a
     // line or two going out, and memory would grow until it burst.
+    // What went out -- and more when the window has room going spare, for the
+    // reason sliding up refills: the run that comes back ends part way through
+    // a line and that tail is rewound, so matching the outgo loses half a line
+    // every slide. See the note in tb_slide_up.
     int want = out_bytes > 0 ? out_bytes : TB_CHUNK;
+    {
+        const int slack = cb_available(&tb->cb_) - tbi_prime_spare(tb);
+        if (slack > want) {
+            want = slack;
+        }
+        if (want > TB_CHUNK) {
+            want = TB_CHUNK;
+        }
+    }
     const int left = store_tail_bytes(tb->store_);
     if (left <= TB_CHUNK && left > want && cb_available(&tb->cb_) >= left) {
         // The tail's last scrap, taken whole. Bounded intake is what stops
@@ -621,8 +675,34 @@ bool tb_slide_up(text_buffer* tb) {
     // line and a run starting at one look identical. The extra byte is what
     // distinguishes them. Without it, a chunk that landed on a boundary lost
     // its first line every time -- stranded in the head for good.
-    const int got = store_head_pop(tb->store_, slide_bytes,
-                                   (out_bytes > 0 ? out_bytes : TB_CHUNK) + 1);
+    // What went out, plus a byte of lookbehind -- and more than that when the
+    // window has room going spare.
+    //
+    // Matching the outgo sounds conservative and is not: the chunk that comes
+    // back starts part way through a line, and those bytes go back to the head
+    // (see keep_at below), so a slide that pops `send + 1` keeps only
+    // `send + 1 - keep_at`. That is half a line short, every time. Nothing
+    // notices for a while -- and then the window has quietly shrunk below the
+    // two margins it is supposed to keep, which is where the cliff was.
+    //
+    // Measured on slow.asm: twenty-four rounds of three thousand lines down
+    // and back took a 256 KiB window from 188,178 bytes to 127,160, and a
+    // 96 KiB one under two margins in seven.
+    //
+    // So a slide refills as well as moves. The cap is the reserve prime_spare
+    // keeps for the gap: the window grows back toward as full as the buffer
+    // allows and stops there, rather than draining a line at a time for ever.
+    int want = (out_bytes > 0 ? out_bytes : TB_CHUNK) + 1;
+    {
+        const int slack = cb_available(&tb->cb_) - tbi_prime_spare(tb);
+        if (slack > want) {
+            want = slack;
+        }
+        if (want > TB_CHUNK) {
+            want = TB_CHUNK;
+        }
+    }
+    const int got = store_head_pop(tb->store_, slide_bytes, want);
     if (got <= 0) {
         return true;
     }

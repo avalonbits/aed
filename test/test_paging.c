@@ -2408,6 +2408,130 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- the window must not shrink as it travels --- */
+    {
+        /*
+         * A slide moves the window; it must not spend it.
+         *
+         * Both slides used to bring back less than they sent: the run that
+         * arrives begins or ends part way through a line, and those bytes go
+         * back to the store, so a slide that pops exactly what it pushed keeps
+         * half a line less. Every time. Nothing notices for a while, and then
+         * the window has shrunk below the two margins it is meant to keep.
+         *
+         * Measured before the fix on a 419 KB source: twenty-four passes took
+         * a 256 KiB window from 188,178 bytes to 127,160, still falling.
+         *
+         * Checked by travelling and then measuring the window, because that is
+         * the invariant. A count of slides would pass a leak that merely
+         * leaked more slowly.
+         */
+        /*
+         * The lines vary in length on purpose. With every line the same, a
+         * chunk boundary falls the same way on every slide and the partial
+         * line is the same size each time, which happens to come out even --
+         * a uniform document does not leak at all, and the first version of
+         * this test used one and passed against a leak that was there.
+         */
+        #define TR_LINES 4000
+        static char TRAV[TR_LINES * 80 + 64];
+        int tr_at = 0;
+        for (int i = 0; i < TR_LINES; i++) {
+            const int w = 20 + (i * 13) % 56;
+            for (int k = 0; k < w; k++) {
+                TRAV[tr_at++] = (char) ('a' + ((i + k) % 26));
+            }
+            TRAV[tr_at++] = '\r';
+            TRAV[tr_at++] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(TRAV, tr_at);
+        check("a document to travel", tb_init(&tb, 48, "/trav.txt") != NULL, 1);
+        check("  which pages", tb.paged_ ? 1 : 0, 1);
+
+        tb_pos start = { 100, 0 };
+        tb_seek(&tb, start);
+        const int first = tb_used(&tb);
+        check("    with a window holding most of the buffer",
+              first > 30000 ? 1 : 0, 1);
+
+        for (int round = 0; round < 4; round++) {
+            for (int i = 0; i < 1500; i++) {
+                tb_down(&tb);
+            }
+            for (int i = 0; i < 1500; i++) {
+                tb_up(&tb);
+            }
+        }
+        const int after = tb_used(&tb);
+        /* Leaking, this scenario ends at 30,492 against 35,523 holding, so
+         * either bound below separates them. Both are checked because they
+         * say different things: that the window kept its size, and that it
+         * kept enough of it to matter. */
+        check("  after four passes the window is still its size",
+              after > first - 1024 ? 1 : 0, 1);
+        check("    and still holds two margins",
+              after >= 2 * TB_MARGIN ? 1 : 0, 1);
+
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        check("  the first line is still reachable", tb_ypos(&tb), 1);
+        tb_destroy(&tb);
+    }
+
+    /* --- a window too narrow for two margins must not thrash --- */
+    {
+        /*
+         * The index holds one slot per 32 bytes of buffer, so a document of
+         * short lines fills it with the buffer part empty: ten-byte lines in a
+         * 48 KiB buffer give a window of about 15,000 against the 32,768 two
+         * margins want. That window is ordinary, and no arrangement of it can
+         * satisfy both margins.
+         *
+         * Asking each side about its own margin is then the wrong question --
+         * both answers are yes for ever, a slide that fixes one breaks the
+         * other, and settling alternates a slide each way per keystroke.
+         * Climbing 42,000 such lines took 725,746 reads where a healthy window
+         * needs under 200, which is the whole document off the card dozens of
+         * times over.
+         *
+         * Counted in reads rather than timed, because the cost is the card and
+         * because a count is the same on every machine. The document is
+         * reached either way -- #127 made sure of that -- so what is being
+         * checked here is only what it costs, which is why this sits beside
+         * that test rather than replacing it.
+         */
+        #define SH_LINES 9000
+        #define SH_LEN   10
+        static char SH[SH_LINES * SH_LEN + 1];
+        for (int i = 0; i < SH_LINES; i++) {
+            for (int k = 0; k < SH_LEN - 2; k++) {
+                SH[i * SH_LEN + k] = (char) ('a' + ((i + k) % 26));
+            }
+            SH[i * SH_LEN + SH_LEN - 2] = '\r';
+            SH[i * SH_LEN + SH_LEN - 1] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(SH, SH_LINES * SH_LEN);
+        check("a document of short lines", tb_init(&tb, 48, "/sh.txt") != NULL, 1);
+
+        tb_pos bottom = { tb_ymax(&tb), 0 };
+        tb_seek(&tb, bottom);
+        check("  its window is narrower than two margins",
+              tb_used(&tb) < 2 * TB_MARGIN ? 1 : 0, 1);
+
+        stub_file_reset_counts();
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        const int reads = stub_file_reads();
+        check("  climbing it reaches the first line", tb_ypos(&tb), 1);
+        /* The document is 90,000 bytes and a slide moves 2 KiB, so the climb
+         * is some tens of reads. A thousand is far above that and far below
+         * the hundreds of thousands the alternation cost. */
+        check("    without reading the card to pieces", reads < 1000 ? 1 : 0, 1);
+        tb_destroy(&tb);
+    }
+
     /* --- an unpaged document never slides --- */
     {
         check("an ordinary document", load_five(&tb), 1);
