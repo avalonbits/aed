@@ -2318,6 +2318,96 @@ int main(void) {
         tb_destroy(&tb);
     }
 
+    /* --- a document whose last line has no break after it --- */
+    {
+        /*
+         * Any file that does not end with a newline, which is a great many of
+         * them. v1.0.1 could not scroll one back to the top: the cursor went
+         * down to the end and then stopped part way back, with most of the
+         * document in the head and no way to reach it.
+         *
+         * Two faults, stacked, and both in the same place -- the tail never
+         * empties when the document's last line has text.
+         *
+         * The last scrap of the tail is that line, and it has no break in it,
+         * so run_lines found no line and every slide down put it back. The
+         * tail therefore stayed non-empty for ever, settling kept choosing to
+         * slide down, and each of those slides sent a little of the front to
+         * the head and got nothing in return. The window drained from 190,408
+         * bytes to 25,595.
+         *
+         * Then, with the draining fixed, the window filled instead and still
+         * could not move: sliding up refused to send anything out while the
+         * trailing entry had text, and the lines in front of that entry can
+         * only reach the tail through it.
+         *
+         * The document here is a little over twice the buffer, so it pages and
+         * the window has to move several times to cross it.
+         */
+        #define NB_LINES 3000
+        #define NB_LEN   40
+        static char NB[NB_LINES * NB_LEN + 64];
+        int nb_at = 0;
+        for (int i = 0; i < NB_LINES; i++) {
+            nb_at += snprintf(NB + nb_at, NB_LEN + 1, "line %06d ", i);
+            while (nb_at % NB_LEN != NB_LEN - 2) {
+                NB[nb_at++] = '.';
+            }
+            NB[nb_at++] = '\r';
+            NB[nb_at++] = '\n';
+        }
+        /* The last line: text, and nothing after it. */
+        const int tail_at = nb_at;
+        for (int k = 0; k < 41; k++) {
+            NB[nb_at++] = 'z';
+        }
+
+        stub_file_reset();
+        stub_file_set_content(NB, nb_at);
+        check("a document whose last line has no break",
+              tb_init(&tb, 48, "/nb.txt") != NULL, 1);
+        check("  it pages", tb.paged_ ? 1 : 0, 1);
+        check("  and counts the unterminated line", tb_ymax(&tb), NB_LINES + 1);
+
+        tb_pos bottom = { tb_ymax(&tb), 0 };
+        tb_seek(&tb, bottom);
+        check("  the cursor reaches the last line", tb_ypos(&tb), NB_LINES + 1);
+        check("    which reads as itself",
+              tb_curr_line(&tb).ssz_, 41);
+
+        /* The window must still hold something: the drain showed up here. */
+        check("    with the window still full of document",
+              tb_used(&tb) > 20000 ? 1 : 0, 1);
+
+        tb_pos top = { 1, 0 };
+        tb_seek(&tb, top);
+        check("  and it goes back to the first line", tb_ypos(&tb), 1);
+        check("    with nothing left above it", store_head_bytes(tb.store_), 0);
+        check("    reading the first line",
+              memcmp(tb_curr_line(&tb).suffix_, "line 000000", 11) == 0 ? 1 : 0, 1);
+
+        /* Down and back again, which is what a user does. */
+        tb_seek(&tb, bottom);
+        check("  down to the end again", tb_ypos(&tb), NB_LINES + 1);
+        tb_seek(&tb, top);
+        check("    and back to the top again", tb_ypos(&tb), 1);
+
+        /* And it saves byte for byte, unterminated last line and all. */
+        tb_set_fname(&tb, "/nb.out", 7);
+        check("  saving works", tb_save(&tb) ? 1 : 0, 1);
+        {
+            int sz = 0;
+            const char* got = stub_file_content("/nb.out", &sz);
+            check("    writing every byte back", sz, nb_at);
+            check("      unchanged",
+                  got != NULL && memcmp(got, NB, (size_t) nb_at) == 0 ? 1 : 0, 1);
+            check("        including the last line",
+                  got != NULL && memcmp(got + tail_at, NB + tail_at, 41) == 0
+                  ? 1 : 0, 1);
+        }
+        tb_destroy(&tb);
+    }
+
     /* --- an unpaged document never slides --- */
     {
         check("an ordinary document", load_five(&tb), 1);

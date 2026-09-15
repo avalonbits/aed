@@ -222,7 +222,7 @@ only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
 [`tb_settle()`](../src/text_buffer_page.c#L118) notices a margin has been crossed and
 slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L340) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer_page.c#L465) is the exact reverse.
+[`tb_slide_up()`](../src/text_buffer_page.c#L508) is the exact reverse.
 
 Everything that moves the cursor settles —
 [`tb_seek`](../src/text_buffer_range.c#L64), and `tb_up` and `tb_down` too, so the
