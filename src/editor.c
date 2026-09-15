@@ -286,6 +286,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         }
     }
 
+    // Somewhere for the screen to ask about colour. Once, before anything is
+    // painted: every paint from here on is coloured without knowing it.
+    ed_attach_colourer(ed);
+
     // After the load, because the grammar is chosen by the document's name and
     // the buffer does not have one until it is loaded.
     ed_pick_syntax(ed);
@@ -352,13 +356,6 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->buf_));
     }
 
-    /*
-     * The cell the cursor starts on. ed_run works this out before every key,
-     * but an editor is usable before it reaches that loop and a test can hold
-     * one that never does -- and the first cell the cursor sits on is exactly
-     * the one a user moves off first.
-     */
-    cmd_sync_cursor_colour(ed);
 
     // Last, so that no failure above has to take it back down again.
     keys_open();
@@ -530,26 +527,6 @@ void ed_run(editor* ed) {
     screen* scr = &ed->scr_;
 
     for (;;) {
-        /*
-         * What colour the cell under the cursor belongs in, worked out before
-         * the key arrives rather than after the command runs.
-         *
-         * Two reasons for it being here. It describes where the cursor is now,
-         * which is the cell the command about to run will move off and have to
-         * put back -- and on the first pass there has been no command yet, so
-         * doing it afterwards left the very first cell the cursor sat on to be
-         * restored in the document's colour. That showed as the `#` of an
-         * include losing its colour the first time the cursor left it, and
-         * coming back correctly every time after.
-         *
-         * It costs a lex of one row. That is spent after the last command has
-         * finished painting and before the read below blocks, so it is off the
-         * path between a key arriving and the screen changing -- but somebody
-         * typing steadily does wait for it between keystrokes, and somebody
-         * who pauses does not. It is not free, and it is not paid while the
-         * read is waiting.
-         */
-        cmd_sync_cursor_colour(ed);
 
         // Not while a chord is held down. The footer sits on the bottom row,
         // so drawing it means moving the cursor off the text, writing, and

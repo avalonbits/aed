@@ -24,6 +24,31 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/*
+ * Where a row's colouring comes from.
+ *
+ * Asked at the moment a row is painted, with the text about to go on screen.
+ * Returns how many runs there are and points `runs` at them; zero paints the
+ * row in the document's own colours.
+ *
+ * Asked rather than told, and that is the whole point. The screen paints rows
+ * from a dozen places -- a full repaint, a range, an edit, either end of a
+ * scroll -- and when each of those had to remember to hand its colouring over
+ * first, the ones that forgot painted plainly and nothing said so. Every bug
+ * reported against syntax highlighting so far has been a paint that forgot.
+ * A path that does not know this exists is now coloured anyway.
+ */
+typedef int (*scr_colourer)(void* ctx, char ypos, const char* pre, int presz,
+                            const char* suf, int sufsz, const tok_run** runs);
+
+/*
+ * What colour the cell under the cursor belongs in, or -1 for the document's
+ * own. Asked when the cursor moves off a cell and that cell has to be put
+ * back, for the same reason: pushing it in advance meant it was right only
+ * for as long as nothing moved.
+ */
+typedef char (*scr_cell_colourer)(void* ctx);
+
 typedef struct _screen {
     // Wider than a char on purpose. Mode 19 is 1024x768, which MOS reports as
     // 128 columns, and this file is compiled with -fsigned-char -- so a char
@@ -129,19 +154,11 @@ typedef struct _screen {
     // than two answers.
     char curFg_;
     char curBg_;
-    /*
-     * The colour the cell under the cursor belongs in, or -1 for the
-     * document's own foreground.
-     *
-     * Moving the cursor off a cell means putting back what was there, and what
-     * was there may be part of a token. Without this the cell was restored in
-     * the document's colour, so the cursor rubbed the colouring out one
-     * character at a time as it travelled along a line.
-     *
-     * Set once per command, after it has run, so it describes where the cursor
-     * is now -- which is the cell the next command will move off.
-     */
-    char cellFg_;
+    // Who to ask for a row's colouring, and for the cursor cell's. NULL paints
+    // everything in the document's own colours.
+    scr_colourer colour_;
+    scr_cell_colourer cellColour_;
+    void* colourCtx_;
     // How the row being painted is coloured, or NULL for plainly. Set for one
     // row at a time, like the selection above. runAt_ walks the runs as the
     // columns go up, so colouring a row is one pass and not a search a column.
@@ -214,14 +231,8 @@ char scr_base_bg(screen* scr);
 // The theme in force, or NULL to paint plainly. The screen does not own it.
 void scr_set_theme(screen* scr, const theme* t);
 
-// How the next row painted is coloured. The runs are borrowed for that one
-// paint and must outlive it; passing NULL paints the row plainly. Set per row,
-// as the selection is, so no row can inherit another's colouring.
-void scr_set_row_tokens(screen* scr, const tok_run* runs, int n);
-
-// The colour to put back under the cursor when it moves off. -1 for the
-// document's own, which is what a row with no colouring wants.
-void scr_set_cursor_colour(screen* scr, char fg);
+void scr_set_colourer(screen* scr, scr_colourer rows, scr_cell_colourer cell,
+                      void* ctx);
 
 // A theme's colours, which move the active pair and leave the base alone. Out
 // of range for the mode is ignored, as scr_set_scheme ignores it.

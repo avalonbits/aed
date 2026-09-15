@@ -93,35 +93,147 @@ static int row_bytes(const split_line* ln, char* buf, int max) {
  * something different. Repaints them when they are, and leaves the screen
  * alone when they are not, which is almost always.
  */
-static void resync_rows_below(editor* ed, char y, int out) {
+// What the row under `y` begins in, or 0 when there is no such row to ask about.
+static char row_below_state(editor* ed, char y) {
+    SCR(ed);
+    const char next = (char)(y + 1);
+    if (ed->synTopLine_ == 0 || next >= scr->bottomY_ || next >= SCR_MAX_ROWS) {
+        return 0;
+    }
+
+    return ed->rowSyn_[next];
+}
+
+/*
+ * An edit changed what its row leaves open -- the second character of a
+ * comment opener, or the character that closed one -- so the rows under it are
+ * inside something else now. Painting the row recorded the new answer; this
+ * notices that it moved and paints the rest of the screen.
+ */
+static void resync_rows_below(editor* ed, char y, char was) {
     SCR(ed);
     if (!syn_crosses_lines(&ed->syn_) || ed->synTopLine_ == 0) {
         return;
     }
     const char next = (char)(y + 1);
-    if (next >= scr->bottomY_ || next >= SCR_MAX_ROWS) {
+    if (next >= scr->bottomY_ || next >= SCR_MAX_ROWS
+            || ed->rowSyn_[next] == was) {
         return;
     }
-    if (ed->rowSyn_[next] == (char) out) {
-        return;
-    }
-    ed->rowSyn_[next] = (char) out;
     cmd_repaint_rows(ed, next, (char)(scr->bottomY_ - 1));
 }
 
-static int set_row_colours(editor* ed, const split_line* ln, int in) {
-    if (!ed->syn_.loaded) {
-        scr_set_row_tokens(&ed->scr_, NULL, 0);
+static int state_at_row(editor* ed, text_buffer* tb, char ypos);
+static int top_line(screen* scr, text_buffer* tb);
 
-        return SYN_STATE_NONE;
+/*
+ * The screen asking what colours a row it is about to paint.
+ *
+ * Everything the answer needs is in rowSyn_: what that row begins inside. The
+ * text comes from the screen, because the screen has it in hand, and what the
+ * row leaves goes into the row below -- so painting a screen top to bottom
+ * chains the answers along without anybody keeping a running total.
+ *
+ * This is the only place a row's colouring is worked out. It used to be
+ * pushed, by each of a dozen paint sites, and the ones that forgot painted
+ * plainly with nothing to say they had.
+ */
+static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
+                         const char* suf, int sufsz, const tok_run** runs) {
+    editor* ed = (editor*) ctx;
+    if (!ed->syn_.loaded || ypos < 0 || ypos >= SCR_MAX_ROWS) {
+        return 0;
     }
-    const int len = row_bytes(ln, synRow_, SYN_ROW_MAX);
+    const split_line ln = { presz, (char*) pre, sufsz, (char*) suf };
+    const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
+    /*
+     * Read from the model, never asked of it.
+     *
+     * Asking means checking whether the model still describes the screen, and
+     * the answer is worked out from where the cursor is -- which, during a
+     * paint, is halfway through an edit. Every return and every join decided
+     * the screen was stale and lexed all of it again, twice, and the answers
+     * were taken against a view that had not finished moving. The model is
+     * brought up to date at the start of an operation, where the view and the
+     * document agree; by the time a row is painted the answer is already here.
+     */
+    const int in = (ed->synTopLine_ != 0) ? ed->rowSyn_[ypos] : SYN_STATE_NONE;
     int out = SYN_STATE_NONE;
     const int n = syn_lex(&ed->syn_, synRow_, len, in, &out,
                           synRuns_, SYN_ROW_RUNS);
-    scr_set_row_tokens(&ed->scr_, synRuns_, n);
+    if (ed->synTopLine_ != 0 && ypos + 1 < SCR_MAX_ROWS
+            && ypos + 1 < ed->scr_.bottomY_) {
+        ed->rowSyn_[ypos + 1] = (char) out;
+    }
+    *runs = synRuns_;
+
+    return n;
+}
+
+/*
+ * What a row leaves open, without painting it.
+ *
+ * For the handful of moments when the model has to be brought up to date
+ * before anything is drawn: an edit has changed the document and the rows are
+ * about to move, and the answer for the row below depends on the row above as
+ * it now is.
+ */
+static int row_leaves(editor* ed, const char* pre, int presz,
+                      const char* suf, int sufsz, int in) {
+    if (!ed->syn_.loaded) {
+        return SYN_STATE_NONE;
+    }
+    const split_line ln = { presz, (char*) pre, sufsz, (char*) suf };
+    const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
+    int out = SYN_STATE_NONE;
+    syn_lex(&ed->syn_, synScan_, len, in, &out, NULL, 0);
 
     return out;
+}
+
+/*
+ * The screen asking what colour the cell under the cursor belongs in.
+ *
+ * Worked out here and now rather than handed over in advance, so it describes
+ * where the cursor is rather than where it was when something last thought to
+ * say. -1 leaves the cell in the document's own colour.
+ */
+static char ed_colour_cell(void* ctx) {
+    editor* ed = (editor*) ctx;
+    if (!ed->syn_.loaded) {
+        return -1;
+    }
+    text_buffer* tb = &ed->buf_;
+    const split_line ln = tb_curr_line(tb);
+    const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
+    /*
+     * Read from the model rather than asked of it. This runs in the middle of
+     * commands, while the cursor has moved and the view has not caught up, and
+     * a question at that moment can decide the whole screen is stale and work
+     * it out again -- against a view that is halfway through changing. The
+     * answer would be wrong and the model would keep it.
+     *
+     * Nothing else uses it, so the cost of being cold here is one cell drawn
+     * in the document's colour until the next paint fills the model in.
+     */
+    const int in = (ed->synTopLine_ != 0 && ed->scr_.currY_ < SCR_MAX_ROWS)
+                 ? ed->rowSyn_[ed->scr_.currY_] : SYN_STATE_NONE;
+    int out = SYN_STATE_NONE;
+    const int n = syn_lex(&ed->syn_, synRow_, len, in, &out,
+                          synRuns_, SYN_ROW_RUNS);
+    // tb_curr_line splits the cursor's row at the cursor, so the prefix is how
+    // many bytes into the line it is.
+    for (int i = 0; i < n; i++) {
+        if (ln.psz_ < synRuns_[i].end) {
+            return theme_colour(&ed->theme_, (tok_class) synRuns_[i].cls);
+        }
+    }
+
+    return -1;
+}
+
+void ed_attach_colourer(editor* ed) {
+    scr_set_colourer(&ed->scr_, ed_colour_row, ed_colour_cell, ed);
 }
 
 // Walks a copy of the document forward, a line at a time. syn_state_before
@@ -206,24 +318,29 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     SCR(ed);
     char ypos = scr->topY_;
     char tpos = tb_ypos(tb);
-    // The rows are painted top to bottom, so what each one leaves open is what
-    // the next begins in and the state carries for nothing. Only the first row
-    // has to be worked out, and only when the grammar has something that can
-    // cross a line.
-    int state = top_state(ed, tpos);
+
     /*
-     * And what each row begins inside is worth keeping as it goes past. This
-     * walk is exactly the one working it out again would do, so recording it
-     * here is free -- and it means the first scroll after a repaint has
-     * something to shift rather than a screen to lex.
+     * This is where the screen's answers start from. Only the top row has to
+     * be worked out -- what it begins inside, which for a view that has landed
+     * somewhere new means reading back. Every row under it begins in what the
+     * row above leaves, and each paint records that for the row below as it
+     * goes, so the rest chains itself.
      */
-    const int top_here = tpos;
+    if (scr->topY_ < SCR_MAX_ROWS) {
+        ed->rowSyn_[scr->topY_] = (char) top_state(ed, tpos);
+    }
+    /*
+     * Recorded as the reader works it out, rather than as the line this walk
+     * happens to start on. The two agree for every caller here -- refresh
+     * walks the cursor up to the top row first -- and writing it the reader's
+     * way means a paint cannot disagree with itself and start the whole
+     * screen over in the middle of being painted.
+     */
+    ed->synTopLine_ = top_line(scr, &ed->buf_);
+    ed->synLines_ = tb_ymax(tb);
+
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
-        if (ypos < SCR_MAX_ROWS) {
-            ed->rowSyn_[ypos] = (char) state;
-        }
-        state = set_row_colours(ed, &ln, state);
         scr_paint_row(scr, ypos, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 
         tb_down(tb);
@@ -236,13 +353,12 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     }
 
     for (; ypos < scr->bottomY_; ypos++) {
-        if (ypos < SCR_MAX_ROWS) {
-            ed->rowSyn_[ypos] = (char) state;   // a blank row leaves what it got
+        if (ypos < SCR_MAX_ROWS && ypos > scr->topY_) {
+            // A blank row leaves what it was given.
+            ed->rowSyn_[ypos] = ed->rowSyn_[ypos - 1];
         }
         scr_write_line(scr, ypos, NULL, 0);
     }
-    ed->synTopLine_ = top_here;
-    ed->synLines_ = tb_ymax(tb);
 }
 
 
@@ -324,7 +440,6 @@ static void resync_after_scroll(editor* ed, text_buffer* tb, char to_ch,
         }
         if (edited) {
             split_line ln = tb_curr_line(tb);
-            set_row_colours(ed, &ln, state_at_row(ed, tb, scr->currY_));
             scr_paint_row(scr, scr->currY_, ln.prefix_, ln.psz_,
                           ln.suffix_, ln.ssz_);
         }
@@ -647,36 +762,6 @@ static int state_at_row(editor* ed, text_buffer* tb, char ypos) {
     return ed->rowSyn_[ypos];
 }
 
-void cmd_sync_cursor_colour(editor* ed) {
-    SCR(ed);
-    TB(ed);
-
-    if (!ed->syn_.loaded || scr->theme_ == NULL) {
-        scr_set_cursor_colour(scr, -1);
-
-        return;
-    }
-
-    // The state first, then the row: they used to share a buffer, and the
-    // order they are written in is no longer what keeps them apart.
-    const int in = state_at_row(ed, tb, scr->currY_);
-    const split_line ln = tb_curr_line(tb);
-    const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
-    int out = SYN_STATE_NONE;
-    const int n = syn_lex(&ed->syn_, synRow_, len, in, &out,
-                          synRuns_, SYN_ROW_RUNS);
-    // tb_curr_line splits the cursor's row at the cursor, so the prefix is
-    // exactly how many bytes into the line it is.
-    const int at = ln.psz_;
-    char fg = -1;
-    for (int i = 0; i < n; i++) {
-        if (at < synRuns_[i].end) {
-            fg = theme_colour(&ed->theme_, (tok_class) synRuns_[i].cls);
-            break;
-        }
-    }
-    scr_set_cursor_colour(scr, fg);
-}
 
 void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     SCR(ed);
@@ -709,31 +794,34 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
         return;
     }
 
+    // Brings the model up to date if the view has moved since it was written.
+    // Here rather than inside the paints: the view and the document agree at
+    // this point, and a paint is the one moment they may not.
+    (void) state_at_row(ed, tb, fromY);
+
     char y = fromY;
     char last = toY;
-    int state = state_at_row(ed, tb, fromY);
     for (; y <= last; y++) {
         const split_line ln = tb_curr_line(&cp);
         int from = 0;
         int to = 0;
         row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
-        state = set_row_colours(ed, &ln, state);
         /*
-         * What this row leaves is what the next one begins in. When that
-         * differs from what the next row was painted with -- a comment just
-         * opened or closed on this row -- the rest of the screen is wrong and
-         * is repainted, which is what makes typing the second character of a
-         * comment opener recolour everything below it.
+         * What this row leaves is what the next begins in, and painting it
+         * records that. When it differs from what the next row was painted
+         * with -- a comment just opened or closed here -- the rest of the
+         * screen is wrong, so the range carries on to the bottom. That is what
+         * makes typing the second character of a comment opener recolour
+         * everything below it.
          */
-        if (ed->synTopLine_ != 0 && y + 1 < SCR_MAX_ROWS
-                && y + 1 < scr->bottomY_) {
-            if (ed->rowSyn_[y + 1] != (char) state) {
-                ed->rowSyn_[y + 1] = (char) state;
-                last = (char)(scr->bottomY_ - 1);
-            }
-        }
+        const char was = (y + 1 < SCR_MAX_ROWS && y + 1 < scr->bottomY_)
+                       ? ed->rowSyn_[y + 1] : 0;
         scr_write_line_sel_split(scr, y, ln.prefix_, ln.psz_,
                                  ln.suffix_, ln.ssz_, from, to);
+        if (ed->synTopLine_ != 0 && y + 1 < SCR_MAX_ROWS
+                && y + 1 < scr->bottomY_ && ed->rowSyn_[y + 1] != was) {
+            last = (char)(scr->bottomY_ - 1);
+        }
 
         const int prev = tb_ypos(&cp);
         tb_down(&cp);
@@ -773,7 +861,6 @@ void cmd_repaint_span(editor* ed, char y, int from_col, int to_col) {
     int from = 0;
     int to = 0;
     row_selection(ed, tb_ypos(&cp), &ln, &from, &to);
-    set_row_colours(ed, &ln, state_at_row(ed, tb, y));
     scr_write_line_span_split(scr, y, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_,
                               from, to, from_col, to_col);
     scr_sync_cursor(scr);
@@ -1447,13 +1534,13 @@ void cmd_putc(editor* ed, key k) {
         return;
     }
     split_line ln = tb_curr_line(tb);
-    const int out = set_row_colours(ed, &ln,
-                                    state_at_row(ed, tb, scr->currY_));
+    (void) state_at_row(ed, tb, scr->currY_);   // the model, before painting
+    const char was = row_below_state(ed, scr->currY_);
     const int moved = scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
         resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
     } else {
-        resync_rows_below(ed, scr->currY_, out);
+        resync_rows_below(ed, scr->currY_, was);
     }
 }
 
@@ -1472,7 +1559,14 @@ static void region_up(editor* ed, text_buffer* tb, char ch, bool merged,
                       int in) {
     SCR(ed);
     split_line ln = tb_curr_line(tb);
-    const int out = set_row_colours(ed, &ln, in);
+    // The caller read this before the edit, when the view still described the
+    // document. Putting it back into the model is what lets the paints below
+    // simply ask.
+    if (ed->synTopLine_ != 0 && scr->currY_ < SCR_MAX_ROWS) {
+        ed->rowSyn_[scr->currY_] = (char) in;
+    }
+    const int out = row_leaves(ed, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_,
+                               in);
     scr_scroll_up_split(scr, scr->currY_, scr->bottomY_-1,
                         ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_, ch);
 
@@ -1496,8 +1590,7 @@ static void region_up(editor* ed, text_buffer* tb, char ch, bool merged,
      * known about the rows moves with them rather than being worked out again.
      */
     const char first = merged ? (char)(scr->currY_ + 1) : scr->currY_;
-    set_row_colours(ed, &ln,
-                    rows_shifted_up(ed, tb, first, merged ? out : -1));
+    (void) rows_shifted_up(ed, tb, first, merged ? out : -1);
     if (ed->synTopLine_ != 0) {
         ed->synLines_ = tb_ymax(&ed->buf_);
     }
@@ -1611,13 +1704,13 @@ void cmd_bksp(editor* ed) {
         return;
     }
     split_line ln = tb_curr_line(tb);
-    const int out = set_row_colours(ed, &ln,
-                                    state_at_row(ed, tb, scr->currY_));
+    (void) state_at_row(ed, tb, scr->currY_);   // the model, before painting
+    const char was = row_below_state(ed, scr->currY_);
     const int moved = scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
         resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
     } else {
-        resync_rows_below(ed, scr->currY_, out);
+        resync_rows_below(ed, scr->currY_, was);
     }
 }
 
@@ -1637,8 +1730,16 @@ void cmd_newl(editor* ed) {
     // which was read before the split: asking afterwards asks about a document
     // the view does not describe yet, and the answer is worked out again for
     // nothing.
-    const split_line cut = { ln.psz_, ln.prefix_, 0, NULL };
-    const int out = set_row_colours(ed, &cut, in);
+    const int out = row_leaves(ed, ln.prefix_, ln.psz_, NULL, 0, in);
+    if (ed->synTopLine_ != 0 && scr->currY_ < SCR_MAX_ROWS) {
+        ed->rowSyn_[scr->currY_] = (char) in;
+    }
+    if (scr->currY_ < scr->bottomY_-1) {
+        // Said before either half is painted, so both can simply ask.
+        rows_inserted(ed, scr->currY_, out);
+    } else {
+        ed->synTopLine_ = 0;    // the view scrolls instead; every row moves
+    }
     scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
     scr_place_cursor(scr, NULL, 0);
@@ -1649,16 +1750,10 @@ void cmd_newl(editor* ed) {
      * start of a line looked like: the line appeared to lose its colouring and
      * got it back the next time anything repainted it.
      */
-    const split_line moved = { ln.ssz_, ln.suffix_, 0, NULL };
-    set_row_colours(ed, &moved, out);
     if  (scr->currY_ < scr->bottomY_-1) {
-        rows_inserted(ed, scr->currY_, out);
         scr->currY_++;
         scr_scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     } else {
-        // The view scrolled instead, so every row moved and the top line with
-        // them. Nothing above is worth keeping.
-        ed->synTopLine_ = 0;
         scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
     }
 }
@@ -1797,7 +1892,7 @@ void cmd_up(editor* ed) {
         tb_copy(&cp, tb);
         tb_home(&cp);
         const split_line cl = tb_curr_line(&cp);
-        set_row_colours(ed, &cl, state_at_row(ed, tb, scr->topY_));
+        ed->synTopLine_ = 0;    // the view moved up; every row moved with it
         scr_scroll_down_split(scr, scr->topY_, scr->bottomY_-1,
                               cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
@@ -1845,7 +1940,7 @@ void cmd_down(editor* ed) {
          * out again costs one per row, which is what holding the arrow key
          * down used to pay for every line.
          */
-        set_row_colours(ed, &cl, rows_shifted_up(ed, &cp, scr->topY_, -1));
+        (void) rows_shifted_up(ed, &cp, scr->topY_, -1);
         if (ed->synTopLine_ != 0) {
             ed->synTopLine_++;      // the top row shows the line below it now
         }

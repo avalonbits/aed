@@ -65,14 +65,14 @@ void cmd_open(editor* ed);
 void cmd_repaint_rows(editor* ed, char fromY, char toY);
 
 /*
- * Works out what colour the cell under the cursor belongs in and tells the
- * screen, so that moving off it puts the token's colour back rather than the
- * document's.
+ * Gives the screen somewhere to ask about colour. Called once, at startup.
  *
- * Called once per command, after it has run. One lex of one row, and nothing
- * at all when the document has no grammar.
+ * Everything that paints a row then gets its colouring without knowing there
+ * is such a thing, which is the difference between this and handing it over at
+ * each paint: a path that has never heard of syntax highlighting is coloured,
+ * and a new one is coloured the day it is written.
  */
-void cmd_sync_cursor_colour(editor* ed);
+void ed_attach_colourer(editor* ed);
 
 // Repaints one row, but only document columns [from_col, to_col). Used when a
 // selection grows or shrinks within a row: the columns either side of the

@@ -85,6 +85,9 @@ static void setup(editor* ed, int bg) {
     if (!tb_init(&ed->buf_, 4, NULL)) {
         fprintf(stderr, "tb_init failed\n");
     }
+    // ed_init does this for a real editor. Without it the screen has nobody to
+    // ask and paints everything in the document's own colours.
+    ed_attach_colourer(ed);
 }
 
 /* Gives the buffer a name and a document, the way opening a file does. */
@@ -131,6 +134,17 @@ static int column_of_colour(const char* b, int n, int c) {
     }
 
     return -1;
+}
+
+static int asked = 0;
+
+static int count_asks(void* ctx, char ypos, const char* pre, int presz,
+                      const char* suf, int sufsz, const tok_run** runs) {
+    (void) ctx; (void) ypos; (void) pre; (void) presz;
+    (void) suf; (void) sufsz; (void) runs;
+    asked++;
+
+    return 0;
 }
 
 static long mark = 0;
@@ -532,13 +546,14 @@ int main(void) {
     /* --- the cursor puts back the colour it stood on --- */
     {
         /*
-         * Reported with the tab bug: moving the cursor along a line rubbed the
-         * colouring out a character at a time. scr_hide_cursor_ch puts the
-         * character back when the cursor moves off it, and it used the
-         * document's own foreground to do it.
+         * Moving the cursor off a cell means putting back what was there, and
+         * what was there may be part of a token. The screen asks for that
+         * colour at the moment it needs it, so it describes where the cursor
+         * is rather than where it was when something last thought to say.
          *
-         * The editor works out what the cell belongs in after every command,
-         * while the cursor is still on it, so the next command has it to hand.
+         * An earlier version was told the colour once per command, which was
+         * right until anything moved -- and wrong on the very first key, when
+         * nothing had told it yet.
          */
         files();
         setup(&ed, 0);
@@ -547,40 +562,36 @@ int main(void) {
         tb_home(&ed.buf_);
         ed.scr_.currY_ = 1;
 
-        cmd_sync_cursor_colour(&ed);
-        check("the cursor standing on a type knows its colour",
-              ed.scr_.cellFg_, 14);
-
-        /*
-         * Knowing it is half of it. This is the half a user sees: the cell the
-         * cursor moves off has to be written back in that colour, and it was
-         * being written back in the document's.
-         */
         stub_emit_colours(1);
         cap_start();
         scr_hide_cursor_ch(&ed.scr_, 'i');
         int nc = cap_read(cap, (int) sizeof(cap));
-        check("  and moving off it puts that colour back",
+        check("the cursor standing on a type puts that colour back",
               has_colour(cap, nc, 14), 1);
-        check("    rather than the document's own",
-              has_colour(cap, nc, 15), 0);
-        stub_emit_colours(0);
+        check("  rather than the document's own", has_colour(cap, nc, 15), 0);
 
         /* Off the end of the token, where the theme says nothing. */
         for (int i = 0; i < 4; i++) {
             cmd_right(&ed);
         }
-        cmd_sync_cursor_colour(&ed);
-        check("  and standing on plain text asks for none",
-              ed.scr_.cellFg_, -1);
+        cap_start();
+        scr_hide_cursor_ch(&ed.scr_, ';');
+        nc = cap_read(cap, (int) sizeof(cap));
+        check("  and on plain text puts the document's own back",
+              has_colour(cap, nc, 14), 0);
+        stub_emit_colours(0);
         tb_destroy(&ed.buf_);
 
         setup(&ed, 0);
         named(&ed, "/cursor.txt");
         ed_pick_syntax(&ed);
-        cmd_sync_cursor_colour(&ed);
-        check("  a document with no grammar always asks for none",
-              ed.scr_.cellFg_, -1);
+        stub_emit_colours(1);
+        cap_start();
+        scr_hide_cursor_ch(&ed.scr_, 'i');
+        nc = cap_read(cap, (int) sizeof(cap));
+        check("  a document with no grammar asks for no colour",
+              has_colour(cap, nc, 14), 0);
+        stub_emit_colours(0);
         tb_destroy(&ed.buf_);
     }
 
@@ -875,36 +886,99 @@ int main(void) {
         static editor e3;
         check("an editor opens the file", ed_init(&e3, 8, "/inc.c") != NULL, 1);
         check("  with a grammar", e3.syn_.loaded ? 1 : 0, 1);
-        check("  and the cursor knows the colour of the cell it is on",
-              e3.scr_.cellFg_, theme_colour(&e3.theme_, TOK_TYPE));
-        check("    which is a colour rather than the document's own",
-              e3.scr_.cellFg_ >= 0 ? 1 : 0, 1);
+        stub_emit_colours(1);
+        cap_start();
+        scr_hide_cursor_ch(&e3.scr_, 'i');
+        const int ni = cap_read(cap, (int) sizeof(cap));
+        check("  and the cursor puts the cell's own colour back",
+              has_colour(cap, ni, theme_colour(&e3.theme_, TOK_TYPE)), 1);
+        stub_emit_colours(0);
         ed_destroy(&e3);
     }
 
-    /* --- a row's colouring does not outlive the row --- */
+    /* --- backspacing up to a line leaves it coloured --- */
     {
         /*
-         * Every paint that wants colour sets its own runs first. The ones that
-         * do not -- a cell repainted after a sideways scroll, a row blanked
-         * past the end of the document -- must get none rather than whatever
-         * the row before them was painted with, which would put one line's
-         * comment colour on another line's text.
+         * Reported from a real session: holding backspace until the cursor
+         * reached `int main(void) {` left the `i` of int uncoloured.
          *
-         * Dropping them in scr_paint_span is what makes that true by
-         * construction instead of by every caller remembering.
+         * The sequence matters. Backspace inside a line repaints that row;
+         * backspace at the start of one joins it to the line above and scrolls
+         * the rows under it; and in between, the cursor sits on cells and
+         * moves off them again. Each of those used to be a separate place that
+         * had to remember about colour, and this walks through all of them.
          */
         files();
         setup(&ed, 0);
-        static tok_run runs[2];
-        runs[0].end = 3;
-        runs[0].cls = TOK_COMMENT;
-        scr_set_row_tokens(&ed.scr_, runs, 1);
-        check("a row is given its colouring", ed.scr_.nruns_, 1);
+        stub_emit_colours(1);
+        static const char BK[] =
+            "int main(void) {\r\nxy\r\nint b;\r\nint c;\r\nint d;\r\n";
+        stub_file_add("/bk.c", BK, (int) sizeof(BK) - 1);
+        tb_load(&ed.buf_, "/bk.c");
+        ed_pick_syntax(&ed);
+        ed.scr_.bottomY_ = 6;
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
+
+        /* Down to the short line, to its end, and backspace off the end of it
+         * and onto the line above. */
+        cmd_down(&ed);
+        cmd_end(&ed);
+        for (int i = 0; i < 3; i++) {
+            cmd_bksp(&ed);
+        }
+        check("backspacing lands on the line above", tb_ypos(&ed.buf_), 1);
+
+        cap_start();
+        cmd_repaint_rows(&ed, 1, 1);
+        const int nb = cap_read(cap, (int) sizeof(cap));
+        check("  and its first character is still a type",
+              column_of_colour(cap, nb, 14), 0);
+        stub_emit_colours(0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- the screen asks, rather than being told --- */
+    {
+        /*
+         * The property the whole arrangement rests on, and the one worth a
+         * test of its own: a path that paints a row gets that row's colouring
+         * without knowing there is such a thing.
+         *
+         * It was the other way round, and every bug reported against syntax
+         * highlighting was a paint that had not been told -- typing, scrolling
+         * off the bottom, return in front of a line, the cell the cursor left.
+         * Each was found by a user rather than by the suite, because a paint
+         * that forgets looks exactly like a document with no grammar.
+         *
+         * A counting answerer here, so the check is that the question is asked
+         * at all rather than what the answer was.
+         */
+        files();
+        setup(&ed, 0);
+        asked = 0;
+        scr_set_colourer(&ed.scr_, count_asks, NULL, NULL);
+        scr_set_theme(&ed.scr_, &ed.theme_);
+
         scr_paint_row(&ed.scr_, 1, "abc", 3, NULL, 0);
-        check("  and it is gone once the row is painted",
+        check("painting a row asks what colours it", asked, 1);
+
+        scr_write_line(&ed.scr_, 2, "abc", 3);
+        check("  and so does writing one", asked, 2);
+
+        scr_write_line_sel(&ed.scr_, 3, "abc", 3, 0, 0);
+        check("    and writing one with a selection", asked, 3);
+
+        scr_write_line(&ed.scr_, 4, NULL, 0);
+        check("      and blanking one", asked, 4);
+
+        /* And with nobody to ask, a row paints plainly rather than wrongly. */
+        scr_set_colourer(&ed.scr_, NULL, NULL, NULL);
+        scr_paint_row(&ed.scr_, 1, "abc", 3, NULL, 0);
+        check("  with nobody to ask it paints plainly",
               ed.scr_.runs_ == NULL ? 1 : 0, 1);
-        check("    so the next row inherits none", ed.scr_.nruns_, 0);
+        tb_destroy(&ed.buf_);
     }
 
     if (failures > 0) {

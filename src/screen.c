@@ -338,7 +338,9 @@ screen *scr_init(screen* scr, char cursor) {
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
     scr->theme_ = NULL;
-    scr->cellFg_ = -1;
+    scr->colour_ = NULL;
+    scr->cellColour_ = NULL;
+    scr->colourCtx_ = NULL;
     scr->runs_ = NULL;
     scr->nruns_ = 0;
     scr->runAt_ = 0;
@@ -1030,18 +1032,26 @@ void scr_clear(screen* scr) {
     scr_tab(scr, scr->currX_, scr->currY_);
 }
 
-void scr_set_cursor_colour(screen* scr, char fg) {
-    scr->cellFg_ = (fg >= 0 && fg < scr->colors_) ? fg : -1;
-}
-
 void scr_hide_cursor_ch(screen* scr, char ch) {
     ch = cursor_glyph(scr, ch);
     out_flush();
 
+    /*
+     * What the cell belongs in rather than what the document is drawn in: the
+     * cursor puts a token's colour back when it moves off one. Asked now, so
+     * it describes where the cursor is rather than where it was when somebody
+     * last remembered to work it out.
+     */
+    char fg = scr->fg_;
+    if (scr->theme_ != NULL && scr->cellColour_ != NULL) {
+        const char c = scr->cellColour_(scr->colourCtx_);
+        if (c >= 0 && c < scr->colors_) {
+            fg = c;
+        }
+    }
+
     char vdu[6];
-    // What the cell belongs in rather than what the document is drawn in: the
-    // cursor puts back a token's colour when it moves off one.
-    vdu[1] = scr->cellFg_ >= 0 ? scr->cellFg_ : scr->fg_;
+    vdu[1] = fg;
     vdu[0] = 17;
     vdu[2] = 17;
     vdu[3] = (char) (scr->bg_ + 128);
@@ -1251,10 +1261,11 @@ void scr_set_theme(screen* scr, const theme* t) {
     scr->theme_ = t;
 }
 
-void scr_set_row_tokens(screen* scr, const tok_run* runs, int n) {
-    scr->runs_ = runs;
-    scr->nruns_ = n;
-    scr->runAt_ = 0;
+void scr_set_colourer(screen* scr, scr_colourer rows, scr_cell_colourer cell,
+                      void* ctx) {
+    scr->colour_ = rows;
+    scr->cellColour_ = cell;
+    scr->colourCtx_ = ctx;
 }
 
 static int emit_span(screen* scr, const char* buf, int sz, int col,
@@ -1291,6 +1302,22 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         return;
     }
 
+    /*
+     * The row's colouring, asked for here so that every path that paints a row
+     * gets one without having to know it should.
+     */
+    scr->runs_ = NULL;
+    scr->nruns_ = 0;
+    if (scr->theme_ != NULL && scr->colour_ != NULL) {
+        const tok_run* runs = NULL;
+        const int n = scr->colour_(scr->colourCtx_, ypos, pre, presz,
+                                   suf, sufsz, &runs);
+        if (n > 0 && runs != NULL) {
+            scr->runs_ = runs;
+            scr->nruns_ = n;
+        }
+    }
+
     scr_tab(scr, from - scr->originX_, ypos);
     // The document's own pair is what is set coming in, which is the same
     // assumption the selection flag used to make.
@@ -1324,12 +1351,7 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         scr->curFg_ = scr->fg_;
         scr->curBg_ = scr->bg_;
     }
-    /*
-     * The runs belonged to this row. Dropping them is what makes the promise in
-     * screen.h true -- a paint that does not set its own colouring gets none,
-     * rather than the colouring of whichever row was painted before it, which
-     * would put one line's comments on another line's text.
-     */
+    // The runs belonged to this row, and the next row asks for its own.
     scr->runs_ = NULL;
     scr->nruns_ = 0;
     scr->runAt_ = 0;
