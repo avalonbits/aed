@@ -48,6 +48,16 @@ three bytes here. So a document costs **279,364 bytes**, where the 256 suggests
 | filename, scratch paths | 836 |
 | **one open document** | **279,364** |
 
+One slot per 32 bytes is a line of 32 bytes, and **whichever runs out first
+bounds the window**. At the shipped 256 that is 8,192 lines against 253,952
+bytes, so a document averaging under 31 bytes a line fills the index with the
+buffer still part empty — a file of short rows, or an indented one seen through
+a narrow window. Paging then moves a window the size the *index* allows, which
+can be a small fraction of the buffer, and every number below has to hold there
+as well. It did not: settling compared each side against a 16 KiB margin, which
+a window of 15,350 bytes can never satisfy on both sides at once. See section 4
+of [`DESIGN.md`](DESIGN.md).
+
 ## 2. The heap
 
 From `bin/aed.map`:
