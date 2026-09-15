@@ -42,12 +42,17 @@ typedef int (*scr_colourer)(void* ctx, char ypos, const char* pre, int presz,
                             const char* suf, int sufsz, const tok_run** runs);
 
 /*
- * What colour the cell under the cursor belongs in, or -1 for the document's
- * own. Asked when the cursor moves off a cell and that cell has to be put
- * back, for the same reason: pushing it in advance meant it was right only
- * for as long as nothing moved.
+ * What colour one cell belongs in, or -1 for the document's own. Asked when
+ * the cursor moves off a cell and that cell has to be put back.
+ *
+ * The cell is named rather than left to be inferred. By the time the screen
+ * restores it the document's cursor has already moved -- `tb_prev` runs before
+ * any of this -- so "the cell under the cursor" means the one being arrived
+ * at, not the one being left. Answering for that put the arriving character's
+ * colour on the leaving character, which showed as letters losing their colour
+ * and getting it back as the cursor crossed a token.
  */
-typedef char (*scr_cell_colourer)(void* ctx);
+typedef char (*scr_cell_colourer)(void* ctx, char ypos, int col);
 
 typedef struct _screen {
     // Wider than a char on purpose. Mode 19 is 1024x768, which MOS reports as

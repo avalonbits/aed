@@ -546,14 +546,18 @@ int main(void) {
     /* --- the cursor puts back the colour it stood on --- */
     {
         /*
-         * Moving the cursor off a cell means putting back what was there, and
-         * what was there may be part of a token. The screen asks for that
-         * colour at the moment it needs it, so it describes where the cursor
-         * is rather than where it was when something last thought to say.
+         * Reported twice, and the second time was the interesting one: moving
+         * the cursor along a line left letters discoloured and then coloured
+         * again as it went.
          *
-         * An earlier version was told the colour once per command, which was
-         * right until anything moved -- and wrong on the very first key, when
-         * nothing had told it yet.
+         * The cell being put back is the one the cursor is leaving, and by the
+         * time the screen puts it back the document's cursor has already moved
+         * -- tb_prev runs first. Answering for "the cell under the cursor"
+         * therefore answered for the cell being arrived at, which is the same
+         * colour inside a token and the wrong one at either end of it.
+         *
+         * `int x;`, with the cursor stepping right off the `t` and onto the
+         * space. The cell left behind is a type; the one arrived at is not.
          */
         files();
         setup(&ed, 0);
@@ -561,33 +565,37 @@ int main(void) {
         ed_pick_syntax(&ed);
         tb_home(&ed.buf_);
         ed.scr_.currY_ = 1;
+        cmd_show(&ed);                  /* which is what fills the model in */
+
+        cmd_right(&ed);
+        cmd_right(&ed);                 /* on the `t`, the last of the type */
 
         stub_emit_colours(1);
         cap_start();
-        scr_hide_cursor_ch(&ed.scr_, 'i');
+        cmd_right(&ed);                 /* off it, onto the space */
         int nc = cap_read(cap, (int) sizeof(cap));
-        check("the cursor standing on a type puts that colour back",
+        check("stepping off a type puts the type's colour back",
               has_colour(cap, nc, 14), 1);
-        check("  rather than the document's own", has_colour(cap, nc, 15), 0);
 
-        /* Off the end of the token, where the theme says nothing. */
-        for (int i = 0; i < 4; i++) {
-            cmd_right(&ed);
-        }
+        /* And stepping off the space does not claim it was one. */
         cap_start();
-        scr_hide_cursor_ch(&ed.scr_, ';');
+        cmd_right(&ed);
         nc = cap_read(cap, (int) sizeof(cap));
-        check("  and on plain text puts the document's own back",
+        check("  and stepping off plain text does not",
               has_colour(cap, nc, 14), 0);
         stub_emit_colours(0);
         tb_destroy(&ed.buf_);
 
+        files();
         setup(&ed, 0);
         named(&ed, "/cursor.txt");
         ed_pick_syntax(&ed);
+        tb_home(&ed.buf_);
+        ed.scr_.currY_ = 1;
+        cmd_show(&ed);
         stub_emit_colours(1);
         cap_start();
-        scr_hide_cursor_ch(&ed.scr_, 'i');
+        cmd_right(&ed);
         nc = cap_read(cap, (int) sizeof(cap));
         check("  a document with no grammar asks for no colour",
               has_colour(cap, nc, 14), 0);

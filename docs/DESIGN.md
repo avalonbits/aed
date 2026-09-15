@@ -343,7 +343,7 @@ expensive thing the editor can do. So it paints rows:
 [`cmd_repaint_rows()`](../src/cmd_ops.c#L755) takes a range, and most commands
 pass a single row.
 
-[`screen`](../src/screen.h#L52) derives its geometry from the font's cell size,
+[`screen`](../src/screen.h#L57) derives its geometry from the font's cell size,
 so a font of a different height changes the number of rows without anything else
 knowing. `scr_clear` moves the cursor's row to the top of the text area as a
 side effect, which has caused three separate bugs; it is more than paint.

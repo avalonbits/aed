@@ -198,33 +198,36 @@ static int row_leaves(editor* ed, const char* pre, int presz,
  * where the cursor is rather than where it was when something last thought to
  * say. -1 leaves the cell in the document's own colour.
  */
-static char ed_colour_cell(void* ctx) {
+static char ed_colour_cell(void* ctx, char ypos, int col) {
     editor* ed = (editor*) ctx;
-    if (!ed->syn_.loaded) {
+    SCR(ed);
+    if (!ed->syn_.loaded || ed->synTopLine_ == 0 || ypos < scr->topY_
+            || ypos >= scr->bottomY_ || ypos >= SCR_MAX_ROWS) {
         return -1;
     }
-    text_buffer* tb = &ed->buf_;
-    const split_line ln = tb_curr_line(tb);
-    const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
+
     /*
-     * Read from the model rather than asked of it. This runs in the middle of
-     * commands, while the cursor has moved and the view has not caught up, and
-     * a question at that moment can decide the whole screen is stale and work
-     * it out again -- against a view that is halfway through changing. The
-     * answer would be wrong and the model would keep it.
-     *
-     * Nothing else uses it, so the cost of being cold here is one cell drawn
-     * in the document's colour until the next paint fills the model in.
+     * The line shown on that row, found through the model rather than through
+     * the cursor. The cursor has already moved by the time a cell is put back,
+     * so asking it which line this is gives the line being arrived at.
      */
-    const int in = (ed->synTopLine_ != 0 && ed->scr_.currY_ < SCR_MAX_ROWS)
-                 ? ed->rowSyn_[ed->scr_.currY_] : SYN_STATE_NONE;
+    static text_buffer cp;
+    tb_copy(&cp, &ed->buf_);
+    tb_pos p;
+    p.line = ed->synTopLine_ + (ypos - scr->topY_);
+    p.x = 0;
+    tb_seek(&cp, p);
+    const split_line ln = tb_curr_line(&cp);
+    const int len = row_bytes(&ln, synRow_, SYN_ROW_MAX);
+
+    // The column counts screen cells and a run ends at a byte, which a tab
+    // makes two different things.
+    const int at = scr_byte_at(scr, synRow_, len, col);
     int out = SYN_STATE_NONE;
-    const int n = syn_lex(&ed->syn_, synRow_, len, in, &out,
+    const int n = syn_lex(&ed->syn_, synRow_, len, ed->rowSyn_[ypos], &out,
                           synRuns_, SYN_ROW_RUNS);
-    // tb_curr_line splits the cursor's row at the cursor, so the prefix is how
-    // many bytes into the line it is.
     for (int i = 0; i < n; i++) {
-        if (ln.psz_ < synRuns_[i].end) {
+        if (at < synRuns_[i].end) {
             return theme_colour(&ed->theme_, (tok_class) synRuns_[i].cls);
         }
     }

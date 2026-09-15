@@ -1044,7 +1044,10 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
      */
     char fg = scr->fg_;
     if (scr->theme_ != NULL && scr->cellColour_ != NULL) {
-        const char c = scr->cellColour_(scr->colourCtx_);
+        // This cell: the screen has not moved yet, so currX_ and currY_ still
+        // name the one being put back.
+        const char c = scr->cellColour_(scr->colourCtx_, scr->currY_,
+                                        scr->originX_ + scr->currX_);
         if (c >= 0 && c < scr->colors_) {
             fg = c;
         }
