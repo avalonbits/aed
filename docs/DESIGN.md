@@ -286,6 +286,11 @@ of the buffer kept free, the chunk and the margin — was picked against a
 measurement. `.internal/docs/SIZING.md` has the sweep they came out of, what
 each one is protecting, and what a second open document would cost.
 
+[`PAGING.md`](PAGING.md) is the whole of it: each direction of a slide and the
+asymmetries that are not obvious, the four invariants a slide must not break
+with the bug that found each, why the line index bounds the window before the
+buffer does, and where every limit comes from.
+
 ### 4a. What makes a file too large
 
 Its longest line, rather than its size: a slide moves whole lines, so a line
