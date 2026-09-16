@@ -521,6 +521,78 @@ int main(void) {
         check("  with its colours", theme_colour(&fat, TOK_COMMENT), 8);
     }
 
+    /* --- the manual's first example, read out of the manual --- */
+    {
+        /*
+         * docs/THEMES.md opens by telling a reader to save a particular file
+         * and promising their .c is coloured. Read out of the document rather
+         * than copied here, so that editing the manual's code block and
+         * breaking it fails this test -- the example and the test are the same
+         * bytes and cannot drift apart.
+         */
+        static char doc[65536];
+        int n = 0;
+        {
+            FILE* f = fopen("docs/THEMES.md", "rb");
+            if (f == NULL) {
+                fprintf(stderr, "FAIL  cannot open docs/THEMES.md\n");
+
+                return 1;
+            }
+            n = (int) fread(doc, 1, sizeof(doc) - 1, f);
+            fclose(f);
+            doc[n] = 0;
+        }
+
+        static char example[1024];
+        int elen = 0;
+        {
+            const char* at = strstr(doc, "## 1. The shortest theme that works");
+            check("the theme manual has its first example", at != NULL ? 1 : 0, 1);
+            const char* open = at != NULL ? strstr(at, "```ini\n") : NULL;
+            check("  in a fenced block", open != NULL ? 1 : 0, 1);
+            if (open != NULL) {
+                open += 7;
+                const char* close = strstr(open, "\n```");
+                check("    that is closed", close != NULL ? 1 : 0, 1);
+                if (close != NULL) {
+                    elen = (int) (close - open) + 1;
+                    if (elen > (int) sizeof(example) - 1) {
+                        elen = (int) sizeof(example) - 1;
+                    }
+                    memcpy(example, open, (size_t) elen);
+                    example[elen] = 0;
+                }
+            }
+        }
+
+        theme t;
+        theme_clear(&t);
+        stub_file_reset();
+        stub_file_add("/mine.cfg", example, elen);
+        check("  and it loads", theme_load(&t, "/mine.cfg") ? 1 : 0, 1);
+        check("    under the name the manual gives",
+              strcmp(t.name, "mine") == 0 ? 1 : 0, 1);
+        check("    covering the background it says it does",
+              theme_covers(&t, 0) ? 1 : 0, 1);
+        check("      and not one it does not",
+              theme_covers(&t, 7) ? 1 : 0, 0);
+
+        /* The three colours it sets, and the rule for the ones it does not:
+         * with no `text` line, a class the theme is silent about is left in the
+         * document's own colour. The manual says so in section 4. */
+        check("    the comment colour it names", theme_colour(&t, TOK_COMMENT), 8);
+        check("      the string colour", theme_colour(&t, TOK_STRING), 10);
+        check("      and the keyword colour", theme_colour(&t, TOK_KEYWORD), 14);
+        check("    a class it says nothing about is left alone",
+              theme_colour(&t, TOK_NUMBER), -1);
+
+        /* And it moves no pair, which is what the manual promises in section 6:
+         * a theme that sets neither leaves the reader's colours where they are. */
+        check("    and it moves neither half of the pair", t.fg, -1);
+        check("      nor the other", t.bg, -1);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
