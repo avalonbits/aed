@@ -55,18 +55,6 @@ tok_class syn_class_of(const char* scope, int len);
 const char* syn_class_name(tok_class c);
 
 /*
- * A theme: one colour per class, and the pair the document is drawn on.
- *
- * A theme is keyed to the background it was designed against, because a colour
- * that reads well on black is unreadable on white. `covers` is the list of
- * background indices its author says it suits; AED picks the first theme that
- * covers the background in force.
- *
- * fg and bg are what the theme wants the document drawn in, and they move the
- * screen's *active* pair only -- see scr_theme_scheme. The pair the user chose
- * is never touched by a theme.
- */
-/*
  * A row's colouring, as runs. Run i covers the columns from where run i-1 ended
  * up to `end`, so a row is a handful of these rather than a colour per column.
  * That is also the shape the painting wants: it walks columns upwards and only
@@ -80,6 +68,18 @@ typedef struct _tok_run {
 #define THEME_MAX_COVERS 16
 #define THEME_NAME_MAX   16
 
+/*
+ * A theme: one colour per class, and the pair the document is drawn on.
+ *
+ * A theme is keyed to the background it was designed against, because a colour
+ * that reads well on black is unreadable on white. `covers` is the list of
+ * background indices its author says it suits; AED picks the first theme that
+ * covers the background in force.
+ *
+ * fg and bg are what the theme wants the document drawn in, and they move the
+ * screen's *active* pair only -- see scr_theme_scheme. The pair the user chose
+ * is never touched by a theme.
+ */
 typedef struct _theme {
     char name[THEME_NAME_MAX];
     char colour[TOK_N];             // a colour index per class
