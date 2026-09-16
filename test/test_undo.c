@@ -169,21 +169,6 @@ static void put_str(text_buffer* tb, const char* s) {
 }
 
 
-/* The document's first line, compared against `want` for `n` bytes. */
-static int line_is(text_buffer* tb, const char* want, int n) {
-    tb_pos top = { 1, 0 };
-    tb_seek(tb, top);
-    const split_line ln = tb_curr_line(tb);
-    const char* got = ln.ssz_ > 0 ? ln.suffix_ : NULL;
-    if (ln.psz_ > 0) {
-        got = ln.prefix_;       /* the cursor sits inside the line */
-    }
-
-    return ln.psz_ + ln.ssz_ == n && got != NULL
-           && memcmp(got, want, (size_t) (n < ln.psz_ ? n : ln.psz_)) == 0;
-}
-
-static void check_silent(bool ok) { (void) ok; }
 
 int main(void) {
     stub_discard_output();

@@ -1399,7 +1399,6 @@ static void restore_after_modal(editor* ed, bool moved) {
 void cmd_help(editor* ed) {
     SCR(ed);
     UI(ed);
-    TB(ed);
 
     ui_help(ui, scr);
 

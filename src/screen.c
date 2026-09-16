@@ -393,9 +393,13 @@ screen *scr_init(screen* scr, char cursor) {
 // frame of it is a frame added to startup on a VDP that has not.
 #define FONT_PROBE_FRAMES 20
 
-// VDU 23, 0, &95, 0, 65535; 0 -- select font 65535, the system font. It is the
-// whole of the undo for a font change, which is why the font API was taken over
-// reprogramming the system font with VDU 23,n: that has no way back at all.
+// VDU 23, 0, &95, 0, 65535; 0 -- select font 65535, the system font. Being able
+// to select a font back is the whole of the undo for a font change, which is why
+// the font API was taken over reprogramming the system font with VDU 23,n: that
+// has no way back at all.
+//
+// The starting point rather than the answer: scr_system_font patches the font
+// number in bytes 4 and 5 when the machine booted into one of its own.
 static const char SYSTEM_FONT[7] = {23, 0, (char) 0x95, 0,
                                     (char) 0xFF, (char) 0xFF, 0};
 
@@ -532,7 +536,8 @@ void scr_system_font(screen* scr) {
     // selected if it selected one. Selecting 65535 would be right only for a
     // machine that started in the stock font, and wrong for every other -- it
     // does not restore, it overrides.
-    char sel[7] = {23, 0, (char) 0x95, 0, (char) 0xFF, (char) 0xFF, 0};
+    char sel[sizeof(SYSTEM_FONT)];
+    memcpy(sel, SYSTEM_FONT, sizeof(sel));
     if (scr->bootFont_ >= 0) {
         sel[4] = (char) (scr->bootFont_ & 0xFF);
         sel[5] = (char) ((scr->bootFont_ >> 8) & 0xFF);

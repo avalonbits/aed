@@ -2227,6 +2227,8 @@ int main(void) {
          * Long enough to need several windows, and walked a line at a time
          * because that is how anyone meets it.
          */
+        #undef SHORT_LEN
+        #undef SHORT_LINES
         #define SHORT_LEN   10          /* eight characters and a CRLF */
         #define SHORT_LINES 8000
         static char SHORT[SHORT_LINES * SHORT_LEN + 1];
