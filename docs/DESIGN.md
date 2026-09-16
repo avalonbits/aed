@@ -110,10 +110,10 @@ flowchart TD
 
 [`main()`](../src/main.c#L25) ·
 [`ed_init()`](../src/editor.c#L220) ·
-[`ed_run()`](../src/editor.c#L520) ·
-[`read_input()`](../src/editor.c#L751) ·
-[`ctrlCmds()`](../src/editor.c#L643) ·
-[`editCmds()`](../src/editor.c#L702) ·
+[`ed_run()`](../src/editor.c#L536) ·
+[`read_input()`](../src/editor.c#L771) ·
+[`ctrlCmds()`](../src/editor.c#L627) ·
+[`editCmds()`](../src/editor.c#L722) ·
 [`ed_selection_for()`](../src/editor.c#L408) ·
 [`cmd_repaint_rows()`](../src/cmd_ops.c#L698)
 
@@ -146,8 +146,8 @@ either side, which is why the host tests drive whole commands as well as the
 model.
 
 A key becomes a command in one of two tables —
-[`ctrlCmds()`](../src/editor.c#L643) for a key with CTRL held,
-[`editCmds()`](../src/editor.c#L702) for one without — and both are exported so
+[`ctrlCmds()`](../src/editor.c#L627) for a key with CTRL held,
+[`editCmds()`](../src/editor.c#L722) for one without — and both are exported so
 a test can assert a binding. **A command nothing can reach is not a feature; a
 command that is reachable and does the wrong thing is worse.**
 
@@ -452,7 +452,7 @@ dropping the machine to the stock 8x8.
 |---|---|
 | [`test/run.sh`](../test/run.sh) | the host suite: the real `src/*.c` against stub Agon headers, natively, under ASan and UBSan |
 | [`test/frames.sh`](../test/frames.sh) | stack frames against the `(IX+d)` limit, read from the generated assembly |
-| [`test/docs.sh`](../test/docs.sh) | that these documents still point at what they name, including the `#L` links into the sources |
+| [`test/docs.sh`](../test/docs.sh) | that these documents still point at what they name, including the `#L` links into the sources. `--fix` repoints them |
 | [`test/fonts.sh`](../test/fonts.sh) | the shipped fonts, whose height is their file size |
 | [`test/build_deps.sh`](../test/build_deps.sh) | that the build tracks header dependencies |
 | [`test/bench/`](../test/bench/) | the CPU-bound paths, on the emulator at the real clock |
@@ -492,8 +492,8 @@ Four things learned the hard way:
 * **Something on the document** goes in the `text_buffer_*.c` whose job it is,
   and anything two of them need goes in `text_buffer_int.h` with a `tbi_` name.
 * **A command** needs a function in `cmd_ops.c`, a declaration in `cmd_ops.h`, a
-  case in [`ctrlCmds()`](../src/editor.c#L643) or
-  [`editCmds()`](../src/editor.c#L702), a row in the help table in
+  case in [`ctrlCmds()`](../src/editor.c#L627) or
+  [`editCmds()`](../src/editor.c#L722), a row in the help table in
   `user_input.c`, a line in the README, and a test that goes through the *table*
   and the loop rather than calling the function.
 * **If it moves the cursor**, it seeks. Stepping is for moving by one.
@@ -503,3 +503,9 @@ Four things learned the hard way:
   [`owns_selection()`](../src/editor.c#L393), or the loop will take the
   selection away before the command runs.
 * **Anything on a hot path** is measured on the emulator before and after.
+* **If it moves code any document links to**, run `./test/docs.sh --fix`. A
+  `#L` link rots whenever anything above it moves, which is most commits, and
+  the number is derived from the symbol the link names -- so it is the tool's to
+  maintain rather than yours. What `--fix` will not do is guess: a link naming
+  something that has been renamed or deleted fails, because only a person knows
+  what was meant.

@@ -12,11 +12,16 @@
 # is what makes it worth a test: docs/DESIGN.md links into the sources by line,
 # and three of those had already drifted by the time it was first committed.
 #
-# A deep link is checked for pointing at something that looks like a definition
-# rather than at the exact right one -- a blank line, a closing brace or a
-# comment body means it has certainly drifted. Landing on the wrong function is
-# beyond this, and reading the line in the failure message is how that gets
-# caught.
+# A deep link is checked against the symbol it names. Every one of them is
+# written [`thing`](../src/file.c#L123), so the link says what it is pointing at
+# and the check can find where that actually is. Landing on the wrong function
+# used to be beyond this -- four links in DESIGN.md had drifted onto a `case`
+# label, a `break;` and a different function, and all four passed a check that
+# only asked whether the line looked like code.
+#
+# `./test/docs.sh --fix` rewrites the line numbers instead of reporting them,
+# which is the point: a deep link rots whenever anything above it moves, so the
+# repair has to cost less than the rot or the links get deleted instead.
 #
 # Needs python3. Skipped, not failed, without it.
 set -uo pipefail
@@ -28,10 +33,12 @@ if ! command -v python3 >/dev/null; then
     exit 0
 fi
 
-python3 - <<'PY'
+python3 - "$@" <<'PY'
 import os
 import re
 import sys
+
+FIX = '--fix' in sys.argv[1:]
 
 # Everything the repo ships. .internal is gitignored notes and not part of it.
 docs = []
@@ -54,15 +61,82 @@ def slug(heading):
     return re.sub(r'[^a-z0-9 _-]', '', heading.lower()).replace(' ', '-')
 
 
+def find_def(path, sym):
+    """Where `sym` is defined in `path`, 1-based, or None.
+
+    Four shapes, because four are what the sources hold: a macro, a struct
+    typedef, a function definition at column 0, and a struct member. A
+    declaration is skipped -- it ends in a semicolon, and a reader following a
+    link wants the code rather than the promise of it."""
+    name = sym.rstrip('()')
+    if not re.fullmatch(r'\w+', name):
+        return None
+    src = open(path, encoding='utf-8', errors='replace').read().split('\n')
+    q = re.escape(name)
+
+    for i, l in enumerate(src):
+        if re.match(r'^#\s*define\s+' + q + r'\b', l):
+            return i + 1
+    for i, l in enumerate(src):
+        if re.match(r'^typedef\s+struct\s+_?' + q + r'\s*\{', l):
+            return i + 1
+    for i, l in enumerate(src):
+        if (re.match(r'^[A-Za-z_][^;=]*\b' + q + r'\s*\(', l)
+                and not l.rstrip().endswith(';')):
+            return i + 1
+    for i, l in enumerate(src):
+        if re.match(r'^\s+[A-Za-z_][\w \*]*\b' + q + r'\s*[;\[:]', l):
+            return i + 1
+
+    return None
+
+
+# Every deep link, by the symbol its text names: [`thing`](path#L12).
+DEEP = re.compile(r'\[`([^`]+)`\]\((?!https?:|#)([^)#]+)#L(\d+)\)')
+
 anchors = 0
 paths = 0
 deep = 0
 bad = []
+fixed = []
 
 for doc in docs:
     text = open(doc, encoding='utf-8').read()
     here = os.path.dirname(doc) or '.'
     headings = {slug(h) for h in re.findall(r'^#+ (.+)$', text, re.M)}
+
+    # The strong check: a link whose text names a symbol must point at where
+    # that symbol is. Rewritten in place under --fix, because the number is
+    # derived and a derived number should not be maintained by hand.
+    def repoint(m):
+        sym, rel, at = m.group(1), m.group(2), int(m.group(3))
+        full = os.path.normpath(os.path.join(here, rel))
+        if not os.path.exists(full):
+            return m.group(0)       # the path check below reports this
+        want = find_def(full, sym)
+        if want is None:
+            # The symbol is not in the file any more, so the number cannot be
+            # right and cannot be worked out either. A rename or a deletion;
+            # both need a person.
+            bad.append(f'{doc}: {rel}#L{at} names {sym}, which is not in '
+                       f'{os.path.basename(rel)} at all')
+
+            return m.group(0)
+        if want == at:
+            return m.group(0)       # already right
+        if FIX:
+            fixed.append(f'{doc}: {rel}#L{at} -> #L{want}  ({sym})')
+
+            return f'[`{sym}`]({rel}#L{want})'
+        bad.append(f'{doc}: {rel}#L{at} is not where {sym} is '
+                   f'(it is at L{want})')
+
+        return m.group(0)
+
+    moved = DEEP.sub(repoint, text)
+    if FIX and moved != text:
+        open(doc, 'w', encoding='utf-8').write(moved)
+        text = moved
 
     for target in re.findall(r'\]\(#([^)]+)\)', text):
         anchors += 1
@@ -92,6 +166,14 @@ for doc in docs:
             bad.append(f'{doc}: {rel}#L{n} points at "{got[:40]}"')
 
 name = f'{len(docs)} documents, {anchors} anchors, {paths} paths, {deep} deep links'
+if FIX:
+    for f in fixed:
+        print(f'FIXED {"":<52} {f}')
+    print(f'      {"deep links repointed at what they name":<52} '
+          f'{len(fixed)} moved, {deep} checked')
+    # And then the ordinary report, because a repair that cannot be made is
+    # still a failure. Exiting 0 here would let --fix say success over a link
+    # naming something that no longer exists.
 if bad:
     for b in bad:
         print(f'FAIL  {"link rot":<52} {b}')
