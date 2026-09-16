@@ -1277,10 +1277,20 @@ void cmd_paste(editor* ed) {
         cmd_delete_selection(ed);
     }
 
-    // The pasted text is one thing the user did, however many lines it is.
-    // Note this is a second group: replacing a selection deletes it in its own
-    // group first, so an undo takes the paste back and another restores what it
-    // replaced -- two steps for two things, which is what happened.
+    /*
+     * The group keeps the paste from joining what was typed either side of it.
+     * It does *not* make the paste one record when the text holds a break: a
+     * record is one run on one line, so the text before the break is recorded
+     * on one line and the text after it on the next, and nothing can merge
+     * them. A paste costs one undo per line it contains, and undoing a
+     * two-line paste once leaves the first line of it pasted with an empty
+     * line under it -- a document that never existed. See the checks in
+     * test/test_clipboard.c, which pin that rather than wish it away.
+     *
+     * This is also a second group: replacing a selection deletes it in its own
+     * group first, so an undo takes the paste back and another restores what
+     * it replaced -- two steps for two things, which is what happened.
+     */
     undo_group_begin(&ed->undo_);
     const bool pasted = clip_paste(&ed->clip_, tb);
     undo_group_end(&ed->undo_);
