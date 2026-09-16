@@ -271,23 +271,25 @@ Three consequences fall out:
 
 ## 8. What it costs
 
-Measured on the emulator at the real clock, with a C file open:
+**Lexing a line of C costs about a millisecond and a half.** Every other number
+here follows from that one.
 
-| | |
-|---|---|
-| a return | 20 cs |
-| joining two lines | 64 cs |
-| scrolling a line | 36 cs |
-| a full repaint | 64 cs |
-| fifty keystrokes | 54 cs |
+Without a model, painting a row means lexing every row above it to find out what
+it is inside. On a half-screen cursor that is 28 rows, and it measured **45
+milliseconds a keystroke** on an Agon — which is the whole of why the model
+exists.
 
-and zero screen rebuilds, which is the number that matters: the arrangement this
-replaced rebuilt the model whenever it could not answer, and could not answer
-often.
+With it, an ordinary keystroke lexes **one line**: the row it changed. The rows
+below are repainted only when that row's answer moved, which is almost never,
+and a screen painted top to bottom chains the rest for free.
 
-Reading back is the expensive part — a line of C costs about a millisecond and a
-half to lex — which is why it is done once for a view and read back per row,
-rather than once per row painted.
+The expensive case is a jump, and it is bounded: at most `SYN_LOOKBACK` lines
+read back, once for the view rather than once per row painted. A grammar with
+nothing that crosses a line — every shipped grammar but C — pays none of it.
+
+The number worth watching is **screen rebuilds**, and it is zero. The
+arrangement this replaced rebuilt the model whenever it could not answer, and it
+could not answer often.
 
 ## 9. How it is checked
 
