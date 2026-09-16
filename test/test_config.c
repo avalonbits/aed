@@ -488,11 +488,11 @@ int main(void) {
      * DOWN to the colours row, RETURN to open it, UP to move the foreground on
      * by one, RETURN to accept, ESC to close the settings. */
     static const stub_key pick[] = {
-        { 0, VK_DOWN, 0 },
-        { 0, VK_RETURN, 0 },
-        { 0, VK_UP, 0 },
-        { 0, VK_RETURN, 0 },
-        { 27, VK_ESCAPE, 0 },
+        { .ch = 0,  .vk = VK_DOWN },
+        { .ch = 0,  .vk = VK_RETURN },
+        { .ch = 0,  .vk = VK_UP },
+        { .ch = 0,  .vk = VK_RETURN },
+        { .ch = 27, .vk = VK_ESCAPE },
     };
     static const char before_pick[] =
         "# keep me\r\n[editor]\r\ntab = 4\r\n"

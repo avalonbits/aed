@@ -81,19 +81,11 @@ static int row_bytes(const split_line* ln, char* buf, int max) {
 }
 
 /*
- * Hands the screen the colours for the row about to be painted, and returns
- * what that row leaves open for the row below it.
+ * The model: what each line begins inside, keyed by document line.
  *
- * With no grammar the screen is told to paint plainly, which is also what it
- * does for any paint that does not come through here -- scr_paint_span drops
- * the runs when it is done, so no row can inherit another's colouring.
+ * Declared here because resync_below below needs them and they are defined
+ * together further down, where the whole of the model reads as one piece.
  */
-/*
- * After an edit has repainted its own row, the rows below it may be inside
- * something different. Repaints them when they are, and leaves the screen
- * alone when they are not, which is almost always.
- */
-// What the row under `y` begins in, or 0 when there is no such row to ask about.
 static int line_state(editor* ed, int line);
 static void set_line_state(editor* ed, int line, int state);
 static void lines_moved(editor* ed, int line, int delta);
@@ -104,7 +96,8 @@ static void refill_lines(editor* ed, int line);
  * An edit changed what its line leaves open -- the second character of a
  * comment opener, or the character that closed one -- so everything under it
  * is inside something else now. Painting the line recorded the new answer;
- * this notices it moved and repaints the rest of the screen.
+ * this notices it moved and repaints the rest of the screen, and leaves the
+ * screen alone when it has not moved, which is almost always.
  */
 static void resync_below(editor* ed, char y, int was) {
     SCR(ed);
@@ -122,16 +115,21 @@ static void resync_below(editor* ed, char y, int was) {
 static int top_line(screen* scr, text_buffer* tb);
 
 /*
- * The screen asking what colours a row it is about to paint.
+ * The screen asking what colours a row it is about to paint, and being told
+ * what that row leaves open for the row below it.
  *
- * Everything the answer needs is the line's own state. The
- * text comes from the screen, because the screen has it in hand, and what the
- * row leaves goes into the row below -- so painting a screen top to bottom
- * chains the answers along without anybody keeping a running total.
+ * Everything the answer needs is the line's own state. The text comes from the
+ * screen, because the screen has it in hand, and what the row leaves goes into
+ * the row below -- so painting a screen top to bottom chains the answers along
+ * without anybody keeping a running total.
  *
- * This is the only place a row's colouring is worked out. It used to be
- * pushed, by each of a dozen paint sites, and the ones that forgot painted
- * plainly with nothing to say they had.
+ * This is the only place a row's colouring is worked out. It used to be pushed,
+ * by each of a dozen paint sites, and the ones that forgot painted plainly with
+ * nothing to say they had.
+ *
+ * Returning 0 is how a row is told to paint plainly, which is also what any
+ * paint that does not come through here does: scr_paint_span drops the runs
+ * when it is done, so no row can inherit another's colouring.
  */
 static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
                          const char* suf, int sufsz, const tok_run** runs) {
@@ -241,7 +239,12 @@ static int back_get(void* ctx, int y, char* buf, int max) {
 
 /*
  * What the top line on screen begins inside, for a view that has just arrived
- * there.
+ * there. The one case that has to read back, because there is nothing nearer
+ * to work it out from.
+ *
+ * Reading back is the expensive part -- a line of C costs about a millisecond
+ * and a half to lex -- which is why it is done once for a view and read back
+ * per row, rather than once per row painted.
  *
  * Costs nothing for a grammar with nothing that crosses a line, which is every
  * grammar but C -- syn_state_before answers those without reading a line.
@@ -523,13 +526,6 @@ static void row_selection(editor* ed, int line, const split_line* ln,
 }
 
 /*
- * Reads back to find what a line begins inside, when nothing nearer is known.
- *
- * The walk is the expensive part -- a line of C costs about a millisecond and
- * a half to lex -- so it is done once for a view and read back per row, rather
- * than once per row painted.
- */
-/*
  * Reads the document forward from where the answers stop, working out what
  * each line begins inside, until `upto` has one.
  *
@@ -636,14 +632,27 @@ static void set_line_state(editor* ed, int line, int state) {
  * The one thing a command has to say, and it says it the same way whatever the
  * edit was: a line split, two joined, a line taken out.
  *
- * What the lines below begin inside does not change when a line is added or
- * removed above them -- the same text still runs into them, they are merely
- * numbered differently. So the answers are renumbered rather than thrown out.
- * Throwing them out is correct and costs a screenful of lexing an edit, which
- * measured seven times what a join should cost.
+ * What the lines below begin inside does not change when a line is removed
+ * above them -- the same text still runs into them, they are merely numbered
+ * differently. So a join renumbers its answers rather than throwing them out,
+ * which is worth doing: throwing them out costs a screenful of lexing an edit,
+ * and measured seven times what a join should cost.
  *
- * A change of more than one line has nothing sensible to renumber to, so the
- * answers simply stop there and are worked out again as rows ask for them.
+ * A line appearing is the other way round, and it stops the answers at the new
+ * line rather than renumbering them. The answers below could be moved down the
+ * same way, but the new line then sits in the middle of them with no answer of
+ * its own, and they are held densely from synFirst_ -- there is nowhere to
+ * record a hole. Stopping there is the representable answer, and what is below
+ * is worked out again when a row asks.
+ *
+ * That is a real cost rather than a free one: cmd_return scrolls the rows
+ * below through the VDP rather than repainting them, so nothing rewrites those
+ * answers on the way past. Moving them down and having the caller fill the new
+ * line's slot before anything reads it would keep them -- worth measuring on
+ * the emulator before it is worth the fragility of depending on that order.
+ *
+ * A change of more than one line has nothing sensible to renumber to, and
+ * stops there as well.
  */
 static void lines_moved(editor* ed, int line, int delta) {
     if (ed->synFirst_ == 0) {
@@ -666,20 +675,9 @@ static void lines_moved(editor* ed, int line, int delta) {
     }
 
     const int from = at + 1;
-    if (delta == 1 && from < SCR_MAX_ROWS) {
-        int n = ed->synKnown_ - from;
-        if (from + 1 + n > SCR_MAX_ROWS) {
-            n = SCR_MAX_ROWS - from - 1;
-        }
-        if (n > 0) {
-            memmove(&ed->lineSyn_[from + 1], &ed->lineSyn_[from], (size_t) n);
-            ed->synKnown_ = from + 1 + n;
-        } else {
-            ed->synKnown_ = from;
-        }
-        // The line that appeared has no answer until the caller gives it one.
-        ed->synKnown_ = from;
-    } else if (delta == -1) {
+    if (delta == -1) {
+        // The line at `from` went away; the ones under it keep their answers
+        // and move up into its slot.
         const int n = ed->synKnown_ - (from + 1);
         if (n > 0) {
             memmove(&ed->lineSyn_[from], &ed->lineSyn_[from + 1], (size_t) n);
@@ -1401,7 +1399,6 @@ static void restore_after_modal(editor* ed, bool moved) {
 void cmd_help(editor* ed) {
     SCR(ed);
     UI(ed);
-    TB(ed);
 
     ui_help(ui, scr);
 

@@ -657,7 +657,7 @@ int main(void) {
          * saying doc.txt.scratch is already there. */
         stub_file_reset();
         stub_file_set_content(blob, 16);
-        stub_key no[] = { { 'n', VK_n, 0 } };
+        stub_key no[] = { { .ch = 'n', .vk = VK_n } };
         stub_set_keys(no, 1);
         cmd_select_all(&ed);
         cmd_copy(&ed);
@@ -667,7 +667,7 @@ int main(void) {
 
         stub_file_reset();
         stub_file_set_content(blob, 16);
-        stub_key yes[] = { { 'y', VK_y, 0 } };
+        stub_key yes[] = { { .ch = 'y', .vk = VK_y } };
         stub_set_keys(yes, 1);
         cmd_select_all(&ed);
         cmd_copy(&ed);
@@ -697,7 +697,7 @@ int main(void) {
         stub_file_reset();
         stub_file_set_content(blob, 16);   /* cut.txt.scratch is already there */
         const int cut_before = tb_used(&ed.buf_);
-        stub_key cutno[] = { { 'n', VK_n, 0 } };
+        stub_key cutno[] = { { .ch = 'n', .vk = VK_n } };
         stub_set_keys(cutno, 1);
         cmd_select_all(&ed);
         cmd_cut(&ed);

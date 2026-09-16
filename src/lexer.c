@@ -108,15 +108,6 @@ static bool lit_at(const char* s, int len, int at, const char* lit, int n,
 }
 
 /*
- * How many bytes of a number start at `at`, or zero.
- *
- * Built in rather than expressible as a rule, because every language wants one
- * and none of them write it the same way. What is accepted is the union that
- * costs nothing to accept: a leading digit, or one of assembly's sigils, and
- * then the characters numbers are made of. `1st` is not a number and neither is
- * a bare `$`.
- */
-/*
  * Where a span that has already opened finishes, starting the search at `i`.
  *
  * Returns one past the closing literal, or -1 when the line runs out first --
@@ -162,6 +153,15 @@ static bool lit_bounded(const syntax* g, const char* s, int len, int at,
     return true;
 }
 
+/*
+ * How many bytes of a number start at `at`, or zero.
+ *
+ * Built in rather than expressible as a rule, because every language wants one
+ * and none of them write it the same way. What is accepted is the union that
+ * costs nothing to accept: a leading digit, or one of assembly's sigils, and
+ * then the characters numbers are made of. `1st` is not a number and neither is
+ * a bare `$`.
+ */
 static int number_at(const syntax* g, const char* s, int len, int at) {
     int i = at;
     // `$FF` and `%1010` in assembly, `&FF` in BASIC, `#10` where a language

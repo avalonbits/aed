@@ -27,7 +27,7 @@
  * invented, and a grammar naming a scope AED has never heard of renders as
  * ordinary text instead of failing to load.
  *
- * See .internal/docs/SYNTAX.md.
+ * See docs/COLOURING.md.
  */
 #ifndef _SYNTAX_H_
 #define _SYNTAX_H_
@@ -55,18 +55,6 @@ tok_class syn_class_of(const char* scope, int len);
 const char* syn_class_name(tok_class c);
 
 /*
- * A theme: one colour per class, and the pair the document is drawn on.
- *
- * A theme is keyed to the background it was designed against, because a colour
- * that reads well on black is unreadable on white. `covers` is the list of
- * background indices its author says it suits; AED picks the first theme that
- * covers the background in force.
- *
- * fg and bg are what the theme wants the document drawn in, and they move the
- * screen's *active* pair only -- see scr_theme_scheme. The pair the user chose
- * is never touched by a theme.
- */
-/*
  * A row's colouring, as runs. Run i covers the columns from where run i-1 ended
  * up to `end`, so a row is a handful of these rather than a colour per column.
  * That is also the shape the painting wants: it walks columns upwards and only
@@ -80,6 +68,18 @@ typedef struct _tok_run {
 #define THEME_MAX_COVERS 16
 #define THEME_NAME_MAX   16
 
+/*
+ * A theme: one colour per class, and the pair the document is drawn on.
+ *
+ * A theme is keyed to the background it was designed against, because a colour
+ * that reads well on black is unreadable on white. `covers` is the list of
+ * background indices its author says it suits; AED picks the first theme that
+ * covers the background in force.
+ *
+ * fg and bg are what the theme wants the document drawn in, and they move the
+ * screen's *active* pair only -- see scr_theme_scheme. The pair the user chose
+ * is never touched by a theme.
+ */
 typedef struct _theme {
     char name[THEME_NAME_MAX];
     char colour[TOK_N];             // a colour index per class
@@ -109,7 +109,7 @@ char theme_colour(const theme* t, tok_class c);
  * Sublime's model, without its regular expressions. A rule is a way of
  * matching, a scope for what it matched, and that is all -- there is no engine
  * here, because an eZ80 cannot run one per column per repaint (see
- * .internal/docs/SYNTAX.md, and test/probes/vducost.c for what a repaint
+ * docs/COLOURING.md, and test/probes/vducost.c for what a repaint
  * costs). Six ways of matching cover assembly, C and BASIC completely.
  */
 typedef enum _match_kind {

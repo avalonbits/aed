@@ -34,7 +34,7 @@ typedef struct _undo undo;
 #define TB_FNAME_MAX 256
 
 /*
- * Paging, from .internal/docs/PAGING.md.
+ * Paging, from docs/PAGING.md.
  *
  * TB_CHUNK is how much a slide moves. The rule was "about a frame to read and
  * write", which at the 182 KiB/s the card was measured at lands between 1 and
@@ -92,7 +92,7 @@ typedef struct _text_buffer {
     // Both count whole lines, each ending in a break, which is why they add to
     // the line count rather than to the break count: lines = breaks + 1, and
     // the +1 belongs to the document once rather than to each of its pieces.
-    // See .internal/docs/PAGING.md.
+    // See docs/PAGING.md.
     //
     // Zero throughout, until there is somewhere for a document to live but
     // memory. They are here now because every line number in the editor is
@@ -124,7 +124,7 @@ typedef struct _text_buffer {
     // does: once the document can be partly on disk, moving a walker far enough
     // would slide the window out from under the cursor that owns it. Refusing
     // the writes is the half of that which can be enforced while everything is
-    // still in memory. See .internal/docs/PAGING.md, pitfalls 1 and 2.
+    // still in memory. See docs/PAGING.md section 7.
     bool walker_;
 
     /*

@@ -45,8 +45,13 @@ docs.sort()
 
 
 def slug(heading):
-    """GitHub's anchor: lowercased, punctuation dropped, spaces to hyphens."""
-    return re.sub(r'[^a-z0-9 -]', '', heading.lower()).replace(' ', '-')
+    """GitHub's anchor: lowercased, punctuation dropped, spaces to hyphens.
+
+    Underscores survive -- GitHub keeps them, so `ctrl_pause_frames` anchors as
+    itself. Dropping them here rejected a heading that works, which is the worse
+    way for this check to be wrong: a false alarm gets the link "fixed" into one
+    that does not."""
+    return re.sub(r'[^a-z0-9 _-]', '', heading.lower()).replace(' ', '-')
 
 
 anchors = 0

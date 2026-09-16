@@ -17,18 +17,33 @@ document describes the parts and how they fit together.
 * [6. Keys, and the screen](#6-keys-and-the-screen)
     * [6a. Keys](#6a-keys)
     * [6b. Painting](#6b-painting)
+    * [6c. Colour](#6c-colour)
 * [7. Selection, undo and the clipboard](#7-selection-undo-and-the-clipboard)
 * [8. Settings, and fonts](#8-settings-and-fonts)
 * [9. How it is checked](#9-how-it-is-checked)
 * [10. Adding something](#10-adding-something)
 
+Two subsystems have a document of their own, because each is a design rather
+than a handful of functions:
+
+* [**PAGING.md**](PAGING.md) — how a gap buffer edits a document larger than
+  memory: the window, the two scratch files, what a slide must preserve, and
+  the limits that fall out.
+* [**COLOURING.md**](COLOURING.md) — syntax highlighting without a regular
+  expression engine: the grammar format, the lexer, and the model that keeps a
+  block comment coloured across a line break.
+
 Sizing — how big the buffer is, how much of it stays empty, and why — is in
-`.internal/docs/SIZING.md`, with the sweeps behind each number.
+`.internal/docs/SIZING.md`, with the sweeps behind each number. A path under
+`.internal/` is a working note rather than a published one: it holds the raw
+sweeps and the discarded drafts, and it is not in the repository. Where one is
+named here, what it would tell you is the measurement behind a number the text
+already gives.
 
 ---
 
-The editor is twenty files. Each has a header holding what the other parts need
-from it, and the sections below follow them:
+The editor is twenty-three files. Each has a header holding what the other parts
+need from it, and the sections below follow them:
 
 | file | what is in it | sections |
 |---|---|---|
@@ -45,11 +60,14 @@ from it, and the sections below follow them:
 | [`line_buffer.c`](../src/line_buffer.c) | the line index, a gap buffer of lengths | 3 |
 | [`doc_store.c`](../src/doc_store.c) | the two scratch files a paged document lives in | 4 |
 | [`screen.c`](../src/screen.c) | the VDP: geometry, colours, cursor, painting | 6 |
+| [`lexer.c`](../src/lexer.c) | a grammar, and one row of text divided into runs | 6 |
+| [`theme.c`](../src/theme.c) | a theme, and what a scope name collapses onto | 6 |
 | [`user_input.c`](../src/user_input.c) | prompts, dialogs, the help screen, settings | 2, 8 |
 | [`keys.c`](../src/keys.c) | key events, from the packet MOS hands over | 6 |
 | [`undo.c`](../src/undo.c) | the record log | 7 |
 | [`clipboard.c`](../src/clipboard.c) | copy, cut, paste, and spilling to a file | 7 |
 | [`config.c`](../src/config.c) | the settings file | 8 |
+| [`ini.c`](../src/ini.c) | the INI reader the settings, grammars and themes share | 8 |
 | [`bootfont.c`](../src/bootfont.c) | which font the machine booted into | 8 |
 | [`conv.c`](../src/conv.c) | character conversions | — |
 
@@ -80,7 +98,7 @@ needing 825.
 
 ```mermaid
 flowchart TD
-    main["main() — 256 KB, and the file named on the command line"] --> init["ed_init() — buffers, screen, settings, load"]
+    main["main() — 72 KiB, and the file named on the command line"] --> init["ed_init() — buffers, screen, settings, load"]
     init --> loop["ed_run() — one key at a time, until quit"]
     loop --> key["read_input() — a key event with its modifiers"]
     key --> mean["ctrlCmds() / editCmds() — what that key means"]
@@ -97,11 +115,17 @@ flowchart TD
 [`ctrlCmds()`](../src/editor.c#L643) ·
 [`editCmds()`](../src/editor.c#L702) ·
 [`ed_selection_for()`](../src/editor.c#L408) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L755)
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L698)
 
-`main` asks for **256 KB** and that single number sizes the document: `tb_init`
-splits it into a character buffer and a line index, one index slot per 32 bytes
-of buffer. Nothing else in the editor picks a size.
+`main` asks for **72 KiB** — [`AED_DOC_KB`](../src/editor.h#L127) — and that
+single number sizes the document: `tb_init` splits it into 71,424 bytes of
+character buffer and 2,304 index slots, about one slot per 31 bytes. Nothing
+else in the editor picks a size.
+
+It is 72 KiB rather than as much as the heap allows because the document no
+longer has to hold the file. What memory buys now is how far the cursor can
+travel before a slide, and the sweeps behind that number are in
+`.internal/docs/SIZING.md`.
 
 ---
 
@@ -219,10 +243,10 @@ find anything, only hand back what it was given last.
 
 The window moves in [`TB_CHUNK`](../src/text_buffer.h#L51) of 2 KB, whole lines
 only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
-[`tb_settle()`](../src/text_buffer_page.c#L118) notices a margin has been crossed and
-slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L381) sends
+[`tb_settle()`](../src/text_buffer_page.c#L125) notices a margin has been crossed and
+slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L418) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer_page.c#L508) is the exact reverse.
+[`tb_slide_up()`](../src/text_buffer_page.c#L582) is the exact reverse.
 
 Everything that moves the cursor settles —
 [`tb_seek`](../src/text_buffer_range.c#L64), and `tb_up` and `tb_down` too, so the
@@ -232,9 +256,10 @@ A read-only copy is the exception, for the reason section 5 gives.
 **Settling picks one direction and holds it for the whole call.** Each side used
 to be asked about its margin on its own, which is enough only while a window is
 several margins wide — and it is not always. The index holds one slot per 32
-bytes of buffer, so a document of ten-byte lines fills the index at 15,350 bytes
-and the window is *narrower than a single margin*, whatever the buffer's size.
-Both sides are then under it at once and always will be, and asking them
+bytes of buffer, so a document of ten-byte lines fills the index at 23,040 bytes
+and the window is *narrower than the two margins together*, whatever the
+buffer's size. Both sides are then under their margin at once and always will
+be, and asking them
 separately made settling slide up, slide down, and undo itself until its guard
 ran out: ten slides a keystroke with the window exactly where it started. Worse,
 the pair leaked — a slide up put one line in TAIL, a slide down then saw
@@ -260,6 +285,11 @@ Every number in this section — the 72 KiB the editor starts with, the quarter
 of the buffer kept free, the chunk and the margin — was picked against a
 measurement. `.internal/docs/SIZING.md` has the sweep they came out of, what
 each one is protecting, and what a second open document would cost.
+
+[`PAGING.md`](PAGING.md) is the whole of it: each direction of a slide and the
+asymmetries that are not obvious, the four invariants a slide must not break
+with the bug that found each, why the line index bounds the window before the
+buffer does, and where every limit comes from.
 
 ### 4a. What makes a file too large
 
@@ -340,13 +370,41 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L755) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L698) takes a range, and most commands
 pass a single row.
 
 [`screen`](../src/screen.h#L57) derives its geometry from the font's cell size,
 so a font of a different height changes the number of rows without anything else
 knowing. `scr_clear` moves the cursor's row to the top of the text area as a
 side effect, which has caused three separate bugs; it is more than paint.
+
+### 6c. Colour
+
+A colour change is two bytes on the same wire, so the number of them matters as
+much as the number of characters. A row is painted as **runs** — a class and the
+column it ends at — rather than a colour per column.
+
+**The screen asks; nothing pushes.** The screen is handed a callback once, at
+startup, and every path that paints a row asks it at paint time. The first
+version had each of a dozen paint sites work the colours out and hand them over,
+and the ones that forgot painted plainly with nothing to say they had. Asking is
+inside the painting now, so a row cannot be painted without the question being
+asked — which is what stops a thirteenth paint site being added silently.
+
+What the answer needs is what the line begins inside, and only a grammar with a
+construct that crosses a line break needs even that. The model holding it is
+keyed by **document line**, not by screen row: a line begins inside what it
+begins inside, and which row it is drawn on has nothing to do with that.
+
+Grammars are read from `/config/aed/syntax`, themes from
+`/config/aed/themes`, and the background in force picks the theme — a colour
+that reads well on black is unreadable on white. **A theme is a view of a
+document rather than a setting**: it moves the active colour pair only, and what
+the reader chose is what the settings file keeps.
+
+[`COLOURING.md`](COLOURING.md) is the whole of it: the grammar format and why it
+is not regular expressions, the lexer, the model, and what the inversion cost
+and bought.
 
 ---
 
@@ -398,8 +456,8 @@ dropping the machine to the stock 8x8.
 | [`test/bench/`](../test/bench/) | the CPU-bound paths, on the emulator at the real clock |
 | [`test/probes/`](../test/probes/) | questions only the machine can answer, run by hand |
 
-`./test/run.sh <name>` runs one test. The whole suite is about twenty seconds
-for some 2,200 checks, and staying quick is deliberate: it was forty once, and a
+`./test/run.sh <name>` runs one test. The whole suite is about nineteen seconds
+for some 2,600 checks, and staying quick is deliberate: it was forty once, and a
 suite that is run less often finds less.
 
 **Mutation testing is the primary defence.** A test that passes against a

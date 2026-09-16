@@ -106,6 +106,50 @@ static void check_lex(const char* line, const syntax* g, const char* want) {
     }
 }
 
+/*
+ * Loads the first fenced ini block after `heading` in a markdown file, as the
+ * grammar. False when the document has no such block, which is itself worth
+ * failing on: a heading that was renamed leaves the example unchecked.
+ */
+static bool load_example(syntax* g, const char* path, const char* heading) {
+    static char doc[65536];
+    int n = 0;
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) {
+        return false;
+    }
+    n = (int) fread(doc, 1, sizeof(doc) - 1, f);
+    fclose(f);
+    doc[n] = 0;
+
+    const char* at = strstr(doc, heading);
+    if (at == NULL) {
+        return false;
+    }
+    const char* open = strstr(at, "```ini\n");
+    if (open == NULL) {
+        return false;
+    }
+    open += 7;                          /* past the fence and its newline */
+    const char* close = strstr(open, "\n```");
+    if (close == NULL) {
+        return false;
+    }
+    int elen = (int) (close - open) + 1; /* keep the last newline */
+    static char example[2048];
+    if (elen > (int) sizeof(example) - 1) {
+        elen = (int) sizeof(example) - 1;
+    }
+    memcpy(example, open, (size_t) elen);
+    example[elen] = 0;
+
+    stub_file_reset();
+    stub_file_add("/example.cfg", example, elen);
+    syn_clear(g);
+
+    return syn_load(g, "/example.cfg");
+}
+
 static bool load_from(syntax* g, const char* text) {
     stub_file_reset();
     stub_file_add("/g.cfg", text, (int) strlen(text));
@@ -743,6 +787,53 @@ int main(void) {
         syn_clear(&g);
         check("one that fits loads", syn_load(&g, "/fits.cfg") ? 1 : 0, 1);
         check_lex("int", &g, "YYY");
+    }
+
+    /* --- every grammar a document shows a reader, read out of the document --- */
+    {
+        /*
+         * The documents tell a reader to save a particular file and promise
+         * their document is coloured. That promise is a contract, and an
+         * example that does not work is worse than no example -- a reader who
+         * copies it and gets nothing has no way to tell whether they made the
+         * mistake or the document did.
+         *
+         * So each example is read out of the document rather than copied here.
+         * Editing a code block and breaking it fails this test; the two cannot
+         * drift apart, because there is only one of them.
+         *
+         * The README's example was the one that proved this is worth doing. It
+         * went in with its span rule and its keyword rule merged onto one line,
+         * which loads as a three-rule grammar that colours no keywords -- and
+         * it was the only example here that no test read.
+         */
+        stub_file_reset();
+        syn_clear(&g);
+        check("the README's grammar example loads",
+              load_example(&g, "README.md", "### Writing your own") ? 1 : 0, 1);
+        check("  with every rule it shows", g.nrules, 5);
+        check("    including the one after the escape",
+              lexed(&g, "return") [0], 'K');
+        check_lex("// hi", &g, "CCCCC");
+        check_lex("\"a\"", &g, "SSS");
+        check_lex("7", &g, "N");
+
+        stub_file_reset();
+        syn_clear(&g);
+        check("the manual's first example loads",
+              load_example(&g, "docs/SYNTAX.md",
+                           "## 1. The shortest grammar that works") ? 1 : 0, 1);
+        check("  under the name the manual gives",
+              strcmp(g.name, "Lua") == 0 ? 1 : 0, 1);
+        check("  claiming the extension it says it does",
+              syn_covers(&g, "/hello.lua") ? 1 : 0, 1);
+        check("    and not one it does not",
+              syn_covers(&g, "/hello.c") ? 1 : 0, 0);
+        check("  with all four rules", g.nrules, 4);
+        check_lex("-- a comment", &g, "CCCCCCCCCCCC");
+        check_lex("\"hi\"", &g, "SSSS");
+        check_lex("local x", &g, "KKKKKTT");
+        check_lex("42", &g, "NN");
     }
 
     if (failures > 0) {

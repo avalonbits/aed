@@ -10,6 +10,9 @@ undoes with `CTRL+Z` and redoes with `CTRL+Y`. It finds text with `CTRL+F`, open
 another file without leaving the editor, keeps real tab characters, and remembers your colours and
 tab width in a settings file.
 
+It colours assembly, C, BASIC and INI files as you type, in a theme chosen for
+the background you are using -- see [Syntax highlighting](#syntax-highlighting).
+
 It opens files larger than memory. A document that does not fit is held as a window on
 the file with the rest in two scratch files beside it, so the size you can edit is the
 space on your SD card rather than the RAM in the machine -- and the old limit of 8,000
@@ -19,6 +22,27 @@ The editor can work in any Agon supported resolution and will use whatever color
 your Agon.
 
 `NOTE: VDP 1.04 or above is required (since v0.13.0), and MOS 2.3.3 or above.`
+
+## Contents
+
+* [Installation](#installation)
+    * [Upgrading from an older release](#upgrading-from-an-older-release)
+* [Configuration](#configuration)
+    * [`font`](#font)
+    * [`ctrl_pause_frames`](#ctrl_pause_frames)
+* [Syntax highlighting](#syntax-highlighting)
+    * [Writing your own](#writing-your-own)
+* [Running the editor](#running-the-editor)
+* [File operations](#file-operations)
+* [Navigation and shortcuts](#navigation-and-shortcuts)
+* [Selecting text](#selecting-text)
+* [Copy, cut and paste](#copy-cut-and-paste)
+* [Large files, and waiting for them](#large-files-and-waiting-for-them)
+* [Find](#find)
+* [Undo and redo](#undo-and-redo)
+
+Beyond this file: [writing a grammar](docs/SYNTAX.md), [writing a
+theme](docs/THEMES.md), and [how AED works](docs/DESIGN.md) for the design.
 
 # Installation
 
@@ -30,12 +54,22 @@ bin/aed.bin                 the editor -- MOS searches /bin, so `aed` runs it
 config/aed/unscii8.bin      the three fonts, where the settings file expects them
 config/aed/unscii8x10.bin
 config/aed/unscii16.bin
+config/aed/syntax/asm.cfg   a grammar per language, read when a file is opened
+config/aed/syntax/bas.cfg
+config/aed/syntax/c.cfg
+config/aed/syntax/ini.cfg
+config/aed/themes/dark.cfg  a theme per background, read with the grammar
+config/aed/themes/light.cfg
+config/aed/themes/mid.cfg
 ```
 
 You should now be able to run it just by typing `aed` at the command line.
 
 The fonts do nothing until a settings file names one -- see [Fonts](#font) -- so unzipping
-changes nothing about how AED looks until you ask it to.
+changes nothing about how AED looks until you ask it to. The grammars and themes are the
+other way round: AED reads those two directories every time you open a file, so
+highlighting works from the first run and **an upgrade that copies only `aed.bin` leaves
+you with whatever grammars you already had**.
 
 **The zip is the thing to download.** The release page also carries `aed.bin` and each
 font on its own, for upgrading when you already have the rest -- most upgrades are just
@@ -57,8 +91,9 @@ PC:040046
 ```
 
 MOS treats files in `/mos` as *moslets* and loads them at `0x0B0000`, whereas AED is now linked to
-run from `0x040000`. It cannot be built as a moslet either: the moslet area is 64KB and AED needs
-about 272KB for its buffers. `/bin` is loaded at `0x040000`, which is why the editor lives there
+run from `0x040000`. It cannot be built as a moslet either: the moslet area is 64KB and AED's
+buffers come to about 105KB -- 72KB of document window, and the clipboard, undo log and
+scratch beside it. `/bin` is loaded at `0x040000`, which is why the editor lives there
 now.
 
 MOS has searched `/bin` since version 2.2.0, which used to set the floor. It is now
@@ -223,7 +258,97 @@ leaves the rest of it -- your comments, spacing, and every setting you did not c
 If `/config` cannot be created -- a write-protected card, say -- AED starts normally
 with its defaults and simply does not save them.
 
-# Running the editor.
+# Syntax highlighting
+
+AED colours a file it recognises as you type. There is nothing to switch on: open a
+`.c` and it is coloured.
+
+Two directories decide what happens, and AED reads both every time you open a file:
+
+```
+config/aed/syntax/      one grammar per language, picked by the file's extension
+config/aed/themes/      one theme per background, picked by the colours in use
+```
+
+What ships:
+
+| grammar | extensions |
+|---|---|
+| `syntax/asm.cfg` | `.s` `.asm` `.inc` `.z80` |
+| `syntax/bas.cfg` | `.bas` |
+| `syntax/c.cfg` | `.c` `.h` `.cc` `.cpp` `.hpp` `.hh` `.cxx` `.hxx` |
+| `syntax/ini.cfg` | `.ini` `.cfg` |
+
+| theme | for backgrounds |
+|---|---|
+| `themes/dark.cfg` | 0 1 4 5 |
+| `themes/light.cfg` | 3 6 7 11 14 15 |
+| `themes/mid.cfg` | 2 8 9 10 12 13 |
+
+`.bbc` is deliberately absent: that extension is normally tokenised BASIC, which has no
+text in it to colour.
+
+**The theme follows your background.** A colour that reads well on black is unreadable
+on white, so AED picks the first theme whose author listed the background you are using.
+Change your colours with `CTRL+E` and the theme changes with them.
+
+**A theme never changes your settings.** It colours the document and may move the pair
+the text is drawn on while a file is open, but the colours in `/config/aed.ini` stay the
+ones you chose -- open a file no grammar claims and you have them back. If no theme
+covers your background, AED leaves the file in your own colours rather than colouring it
+in something you cannot read.
+
+### Writing your own
+
+Both file types are ordinary INI, editable on the Agon itself. A grammar names the
+extensions it claims and then a rule per kind of thing, tried in order, first match at a
+position winning:
+
+```ini
+[syntax]
+name       = C
+extensions = .c .h
+
+[match]
+comment.line         = eol '//'
+comment.block        = span '/*' '*/' multiline
+string.quoted.double = span '"' '"' escape \
+keyword.control      = words if else for while return
+constant.numeric     = number
+```
+
+The verbs are `eol`, `span`, `words`, `bol`, `number` and `label`; `case = insensitive`
+suits BASIC and most assemblers. Names are TextMate's scope names, so a rule called
+`comment.line` or `string.quoted.double` means what it means anywhere else.
+
+A theme is a colour per kind of thing, plus the backgrounds it suits:
+
+```ini
+[theme]
+name   = dark
+covers = 0 1 4 5
+
+[colours]
+comment = 8
+string  = 10
+type    = 14
+```
+
+Drop a file in either directory and reopen your document. A grammar or theme AED cannot
+read is skipped rather than fatal, and one that names something AED has never heard of
+renders as plain text.
+
+There is a manual for each:
+
+* [**Writing a grammar**](docs/SYNTAX.md) -- every verb with examples, how a scope name
+  becomes a colour, what to do when a rule does nothing, and the limits.
+* [**Writing a theme**](docs/THEMES.md) -- the colour names, how your background chooses
+  a theme, how to change a shipped one without losing it to an upgrade.
+
+[`docs/COLOURING.md`](docs/COLOURING.md) is the design behind both, if you want to know
+why the format is what it is.
+
+# Running the editor
 If you run it just as `aed` it will start the editor using `/aed.txt` as its backing file. If the file can't be created,
 it will exit with the message `Quit`. If the file already exists, it will read it into the buffer and display it on the editor screen.
 
@@ -245,7 +370,7 @@ file that cannot be opened leaves your work exactly where it was and says what w
 wrong. Size is not a reason on its own: a file bigger than memory opens here the same
 way it does from the command line.
 
-# Navigation and shortcuts.
+# Navigation and shortcuts
 You navigate using the `LEFT, RIGHT, UP, DOWN` arrow keys to move the cursor one character at a time. The cursor will wrap around lines if you
 try to move past the end or beginning. You can also use `CTRL+LEFT` and `CTRL+RIGHT` to navigate between white spaces (words) for
 faster movement.

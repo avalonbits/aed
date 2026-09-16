@@ -2227,6 +2227,8 @@ int main(void) {
          * Long enough to need several windows, and walked a line at a time
          * because that is how anyone meets it.
          */
+        #undef SHORT_LEN
+        #undef SHORT_LINES
         #define SHORT_LEN   10          /* eight characters and a CRLF */
         #define SHORT_LINES 8000
         static char SHORT[SHORT_LINES * SHORT_LEN + 1];
@@ -2550,6 +2552,103 @@ int main(void) {
         check("  nor up", tb_slide_up(&tb) ? 1 : 0, 0);
         check("  and settling does nothing", tb_settle(&tb) ? 1 : 0, 0);
         tb_destroy(&tb);
+    }
+
+    /* --- a slide up whose chunk lands on a line boundary --- */
+    {
+        /*
+         * A chunk taken off the head's end starts wherever the arithmetic puts
+         * it, and when that is exactly a line start there is no partial line in
+         * front of the run to give back. From the chunk alone that case looks
+         * identical to a run starting mid line; the byte of lookbehind
+         * tb_slide_up asks for in front of the run is the only thing that tells
+         * them apart, and a run treated as the wrong one loses its first line.
+         *
+         * Which case comes up depends on the line width against the 2 KiB
+         * chunk, so this sweeps widths that divide it exactly, widths that do
+         * not, and one line as wide as a whole chunk. Each document is slid to
+         * the bottom and then all the way back, which is where a line stranded
+         * in the head shows up: as a document that has grown shorter, or a line
+         * that reads as its neighbour.
+         */
+        static const int WIDTHS[] = { 8, 16, 32, 64, 128, 512, 2048, 10, 40, 57 };
+        static char wdoc[200000];
+        static char want[2100];
+        static char got[2100];
+
+        for (int w = 0; w < (int) (sizeof(WIDTHS) / sizeof(WIDTHS[0])); w++) {
+            const int len = WIDTHS[w];
+            const int lines = 160000 / len;
+            int at = 0;
+            for (int i = 0; i < lines; i++) {
+                const int start = at;
+                wdoc[at++] = 'l';
+                for (int d = 10000; d > 0; d /= 10) {
+                    wdoc[at++] = (char) ('0' + ((i / d) % 10));
+                }
+                while (at - start < len - 2) {
+                    wdoc[at++] = '.';
+                }
+                wdoc[at++] = '\r';
+                wdoc[at++] = '\n';
+            }
+
+            stub_file_reset();
+            tb_init(&tb, DOC_KB, NULL);
+            tb_page_open(&tb, "/wide.txt");
+            tb_page_fill(&tb, wdoc, at);
+            tb_page_prime(&tb);
+
+            const int ymax = tb_ymax(&tb);
+
+            /* To the bottom, which fills the head, and back to the top. */
+            tb_pos bottom = { ymax, 0 };
+            tb_seek(&tb, bottom);
+            int guard = 0;
+            while (store_head_bytes(tb.store_) > 0 && guard++ < 4000) {
+                if (!tb_slide_up(&tb)) {
+                    break;
+                }
+            }
+
+            /* Every line still reads as itself, checked at both ends and
+             * across the middle rather than one line at a time. */
+            int bad = 0;
+            for (int i = 1; i < lines && i <= 40; i++) {
+                const int n = (i * lines) / 41;
+                if (n < 1 || n > lines) {
+                    continue;
+                }
+                tb_pos p = { n, 0 };
+                tb_seek(&tb, p);
+                if (tb_ypos(&tb) != n) {
+                    bad++;
+                    continue;
+                }
+                const split_line ln = tb_curr_line(&tb);
+                const int sz = ln.psz_ + ln.ssz_;
+                if (sz != len - 2) {
+                    bad++;
+                    continue;
+                }
+                if (ln.psz_ > 0) {
+                    memcpy(got, ln.prefix_, (size_t) ln.psz_);
+                }
+                if (ln.ssz_ > 0) {
+                    memcpy(got + ln.psz_, ln.suffix_, (size_t) ln.ssz_);
+                }
+                got[sz] = 0;
+                memcpy(want, wdoc + (long) (n - 1) * len, (size_t) (len - 2));
+                want[len - 2] = 0;
+                if (strcmp(got, want) != 0) {
+                    bad++;
+                }
+            }
+
+            check("a document of one line width slid to the top", tb_ymax(&tb), ymax);
+            check("  and every line across it reads as itself", bad, 0);
+            tb_destroy(&tb);
+        }
     }
 
     if (failures > 0) {
