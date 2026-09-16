@@ -219,10 +219,10 @@ find anything, only hand back what it was given last.
 
 The window moves in [`TB_CHUNK`](../src/text_buffer.h#L51) of 2 KB, whole lines
 only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
-[`tb_settle()`](../src/text_buffer_page.c#L118) notices a margin has been crossed and
-slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L381) sends
+[`tb_settle()`](../src/text_buffer_page.c#L125) notices a margin has been crossed and
+slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L418) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer_page.c#L508) is the exact reverse.
+[`tb_slide_up()`](../src/text_buffer_page.c#L582) is the exact reverse.
 
 Everything that moves the cursor settles —
 [`tb_seek`](../src/text_buffer_range.c#L64), and `tb_up` and `tb_down` too, so the

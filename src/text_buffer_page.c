@@ -82,6 +82,13 @@ bool tb_page_fill(text_buffer* tb, const char* buf, int n) {
 static char slide_bytes[TB_CHUNK + 1];
 static int  slide_lens[TB_CHUNK / 2 + 1];   // the shortest possible line is "\r\n"
 
+// And the same pair for the text going the other way. One set between the two
+// slides rather than one each: neither runs while the other is running, and a
+// second set costs 5,123 bytes of .bss -- which comes off the heap, because
+// the heap starts where .bss ends.
+static char out_bytes_[TB_CHUNK];
+static int  out_lens_[TB_CHUNK / 2 + 1];
+
 // Splits a run of bytes into the lengths of the whole lines in it, each ending
 // in the line feed that closes it. Returns how many, and how many bytes they
 // account for -- which is less than `n` when the run ends mid-line.
@@ -378,6 +385,36 @@ static bool slide_room(text_buffer* tb) {
     return cb_available(&tb->cb_) >= TB_CHUNK && lb_room(&tb->lb_) > 0;
 }
 
+/*
+ * How much *text* a slide asks the store for, having sent `out_bytes` the
+ * other way. Sliding up reads a byte of lookbehind in front of that, which is
+ * why slide_bytes is a byte over a chunk; the byte is not text and is not
+ * counted here.
+ *
+ * What went out, and more when the window has room going spare, capped at a
+ * chunk.
+ *
+ * The floor is a whole chunk when nothing went out, which is the emptied-window
+ * case slide_room is about: there is room to bring text into and nothing to
+ * send, so there is nothing to size the intake from.
+ *
+ * The ceiling is the reserve tbi_prime_spare keeps for the gap. The window
+ * grows back toward as full as the buffer allows and stops there, rather than
+ * draining a line at a time for ever.
+ */
+static int refill_want(text_buffer* tb, int out_bytes) {
+    int want = out_bytes > 0 ? out_bytes : TB_CHUNK;
+    const int slack = cb_available(&tb->cb_) - tbi_prime_spare(tb);
+    if (slack > want) {
+        want = slack;
+    }
+    if (want > TB_CHUNK) {
+        want = TB_CHUNK;
+    }
+
+    return want;
+}
+
 bool tb_slide_down(text_buffer* tb) {
     if (!may_slide(tb)) {
         return false;
@@ -398,11 +435,6 @@ bool tb_slide_down(text_buffer* tb) {
     // the front, and got ten bytes back. Two thousand and thirty bytes left the
     // window per turn, and inside three cursor movements a 15,350 byte window
     // held thirty bytes with the document's other 199,960 in the head.
-    //
-    // Never more than the store can put back, which is what stops a slide
-    // being a leak. The cap the other way -- no more comes in than went out --
-    // was only half of it: a tail holding eighty bytes still had a whole 2 KiB
-    // chunk evicted against it, and the difference stayed in the head.
     //
     // The exception is the index. Sending text out is also how slots are
     // freed, so when there are none left the eviction has to happen whatever
@@ -427,37 +459,29 @@ bool tb_slide_down(text_buffer* tb) {
 
     // Sent before anything is brought in, so that the room it frees -- in the
     // index as much as in the buffer -- is there to bring into.
-    static int out_lens[TB_CHUNK / 2 + 1];
-    static char out_buf[TB_CHUNK];
-    lb_take_front(&tb->lb_, out_lens, out_lines);
-    cb_take_front(&tb->cb_, out_buf, out_bytes);
+    lb_take_front(&tb->lb_, out_lens_, out_lines);
+    cb_take_front(&tb->cb_, out_bytes_, out_bytes);
 
-    if (!store_head_push(tb->store_, out_buf, out_bytes)) {
-        cb_give_front(&tb->cb_, out_buf, out_bytes);
-        lb_give_front(&tb->lb_, out_lens, out_lines);
+    if (!store_head_push(tb->store_, out_bytes_, out_bytes)) {
+        cb_give_front(&tb->cb_, out_bytes_, out_bytes);
+        lb_give_front(&tb->lb_, out_lens_, out_lines);
 
         return false;
     }
     tb->head_lines_ += out_lines;
 
-    // No more comes in than went out, so memory holds what it held. Without
-    // that a slide near the top of a document -- where there is barely anything
-    // in front of the cursor to send -- would take in a whole chunk against a
-    // line or two going out, and memory would grow until it burst.
-    // What went out -- and more when the window has room going spare, for the
-    // reason sliding up refills: the run that comes back ends part way through
-    // a line and that tail is rewound, so matching the outgo loses half a line
-    // every slide. See the note in tb_slide_up.
-    int want = out_bytes > 0 ? out_bytes : TB_CHUNK;
-    {
-        const int slack = cb_available(&tb->cb_) - tbi_prime_spare(tb);
-        if (slack > want) {
-            want = slack;
-        }
-        if (want > TB_CHUNK) {
-            want = TB_CHUNK;
-        }
-    }
+    // What went out, and more when the window has room going spare.
+    //
+    // Bounding the intake by the outgo is what stops memory growing until it
+    // bursts: near the top of a document there is barely anything in front of
+    // the cursor to send, and an unbounded slide would take a whole chunk
+    // against a line or two going out.
+    //
+    // Matching it exactly is too tight, for the reason sliding up refills: the
+    // run that comes back ends part way through a line and that tail is
+    // rewound, so a slide that takes exactly what it gave keeps half a line
+    // less. See the note in tb_slide_up.
+    int want = refill_want(tb, out_bytes);
     const int left = store_tail_bytes(tb->store_);
     if (left <= TB_CHUNK && left > want && cb_available(&tb->cb_) >= left) {
         // The tail's last scrap, taken whole. Bounded intake is what stops
@@ -527,10 +551,10 @@ bool tb_slide_down(text_buffer* tb) {
     // that is not there -- which is a head counting one more line than it holds
     // and every line number past it wrong.
     //
-    // Both branches are the same shape: grow the line that was carrying on,
-    // append the rest, and end with a fresh empty entry for whatever carries
-    // on now. They differ only in where that first line lives -- the cursor's
-    // own entry, or the one taken off above.
+    // The two differ only in where that first line lives -- the cursor's own
+    // entry, or the one taken off above -- so that is all the branch covers.
+    // Appending the rest and closing with a fresh empty entry for whatever
+    // carries on now is the same either way.
     //
     // The taken-off branch used to append the arrivals and then put the
     // trailing entry back after them. That put the rest of a line in front of
@@ -543,17 +567,13 @@ bool tb_slide_down(text_buffer* tb) {
     if (had_trailing) {
         trailing += slide_lens[0];
         lb_give_back(&tb->lb_, &trailing, 1);
-        if (in_lines > 1) {
-            lb_give_back(&tb->lb_, slide_lens + 1, in_lines - 1);
-        }
-        lb_give_back(&tb->lb_, &fresh, 1);
     } else {
         lb_cadd(&tb->lb_, slide_lens[0]);
-        if (in_lines > 1) {
-            lb_give_back(&tb->lb_, slide_lens + 1, in_lines - 1);
-        }
-        lb_give_back(&tb->lb_, &fresh, 1);
     }
+    if (in_lines > 1) {
+        lb_give_back(&tb->lb_, slide_lens + 1, in_lines - 1);
+    }
+    lb_give_back(&tb->lb_, &fresh, 1);
     tb->tail_lines_ -= in_lines;
 
     return true;
@@ -636,18 +656,16 @@ bool tb_slide_up(text_buffer* tb) {
         return false;       // the headroom is spent
     }
 
-    static int out_lens[TB_CHUNK / 2 + 1];
-    static char out_buf[TB_CHUNK];
     if (send > 0) {
         if (out_lines > 0) {
-            lb_take_back(&tb->lb_, out_lens, out_lines);
+            lb_take_back(&tb->lb_, out_lens_, out_lines);
         }
-        cb_take_back(&tb->cb_, out_buf, send);
+        cb_take_back(&tb->cb_, out_bytes_, send);
 
-        if (!store_tail_push(tb->store_, out_buf, send)) {
-            cb_give_back(&tb->cb_, out_buf, send);
+        if (!store_tail_push(tb->store_, out_bytes_, send)) {
+            cb_give_back(&tb->cb_, out_bytes_, send);
             if (out_lines > 0) {
-                lb_give_back(&tb->lb_, out_lens, out_lines);
+                lb_give_back(&tb->lb_, out_lens_, out_lines);
             }
             if (had_trailing) {
                 lb_give_back(&tb->lb_, &trailing, 1);
@@ -664,19 +682,18 @@ bool tb_slide_up(text_buffer* tb) {
         lb_give_back(&tb->lb_, &trailing, 1);
     }
 
-    // Bounded by what goes out, as sliding down is, plus one byte of lookbehind.
-    //
-    // A chunk taken off the head's end starts wherever the arithmetic puts it,
-    // which is usually part way through a line -- those bytes belong to a line
-    // whose start is still in the head and have to go back. But it sometimes
-    // lands exactly on a boundary, and then nothing needs giving back.
-    //
-    // The two cannot be told apart from the chunk alone: a run starting mid
-    // line and a run starting at one look identical. The extra byte is what
-    // distinguishes them. Without it, a chunk that landed on a boundary lost
-    // its first line every time -- stranded in the head for good.
     // What went out, plus a byte of lookbehind -- and more than that when the
     // window has room going spare.
+    //
+    // The lookbehind byte earns its place. A chunk taken off the head's end
+    // starts wherever the arithmetic puts it, which is usually part way
+    // through a line: those bytes belong to a line whose start is still in the
+    // head and have to go back. But it sometimes lands exactly on a boundary,
+    // and then nothing needs giving back. The two cannot be told apart from
+    // the chunk alone -- a run starting mid line and a run starting at one
+    // look identical -- and the extra byte is what distinguishes them. Without
+    // it, a chunk that landed on a boundary lost its first line every time,
+    // stranded in the head for good.
     //
     // Matching the outgo sounds conservative and is not: the chunk that comes
     // back starts part way through a line, and those bytes go back to the head
@@ -692,17 +709,15 @@ bool tb_slide_up(text_buffer* tb) {
     // So a slide refills as well as moves. The cap is the reserve prime_spare
     // keeps for the gap: the window grows back toward as full as the buffer
     // allows and stops there, rather than draining a line at a time for ever.
-    int want = (out_bytes > 0 ? out_bytes : TB_CHUNK) + 1;
-    {
-        const int slack = cb_available(&tb->cb_) - tbi_prime_spare(tb);
-        if (slack > want) {
-            want = slack;
-        }
-        if (want > TB_CHUNK) {
-            want = TB_CHUNK;
-        }
-    }
-    const int got = store_head_pop(tb->store_, slide_bytes, want);
+    // The lookbehind byte is asked for on top of the text rather than out of
+    // it. Taking it out of the chunk meant a slide up could never carry a full
+    // chunk of text, so a line exactly a chunk long went out of the window and
+    // could not come back: the pop returned a chunk, one byte of it was spent
+    // on lookbehind, and what was left was not a whole line. The opener lets
+    // such a file in -- it looks for a break within a chunk and finds one -- so
+    // the document simply stopped scrolling back up.
+    const int want = refill_want(tb, out_bytes);
+    const int got = store_head_pop(tb->store_, slide_bytes, want + 1);
     if (got <= 0) {
         return true;
     }
