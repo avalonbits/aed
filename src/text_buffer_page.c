@@ -82,12 +82,12 @@ bool tb_page_fill(text_buffer* tb, const char* buf, int n) {
 static char slide_bytes[TB_CHUNK + 1];
 static int  slide_lens[TB_CHUNK / 2 + 1];   // the shortest possible line is "\r\n"
 
-// And the same pair for the text going the other way. One set between the two
-// slides rather than one each: neither runs while the other is running, and a
-// second set costs 5,123 bytes of .bss -- which comes off the heap, because
-// the heap starts where .bss ends.
-static char out_bytes_[TB_CHUNK];
-static int  out_lens_[TB_CHUNK / 2 + 1];
+// And the same pair for the text going the other way, named for what a slide
+// does with it. One set between the two slides rather than one each: neither
+// runs while the other is running, and a second set costs 5,123 bytes of .bss
+// -- which comes off the heap, because the heap starts where .bss ends.
+static char evict_bytes[TB_CHUNK];
+static int  evict_lens[TB_CHUNK / 2 + 1];
 
 // Splits a run of bytes into the lengths of the whole lines in it, each ending
 // in the line feed that closes it. Returns how many, and how many bytes they
@@ -459,12 +459,12 @@ bool tb_slide_down(text_buffer* tb) {
 
     // Sent before anything is brought in, so that the room it frees -- in the
     // index as much as in the buffer -- is there to bring into.
-    lb_take_front(&tb->lb_, out_lens_, out_lines);
-    cb_take_front(&tb->cb_, out_bytes_, out_bytes);
+    lb_take_front(&tb->lb_, evict_lens, out_lines);
+    cb_take_front(&tb->cb_, evict_bytes, out_bytes);
 
-    if (!store_head_push(tb->store_, out_bytes_, out_bytes)) {
-        cb_give_front(&tb->cb_, out_bytes_, out_bytes);
-        lb_give_front(&tb->lb_, out_lens_, out_lines);
+    if (!store_head_push(tb->store_, evict_bytes, out_bytes)) {
+        cb_give_front(&tb->cb_, evict_bytes, out_bytes);
+        lb_give_front(&tb->lb_, evict_lens, out_lines);
 
         return false;
     }
@@ -658,14 +658,14 @@ bool tb_slide_up(text_buffer* tb) {
 
     if (send > 0) {
         if (out_lines > 0) {
-            lb_take_back(&tb->lb_, out_lens_, out_lines);
+            lb_take_back(&tb->lb_, evict_lens, out_lines);
         }
-        cb_take_back(&tb->cb_, out_bytes_, send);
+        cb_take_back(&tb->cb_, evict_bytes, send);
 
-        if (!store_tail_push(tb->store_, out_bytes_, send)) {
-            cb_give_back(&tb->cb_, out_bytes_, send);
+        if (!store_tail_push(tb->store_, evict_bytes, send)) {
+            cb_give_back(&tb->cb_, evict_bytes, send);
             if (out_lines > 0) {
-                lb_give_back(&tb->lb_, out_lens_, out_lines);
+                lb_give_back(&tb->lb_, evict_lens, out_lines);
             }
             if (had_trailing) {
                 lb_give_back(&tb->lb_, &trailing, 1);
