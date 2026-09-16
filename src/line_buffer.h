@@ -142,7 +142,7 @@ bool lb_can_new(line_buffer* lb);
  * lb_avai reports.
  *
  * take_ returns how many entries it gave, fewer than asked when that end holds
- * less. give_ is all or nothing. See .internal/docs/PAGING.md.
+ * less. give_ is all or nothing. See docs/PAGING.md.
  */
 int  lb_take_front(line_buffer* lb, int* out, int n);
 bool lb_give_front(line_buffer* lb, const int* in, int n);

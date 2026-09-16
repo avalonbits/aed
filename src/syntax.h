@@ -27,7 +27,7 @@
  * invented, and a grammar naming a scope AED has never heard of renders as
  * ordinary text instead of failing to load.
  *
- * See .internal/docs/SYNTAX.md.
+ * See docs/COLOURING.md.
  */
 #ifndef _SYNTAX_H_
 #define _SYNTAX_H_
@@ -109,7 +109,7 @@ char theme_colour(const theme* t, tok_class c);
  * Sublime's model, without its regular expressions. A rule is a way of
  * matching, a scope for what it matched, and that is all -- there is no engine
  * here, because an eZ80 cannot run one per column per repaint (see
- * .internal/docs/SYNTAX.md, and test/probes/vducost.c for what a repaint
+ * docs/COLOURING.md, and test/probes/vducost.c for what a repaint
  * costs). Six ways of matching cover assembly, C and BASIC completely.
  */
 typedef enum _match_kind {

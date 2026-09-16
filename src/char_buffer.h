@@ -106,7 +106,7 @@ bool cb_write(char_buffer* cb, const char* buf, int sz);
  * the cursor would put it outside the text the buffer is holding, which is not
  * a position the rest of the editor can express. A caller that finds it got
  * fewer bytes than it asked for has a cursor too close to that end to slide,
- * and the margins exist so that does not happen. See .internal/docs/PAGING.md.
+ * and the margins exist so that does not happen. See docs/PAGING.md.
  */
 int  cb_take_front(char_buffer* cb, char* out, int n);
 bool cb_give_front(char_buffer* cb, const char* in, int n);

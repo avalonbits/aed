@@ -31,7 +31,7 @@
  *
  * Text is never edited on disk. It is only pushed and popped at the end facing
  * memory, which is the property the whole paging design rests on -- see
- * .internal/docs/PAGING.md.
+ * docs/PAGING.md.
  *
  * This knows nothing about the gap buffer, the line index or the document's
  * name. It is two files and four pushes and pops, so that the awkward part --

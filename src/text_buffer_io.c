@@ -511,7 +511,7 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
     //
     // Too big for memory is no longer too big to open. It goes to the store
     // instead and memory holds a window on it -- which is the whole of what
-    // .internal/docs/PAGING.md is for. What is still refused is a file too big
+    // docs/PAGING.md is for. What is still refused is a file too big
     // for the arithmetic: 8 MB is where a size stops fitting in this machine's
     // int, and nothing below that line can be trusted about it.
     if (fil->obj.objsize > (uint32_t) 0x7FFFFF) {

@@ -95,7 +95,7 @@ static int  out_lens_[TB_CHUNK / 2 + 1];
 // memchr rather than a loop over the bytes: it reaches CPIR, which the eZ80 does
 // in a handful of cycles a byte against the twenty-odd a C comparison costs, and
 // every byte of a document passes through here on the way in and again on every
-// slide. See .internal/docs/PAGING.md for what that was worth.
+// slide.
 static int run_lines(const char* buf, int n, int* lens, int max, int* bytes) {
     int lines = 0;
     int used = 0;
