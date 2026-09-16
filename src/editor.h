@@ -132,9 +132,10 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname);
  * Chooses the grammar and theme for the document now in the buffer, by its
  * name and by the background in force.
  *
- * Called whenever the document changes -- at startup and on CTRL+O. A file no
- * grammar claims clears both and puts the user's own colours back, which is
- * what makes a theme a view of a document rather than a setting.
+ * Called whenever either of those changes -- at startup, on CTRL+O, and when
+ * the settings modal leaves a different background behind. A file no grammar
+ * claims clears both and puts the user's own colours back, which is what makes
+ * a theme a view of a document rather than a setting.
  */
 void ed_pick_syntax(editor* ed);
 
