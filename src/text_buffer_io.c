@@ -422,15 +422,16 @@ static bool tb_load_paged_pass(text_buffer* tb, char fh, int size,
     }
 
     // Nothing in memory and a document in the store is not an open document,
-    // it is an unreachable one: a single line longer than memory can hold
-    // cannot be brought in, because a slide moves whole lines and there is no
-    // whole line to move. It looked like success -- a 200 KB file of one line
-    // opened as an empty buffer, said it had one line of no length, and saved
-    // all 204,800 bytes back. So the file is there, invisible, and one
-    // keystroke away from being edited at the wrong end.
+    // it is an unreachable one: a line no slide can carry cannot be brought
+    // in, because a slide moves whole lines and there is no whole line to
+    // move. It looked like success -- a 200 KB file of one line opened as an
+    // empty buffer, said it had one line of no length, and saved all 204,800
+    // bytes back. So the file is there, invisible, and one keystroke away
+    // from being edited at the wrong end.
     //
     // Refused instead, which is what it said before large files were openable
-    // at all. The limit is a line longer than the window, not a file.
+    // at all. The limit is a line longer than a chunk, not a file -- see
+    // docs/PAGING.md section 8.
     if (cb_used(&tb->cb_) == 0 && store_tail_bytes(tb->store_) > 0) {
         tbi_drop_store(tb);
 
@@ -658,16 +659,18 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
     const bool big = fil->obj.objsize > (uint32_t) cb_size(&tb->cb_);
     const int fsz = (int) fil->obj.objsize;
 
-    // A line longer than the window cannot be paged: a slide moves whole lines
-    // and there is no whole line to move. Checked here, on the front of the
-    // file, because everything below this discards the document on screen and
-    // a file that cannot be opened has to leave the editor as it was.
+    // A line longer than a chunk cannot be paged: a slide moves whole lines and
+    // can carry a chunk of them at most, so there is no whole line to move.
+    // Checked here, on the front of the file, because everything below this
+    // discards the document on screen and a file that cannot be opened has to
+    // leave the editor as it was.
     //
-    // One chunk of lookahead. A first line longer than that but still shorter
-    // than memory gets past this and is caught after the load instead, by
-    // which time the old document is gone -- but that is a line of thousands
-    // of characters, where this catches the file that is one line from end to
-    // end, which is what a minified anything looks like.
+    // A chunk of lookahead, which is exactly the limit: a first line whose
+    // break is the chunk's last byte is the longest one that can ever be
+    // brought in. A long line further into the file gets past this and is
+    // caught after the load instead, by which time the old document is gone
+    // -- but this catches the file that is one line from end to end, which is
+    // what a minified anything looks like.
     if (big) {
         static char probe[TB_CHUNK];
         const int want = fsz < TB_CHUNK ? fsz : TB_CHUNK;

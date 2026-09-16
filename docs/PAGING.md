@@ -247,7 +247,7 @@ flag, `tb_destroy` included, which would otherwise hand the original's memory
 back while the cursor that owns it is still reading.
 
 **Streaming** is for everything that has to see text outside the window.
-[`tbi_doc_stream()`](../src/text_buffer_io.c#L749) walks HEAD, then memory, then
+[`tbi_doc_stream()`](../src/text_buffer_io.c#L752) walks HEAD, then memory, then
 what is left of TAIL, feeding a sink. It reads only, so the window and the
 cursor stay where they are. Saving, searching, and measuring or copying a range
 all go through it.
@@ -263,15 +263,25 @@ Deleting a range is the exception. It is a mutation, so it settles as it goes.
 
 | limit | value | why |
 |---|---|---|
-| longest line | under `TB_CHUNK` | a slide moves whole lines, so a line that does not fit in a chunk can never be brought in |
+| longest line | `TB_CHUNK` bytes, its line break included | a slide moves whole lines and can carry a whole chunk of them, so the longest line that fits is one whose break is the chunk's last byte |
 | largest file | 8 MB | `objsize` is 32 bits and this machine's `int` is 24, so a larger file narrows to a small or negative number and walks past a signed comparison |
 | open documents | one | the store is per document; a second would cost a second pair of scratch files and a second window |
 
-The long-line check is at the front of the file, in
-[`tb_open`](../src/text_buffer_io.c#L606), because everything after it discards
+The limit is the chunk rather than the window, and the difference is large: at
+the shipped size the window is 71,424 bytes and a slide carries 2,048, so a line
+of 5,000 characters is refused although it would fit in memory thirty times
+over. That follows from section 4 — a slide moves whole lines, and a chunk is
+all it moves.
+
+The check is at the front of the file, in
+[`tb_open`](../src/text_buffer_io.c#L607), because everything after it discards
 what is on screen and a file that cannot be opened must leave the editor as it
-was. [`tb_load`](../src/text_buffer_io.c#L471) has nothing to lose, so it checks
-after the load instead.
+was. That catches the file that is one line from end to end, which is what a
+minified anything looks like. A long line further in gets past it, and the load
+itself is the backstop: memory left empty with text in the store is an
+unreachable document rather than an open one, and is refused.
+[`tb_load`](../src/text_buffer_io.c#L472) has nothing on screen to lose, so it
+relies on the second of those.
 
 ## 9. How it is checked
 
