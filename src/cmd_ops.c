@@ -57,6 +57,17 @@
 #define SYN_ROW_MAX  512
 #define SYN_ROW_RUNS 64
 
+/*
+ * The deepest indent a new line inherits -- see cmd_newl.
+ *
+ * A convenience rather than a rule, so it is bounded rather than checked: an
+ * indent deeper than this is not an indent, and a line that begins with 64
+ * columns of whitespace has something else wrong with it. Past it the new line
+ * gets the first 64 columns and the reader types the rest, which is what they
+ * would have done for all of it before.
+ */
+#define AUTO_INDENT_MAX 64
+
 static char synRow_[SYN_ROW_MAX];
 static char synScan_[SYN_ROW_MAX];
 static tok_run synRuns_[SYN_ROW_RUNS];
@@ -1652,6 +1663,23 @@ void cmd_bksp(editor* ed) {
     }
 }
 
+/*
+ * The whitespace a line begins with, out of the `n` bytes at `s`.
+ *
+ * Spaces and tabs as they are written, copied rather than converted: a file
+ * indented with tabs stays indented with tabs, and one indented with spaces
+ * stays that way too. Deciding which the reader meant is a different feature
+ * and a worse one to get wrong.
+ */
+static int indent_len(const char* s, int n) {
+    int i = 0;
+    while (i < n && (s[i] == ' ' || s[i] == '\t')) {
+        i++;
+    }
+
+    return i;
+}
+
 void cmd_newl(editor* ed) {
     TB(ed);
     SCR(ed);
@@ -1660,9 +1688,65 @@ void cmd_newl(editor* ed) {
     split_line ln = tb_curr_line(tb);
     const int in = line_state(ed, line_at_row(ed, scr->currY_));
 
+    /*
+     * What the new line begins with: the whitespace this one begins with, as
+     * far as the cursor.
+     *
+     * "As far as the cursor" is what makes the awkward case behave. Splitting
+     * `    foo` at the second column gives `  ` above and `  foo` below, and
+     * the text is where it was; taking the whole indent instead would push it
+     * two columns right for having been split. At or past the end of the
+     * indent -- which is where RETURN is actually pressed -- it is the whole
+     * indent, which is the point of the feature.
+     *
+     * Only for a document AED has a grammar for. Indenting is a habit of code
+     * rather than of prose, and a document AED cannot recognise is as likely
+     * to be a letter as a program.
+     *
+     * Copied out before the buffer is touched, because the split and the
+     * inserts both write into the gap and this has to be read from the line as
+     * it was. Static for the reason the other scratch here is: on the stack it
+     * would take this frame past the 128 bytes an ix displacement reaches.
+     */
+    static char indent[AUTO_INDENT_MAX];
+    int nindent = 0;
+    if (ed->syn_.loaded) {
+        nindent = indent_len(ln.prefix_, ln.psz_);
+        if (nindent > AUTO_INDENT_MAX) {
+            nindent = AUTO_INDENT_MAX;
+        }
+        if (nindent > 0) {
+            memcpy(indent, ln.prefix_, (size_t) nindent);
+        }
+    }
+
+    /*
+     * The group stops the indent joining a run either side of it: what was
+     * typed before the RETURN, and what is typed after it on the new line.
+     * Without it the indent and the first word typed after it are one record,
+     * so one undo takes the word and the indent together.
+     *
+     * It does *not* make the break and the indent one record, and cannot: a
+     * record is one run on one line, the break is recorded on the line it
+     * split and the indent on the line below it. So RETURN here costs two
+     * undos -- the first takes the indent, leaving exactly the empty line a
+     * RETURN without this feature would have left, and the second takes the
+     * break. Making it one would mean an undo record that spans a line break,
+     * which is a change to the log rather than to this.
+     */
+    undo_group_begin(&ed->undo_);
     if (!tb_newline(tb)) {
+        undo_group_end(&ed->undo_);
+
         return;
     }
+    for (int i = 0; i < nindent; i++) {
+        if (!tb_put(tb, indent[i])) {
+            nindent = i;        // out of room; what went in is what is there
+            break;
+        }
+    }
+    undo_group_end(&ed->undo_);
     // What is left on this row is the text before the break, so it is lexed as
     // its own line -- which it now is. It begins where the whole line began,
     // which was read before the split: asking afterwards asks about a document
@@ -1681,7 +1765,10 @@ void cmd_newl(editor* ed) {
     }
     scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
 
-    scr_place_cursor(scr, NULL, 0);
+    // The cursor sits after the indent, so the column is worked out from it
+    // rather than from the start of the line -- scr_column_of expands a tab,
+    // which is the whole reason this is not a byte count.
+    scr_place_cursor(scr, nindent > 0 ? indent : NULL, nindent);
     /*
      * And the text that moved down is a line of its own now too, beginning in
      * whatever the half above it left open. Without this the row the text
@@ -1689,11 +1776,18 @@ void cmd_newl(editor* ed) {
      * start of a line looked like: the line appeared to lose its colouring and
      * got it back the next time anything repainted it.
      */
+    //
+    // The indent goes down as the row's prefix, so the row is painted as the
+    // whole line it now is. Handing over only the suffix would paint the text
+    // at the left margin and leave the colourer lexing a line the document
+    // does not have.
     if  (scr->currY_ < scr->bottomY_-1) {
         scr->currY_++;
-        scr_scroll_down(scr, scr->currY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
+        scr_scroll_down_split(scr, scr->currY_, scr->bottomY_-1,
+                              indent, nindent, ln.suffix_, ln.ssz_, ch);
     } else {
-        scr_scroll_up(scr, scr->topY_, scr->bottomY_-1, ln.suffix_, ln.ssz_, ch);
+        scr_scroll_up_split(scr, scr->topY_, scr->bottomY_-1,
+                            indent, nindent, ln.suffix_, ln.ssz_, ch);
     }
 }
 

@@ -18,6 +18,7 @@
 
 #include "editor.h"
 #include "cmd_ops.h"
+#include "undo.h"
 #include "user_input.h"
 #include "vkey.h"
 
@@ -1389,6 +1390,176 @@ int main(void) {
         check("      and the grammar is still loaded", ed.syn_.loaded ? 1 : 0, 1);
 
         ui_destroy(&ed.ui_);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- a new line inherits the indent, for a document with a grammar --- */
+    {
+        /*
+         * Pressing RETURN at the end of an indented line should leave the
+         * cursor under the text rather than at the left margin: a scope is
+         * indented once and every line in it repeats that, so typing it again
+         * per line is the editor making the reader do its work.
+         *
+         * Gated on a grammar, which is what the request asked for -- indenting
+         * is a habit of code rather than of prose, and a document AED cannot
+         * recognise is as likely to be a letter as a program.
+         */
+
+        /* What is on the new line, before the cursor. After a RETURN that is
+         * exactly the indent, because nothing else has been typed. */
+        #define NEW_INDENT(e) (tb_curr_line(&(e)->buf_).psz_)
+
+        files();
+        setup(&ed, 0);
+        /* setup() leaves the undo log unwired, which ed_init does for a real
+         * editor. Without it cmd_undo is a no-op and an undo check passes
+         * against anything -- which is how the first version of the check
+         * below passed while undoing nothing. */
+        undo_init(&ed.undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS);
+        tb_set_undo(&ed.buf_, &ed.undo_);
+        named_text(&ed, "/main.c", "    int x;\r\nplain\r\n");
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        check("a C file gets a grammar", ed.syn_.loaded ? 1 : 0, 1);
+
+        /* To the end of the first line, which is where RETURN is pressed. */
+        cmd_home(&ed);
+        cmd_end(&ed);
+        cmd_newl(&ed);
+        check("  RETURN at the end of an indented line", tb_ypos(&ed.buf_), 2);
+        check("    starts the new line under the text", NEW_INDENT(&ed), 4);
+        check("      and the cursor sits there", ed.scr_.currX_, 4);
+        {
+            const split_line ln = tb_curr_line(&ed.buf_);
+            check("      as spaces, which is what the line had",
+                  ln.prefix_[0] == ' ' && ln.prefix_[3] == ' ' ? 1 : 0, 1);
+        }
+
+        /* One CTRL+Z, not two: the break and the indent it brought are one
+         * edit, or undo leaves whitespace the reader never typed. */
+        /*
+         * Two undos, and the pair is the assertion rather than either half.
+         * A record is one run on one line: the break is recorded on the line
+         * it split and the indent on the line below, so they cannot be one
+         * record however they are grouped.
+         *
+         * What matters is that the halfway house is somewhere sensible -- the
+         * first undo leaves exactly the empty line a RETURN without this
+         * feature would have left, rather than a line holding whitespace
+         * nobody typed.
+         */
+        cmd_undo(&ed);
+        check("    one undo takes the indent", NEW_INDENT(&ed), 0);
+        check("      leaving the line a plain RETURN would have",
+              tb_ymax(&ed.buf_), 4);
+        cmd_undo(&ed);
+        check("    and the second takes the break", tb_ymax(&ed.buf_), 3);
+        undo_destroy(&ed.undo_);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- a tab indent stays tabs --- */
+    {
+        /* Copied rather than converted: a file indented with tabs stays
+         * indented with tabs. Deciding which the reader meant is a different
+         * feature and a worse one to get wrong. */
+        files();
+        setup(&ed, 0);
+        named_text(&ed, "/main.c", "\tint x;\r\n");
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        cmd_home(&ed);
+        cmd_end(&ed);
+        cmd_newl(&ed);
+        {
+            const split_line ln = tb_curr_line(&ed.buf_);
+            check("a tab indent is inherited as one byte", ln.psz_, 1);
+            check("  and it is a tab", ln.prefix_[0] == '\t' ? 1 : 0, 1);
+        }
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- only as far as the cursor --- */
+    {
+        /*
+         * Splitting `    foo` at the second column gives `  ` above and
+         * `  foo` below, and the text is where it was. Taking the whole indent
+         * instead would push it two columns right for having been split.
+         */
+        files();
+        setup(&ed, 0);
+        named_text(&ed, "/main.c", "    foo\r\n");
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        cmd_home(&ed);
+        cmd_right(&ed);
+        cmd_right(&ed);
+        cmd_newl(&ed);
+        check("splitting inside the indent takes only what is behind the cursor",
+              NEW_INDENT(&ed), 2);
+        tb_destroy(&ed.buf_);
+
+        /* And at the very start there is nothing behind it, so the new line
+         * begins where the old one did rather than gaining an indent the
+         * reader never asked for. */
+        setup(&ed, 0);
+        named_text(&ed, "/main.c", "    foo\r\n");
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        cmd_home(&ed);
+        cmd_newl(&ed);
+        check("  and RETURN at the start of a line adds none",
+              NEW_INDENT(&ed), 0);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- an indent deeper than the bound is taken as far as the bound --- */
+    {
+        /*
+         * The copy is into a fixed buffer, so the bound is what stops a line
+         * that begins with a hundred columns of whitespace writing past it.
+         * Without the clamp this is a memcpy of 100 bytes into 64, which the
+         * sanitiser stops the suite dead for rather than reporting as a
+         * failing check -- so this is one to read the exit status for.
+         */
+        static char deep[160];
+        int at = 0;
+        while (at < 100) {
+            deep[at++] = ' ';
+        }
+        deep[at++] = 'x';
+        deep[at++] = '\r';
+        deep[at++] = '\n';
+        deep[at] = 0;
+
+        files();
+        setup(&ed, 0);
+        named_text(&ed, "/main.c", deep);
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        cmd_home(&ed);
+        cmd_end(&ed);
+        cmd_newl(&ed);
+        check("an indent past the bound is taken as far as the bound",
+              NEW_INDENT(&ed), 64);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- and a document with no grammar gets none of it --- */
+    {
+        files();
+        setup(&ed, 0);
+        named_text(&ed, "/notes.txt", "    a list item\r\n");
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        check("a .txt file finds no grammar", ed.syn_.loaded ? 1 : 0, 0);
+        cmd_home(&ed);
+        cmd_end(&ed);
+        cmd_newl(&ed);
+        check("  so RETURN leaves the new line at the margin",
+              NEW_INDENT(&ed), 0);
+        check("    and the cursor with it", ed.scr_.currX_, 0);
         tb_destroy(&ed.buf_);
     }
 

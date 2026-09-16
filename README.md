@@ -11,7 +11,8 @@ another file without leaving the editor, keeps real tab characters, and remember
 tab width in a settings file.
 
 It colours assembly, C, BASIC and INI files as you type, in a theme chosen for
-the background you are using -- see [Syntax highlighting](#syntax-highlighting).
+the background you are using, and keeps your indentation when you press RETURN in
+one -- see [Syntax highlighting](#syntax-highlighting).
 
 It opens files larger than memory. A document that does not fit is held as a window on
 the file with the rest in two scratch files beside it, so the size you can edit is the
@@ -31,6 +32,7 @@ your Agon.
     * [`font`](#font)
     * [`ctrl_pause_frames`](#ctrl_pause_frames)
 * [Syntax highlighting](#syntax-highlighting)
+    * [Indenting](#indenting)
     * [Writing your own](#writing-your-own)
 * [Running the editor](#running-the-editor)
 * [File operations](#file-operations)
@@ -287,6 +289,21 @@ What ships:
 
 `.bbc` is deliberately absent: that extension is normally tokenised BASIC, which has no
 text in it to colour.
+
+### Indenting
+
+In a file AED has a grammar for, **RETURN keeps your indentation**: the new line
+begins with the same spaces or tabs the line you were on began with, so a scope you
+indented once stays indented without you typing it again per line.
+
+It copies what is there rather than converting it, so a file indented with tabs stays
+that way and one indented with spaces does too. Only the whitespace behind the cursor
+is copied, so splitting a line part way through its indent leaves the text where it
+was rather than pushing it further right. Pressing RETURN at the very start of a line
+adds nothing.
+
+A file no grammar claims gets none of this — indenting is a habit of code, and a plain
+document is as likely to be a letter as a program.
 
 **The theme follows your background.** A colour that reads well on black is unreadable
 on white, so AED picks the first theme whose author listed the background you are using.
