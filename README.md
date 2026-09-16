@@ -312,7 +312,8 @@ extensions = .c .h
 [match]
 comment.line         = eol '//'
 comment.block        = span '/*' '*/' multiline
-string.quoted.double = span '"' '"' escape keyword.control      = words if else for while return
+string.quoted.double = span '"' '"' escape \
+keyword.control      = words if else for while return
 constant.numeric     = number
 ```
 
