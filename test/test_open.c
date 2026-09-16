@@ -203,6 +203,49 @@ int main(void) {
     check("  the document is untouched", doc_is(&tb, "alpha\nbeta\n\n"), 1);
     check("  and so is its name", strcmp(tb_fname(&tb), "first.txt"), 0);
 
+    /* Either side of the limit, which is the pair that says where it is.
+     *
+     * A slide moves whole lines and it can carry a whole chunk of them, so the
+     * longest line that can ever be brought in is exactly TB_CHUNK bytes with
+     * its break counted -- the break has to be the chunk's last byte. One byte
+     * more and the line can never be moved, so the file is refused.
+     *
+     * Both cases are here because a limit stated from one side is a limit
+     * nobody can check. The accepting half also guards the fix that let a
+     * slide carry a full chunk: before it, a document of chunk-length lines
+     * opened and then quietly stopped scrolling upward.
+     *
+     * The refusing half does not say which guard refuses, and there are two --
+     * the probe on the front of the file, and the load finding memory empty
+     * with text in the store. Widening the probe alone still refuses, which is
+     * the point of having both. */
+    {
+        static char edge[200 * 1024];
+        const int n = (int) sizeof(edge);
+
+        /* Lines of exactly TB_CHUNK bytes: TB_CHUNK - 2 of 'z', then CRLF. */
+        memset(edge, 'z', (size_t) n);
+        for (int at = TB_CHUNK - 2; at + 1 < n; at += TB_CHUNK) {
+            edge[at] = '\r';
+            edge[at + 1] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(edge, n);
+        check("a file whose lines are exactly a chunk long opens",
+              tb_open(&tb, "edge.txt", 8), TB_OK);
+
+        /* One byte longer, so the break falls a byte past the chunk. */
+        memset(edge, 'z', (size_t) n);
+        for (int at = TB_CHUNK - 1; at + 1 < n; at += TB_CHUNK + 1) {
+            edge[at] = '\r';
+            edge[at + 1] = '\n';
+        }
+        stub_file_reset();
+        stub_file_set_content(edge, n);
+        check("  and a byte longer than that is refused",
+              tb_open(&tb, "over.txt", 8), TB_TOO_LARGE);
+    }
+
     /* The same size, with line breaks in it, opens. CTRL+O used to be the one
      * way into the editor that could not open a large file: `aed big.asm`
      * worked and opening the same file from inside did not. */
