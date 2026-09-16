@@ -1098,10 +1098,10 @@ int scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz)
      * back.
      *
      * With a theme in force the whole row goes instead. What is already on the
-     * row can change colour because of the character just typed -- the `*` of
-     * a `/*` turns the slash before it into the start of a comment, and a
-     * quote turns the rest of the line into a string -- so there is no column
-     * left of the cursor that is safe to leave alone.
+     * row can change colour because of the character just typed -- the star of
+     * a slash-star turns the slash before it into the start of a comment, and
+     * a quote turns the rest of the line into a string -- so there is no
+     * column left of the cursor that is safe to leave alone.
      */
     const int at = scr->theme_ != NULL
                  ? scr->originX_

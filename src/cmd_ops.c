@@ -165,27 +165,6 @@ static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
 }
 
 /*
- * What a row leaves open, without painting it.
- *
- * For the handful of moments when the model has to be brought up to date
- * before anything is drawn: an edit has changed the document and the rows are
- * about to move, and the answer for the row below depends on the row above as
- * it now is.
- */
-static int row_leaves(editor* ed, const char* pre, int presz,
-                      const char* suf, int sufsz, int in) {
-    if (!ed->syn_.loaded) {
-        return SYN_STATE_NONE;
-    }
-    const split_line ln = { presz, (char*) pre, sufsz, (char*) suf };
-    const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
-    int out = SYN_STATE_NONE;
-    syn_lex(&ed->syn_, synScan_, len, in, &out, NULL, 0);
-
-    return out;
-}
-
-/*
  * The screen asking what colour the cell under the cursor belongs in.
  *
  * Worked out here and now rather than handed over in advance, so it describes
@@ -1588,9 +1567,9 @@ void cmd_del(editor* ed) {
     if (ed->syn_.loaded) {
         /*
          * scr_del paints from the cursor, and a deletion can change the colour
-         * of what is left of it -- taking the second character out of a `/*`
-         * ends a comment that was covering the rest of the line. The whole row
-         * goes instead, which is what the other edits do.
+         * of what is left of it -- taking the star out of a slash-star ends a
+         * comment that was covering the rest of the line. The whole row goes
+         * instead, which is what the other edits do.
          */
         cmd_repaint_rows(ed, scr->currY_, scr->currY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
