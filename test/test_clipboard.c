@@ -391,6 +391,49 @@ int main(void) {
     check_s("paste replaces the selection", doc_of(&ed.buf_), "one/two/one/");
     check("  and nothing is selected afterwards", ed.selecting_ ? 1 : 0, 0);
 
+    /* --- what a paste costs to undo --- */
+    {
+        /*
+         * One undo per line pasted, rather than one per paste.
+         *
+         * An undo record is one run on one line, so a paste holding a break is
+         * at least two of them and no grouping can merge them: the text before
+         * the break is recorded on one line and the text after it on the next.
+         * cmd_paste used to say a paste was one thing to take back "however
+         * many lines it is", which is true only of a paste with no break in it.
+         *
+         * The halfway state is the part worth pinning, because it is the part
+         * a reader meets: undoing a two-line paste once leaves the first line
+         * of it still pasted and an empty line under it -- a document that
+         * never existed. Recorded here as what happens rather than as what
+         * should; fixing it means an undo record that can span a break.
+         */
+        restart();
+        select_from(at(1, 0), at(1, 3));        /* "one", no break in it */
+        cmd_copy(&ed);
+        ed.selecting_ = false;                  /* copy leaves it live */
+        tb_seek(&ed.buf_, at(3, 5));
+        cmd_paste(&ed);
+        check_s("a paste with no break in it", doc_of(&ed.buf_),
+                "one/two/threeone/");
+        cmd_undo(&ed);
+        check_s("  costs one undo", doc_of(&ed.buf_), "one/two/three/");
+
+        restart();
+        select_from(at(1, 0), at(2, 3));        /* "one\ntwo" */
+        cmd_copy(&ed);
+        ed.selecting_ = false;
+        tb_seek(&ed.buf_, at(3, 5));
+        cmd_paste(&ed);
+        check_s("a paste of two lines", doc_of(&ed.buf_),
+                "one/two/threeone/two/");
+        cmd_undo(&ed);
+        check_s("  is not taken back by one undo", doc_of(&ed.buf_),
+                "one/two/threeone//");
+        cmd_undo(&ed);
+        check_s("    and takes two", doc_of(&ed.buf_), "one/two/three/");
+    }
+
     /* Paste with nothing copied does nothing at all. */
     restart();
     check("paste with an empty clipboard does nothing",
