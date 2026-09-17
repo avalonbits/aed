@@ -50,6 +50,23 @@ See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
   A raw image (`--sdcard-img`) would make FatFS run for real and would answer
   the seek and overhead questions, but still not throughput. It needs
   `dosfstools` and `mtools`, neither of which is installed here.
+- `openmode.c` — what MOS does with `FA_OPEN_EXISTING`, and what `ffs_stat`
+  says about a file that is there and one that is not. Written for the change
+  that stopped `tb_load` passing `FA_OPEN_ALWAYS`: naming a file that is not
+  there used to put an empty one on the card, which is indistinguishable from
+  the editor having emptied one, and telling absence apart from a refusal now
+  rests on `ffs_stat`. Both are MOS behaviour the host stubs only model.
+
+  Measured the same on MOS 3.0.2 and on MOS 2.3.3, the oldest AED supports:
+  `FA_READ|FA_WRITE` opens an existing file and reports its size, fails on a
+  missing one and creates nothing, and `ffs_stat` answers `FR_OK` with the size
+  or `FR_NO_FILE`. Results go to `/probe.out`.
+
+  It also found the trap: **the file on the card has to be writable.** Copied
+  from a read-only master it is 0444 on the host, the emulator's hostfs passes
+  that through, and `FA_READ|FA_WRITE` fails on a file that is plainly there --
+  which reads exactly like MOS refusing the mode. It is not; it is the mode
+  bits on the host file.
 - `kbev.c` — prints every `agon/keyboard.h` event (ascii, kmod, vkey, up/down)
   as it arrives. This is the input path AED should use; the other two probes
   are from the superseded keyboard-map investigation.
