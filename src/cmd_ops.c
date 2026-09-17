@@ -2184,8 +2184,14 @@ void cmd_page_down(editor* ed) {
     int remaining = tb_ymax(tb) - tb_ypos(tb) - curr + 1;
 
     if (remaining <= 0) {
+        // The last line of the document is already on screen, so the view has
+        // nowhere to go: the cursor walks down to that line and its row follows
+        // it there. Parking the row on the bottom of the screen regardless put
+        // the cursor on a row with no line behind it -- on an empty document,
+        // where there is nothing to walk to at all, PAGE DOWN moved the cursor
+        // to the foot of the screen and typing began there.
         remaining = tb_ymax(tb) - tb_ypos(tb);
-        scr->currY_ = scr->bottomY_-1;
+        scr->currY_ += remaining;
     }
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_down(tb);
