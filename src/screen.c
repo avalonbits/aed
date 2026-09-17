@@ -88,6 +88,29 @@ void set_colours(char fg, char bg) {
     mos_puts(vdu, sizeof(vdu), 0);
 }
 
+/*
+ * The foreground alone: VDU 17, c.
+ *
+ * Every token boundary on a coloured row is one of these, and the background
+ * is the same at both sides of it -- a theme moves the foreground and leaves
+ * the pair the document is drawn on where it is (see scr_theme_scheme), and
+ * only the selection and the cursor swap them. Sending both halves there
+ * spends four bytes to change two.
+ *
+ * That is worth counting because the bytes are the cost. Each one is 11.1 us
+ * on the wire at the link's own rate and a write costs 8.6 us to enter MOS
+ * (test/probes/vducost.c), so a boundary goes from 53 us to 31. A screenful of
+ * C crosses a few hundred of them.
+ */
+static void set_fg(char fg) {
+    out_flush();
+
+    char vdu[2];
+    vdu[0] = 17;
+    vdu[1] = fg;
+    mos_puts(vdu, sizeof(vdu), 0);
+}
+
 // The cursor cell shows the character under it, but a control byte cannot be
 // drawn -- sending a tab to the VDP moves the cursor instead of painting it,
 // which left the cursor invisible whenever it sat on one.
@@ -1279,7 +1302,11 @@ static void highlight(screen* scr, int col, int byte) {
     if (fg == scr->curFg_ && bg == scr->curBg_) {
         return;
     }
-    set_colours(fg, bg);
+    if (bg == scr->curBg_) {
+        set_fg(fg);             // which is every boundary between two tokens
+    } else {
+        set_colours(fg, bg);
+    }
     scr->curFg_ = fg;
     scr->curBg_ = bg;
 }
