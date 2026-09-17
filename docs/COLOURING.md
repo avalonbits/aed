@@ -216,10 +216,10 @@ Four operations, and no state meaning *give up*:
 
 | | |
 |---|---|
-| [`line_state()`](../src/cmd_ops.c#L693) | inside the window it is a lookup; below it the window grows ([`extend_lines`](../src/cmd_ops.c#L582)); above it the window starts again there ([`refill_lines`](../src/cmd_ops.c#L639)) |
-| [`set_line_state()`](../src/cmd_ops.c#L722) | records what a paint has just worked out |
-| [`lines_moved()`](../src/cmd_ops.c#L763) | the document gained or lost a line at a point |
-| [`line_at_row()`](../src/cmd_ops.c#L800) | `synTop_ + (ypos - topY_)`, the only place a row becomes a line |
+| [`line_state()`](../src/cmd_ops.c#L699) | inside the window it is a lookup; below it the window grows ([`extend_lines`](../src/cmd_ops.c#L588)); above it the window starts again there ([`refill_lines`](../src/cmd_ops.c#L645)) |
+| [`set_line_state()`](../src/cmd_ops.c#L728) | records what a paint has just worked out |
+| [`lines_moved()`](../src/cmd_ops.c#L769) | the document gained or lost a line at a point |
+| [`line_at_row()`](../src/cmd_ops.c#L806) | `synTop_ + (ypos - topY_)`, the only place a row becomes a line |
 
 A join **renumbers** its answers rather than throwing them out, which is worth
 doing: throwing them out costs a screenful of lexing per edit and measured seven

@@ -1637,16 +1637,26 @@ int main(void) {
               ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
 
         /*
-         * A jump does not backfill, and that is the difference between a
-         * scroll and a jump. The answers above the top line are what scrolling
-         * up asks for next; a view that has landed somewhere new is about to
-         * land somewhere new again -- a page down goes on paging down -- and
-         * the lines above where it landed are never read. Backfilling here
-         * cost a page down 28% on big.c and nothing ever used it.
+         * A page down reuses the answers rather than working them out again.
+         *
+         * The view moved forward by one screen from a place already painted,
+         * and the paint recorded what every line it drew leaves open -- so the
+         * new top line's answer is already held. Refilling instead read back
+         * up to SYN_LOOKBACK lines to re-derive it, on every repaint: 174
+         * lexes a page against a screenful, and 3.1 seconds a page against
+         * 2.0, paging through a 406-line C file on the emulator.
+         *
+         * What says so here is that the window is not restarted -- synFirst_
+         * stays where it was -- and that it still answers for where the view
+         * landed.
          */
-        cmd_show(&ed);
-        check("  a jump starts the answers where it landed",
-              ed.synFirst_, ed.synTop_);
+        {
+            const int was_first = ed.synFirst_;
+            cmd_page_down(&ed);
+            check("  a page down reuses the answers", ed.synFirst_, was_first);
+            check("    and they still reach where it landed",
+                  ed.synTop_ - ed.synFirst_ < ed.synKnown_, 1);
+        }
 
         tb_destroy(&ed.buf_);
     }

@@ -344,16 +344,22 @@ static void fill_screen(editor* ed, text_buffer* tb) {
      * goes, so the rest chains itself.
      */
     /*
-     * No backfill here, and that is the difference between a scroll and a
-     * jump. The answers above the top line are what scrolling up asks for
-     * next, so a refill during a scroll keeps the tail of its read-back and
-     * earns it back over the following rows. A view that has landed somewhere
-     * new is about to land somewhere new again -- a page down goes on paging
-     * down -- and the lines above where it landed are never asked about. On
-     * big.c, backfilling here cost a page down 28% and nothing ever read it.
+     * Asked for rather than worked out again.
+     *
+     * This used to refill from scratch, which means reading back to find what
+     * the top line begins inside -- up to SYN_LOOKBACK lines sought and lexed,
+     * on every repaint. A page down does not need it: the view moved forward
+     * by one screen from a place already painted, and the paint recorded what
+     * every line it drew leaves open, including the line after the last one.
+     * The answer is already here.
+     *
+     * line_state reads it when it is known and works it out when it is not, so
+     * a jump somewhere the answers do not reach still reads back -- which is
+     * what a jump to the end of a document is. Paging through big.c went from
+     * 174 lexes a page to a screenful, and 3.1 seconds a page to 2.0.
      */
     ed->synTop_ = tpos;
-    refill_lines(ed, tpos, 0);
+    (void) line_state(ed, tpos);
 
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
