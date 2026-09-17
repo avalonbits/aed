@@ -24,6 +24,6 @@
 // This has to match the tag a release is cut from. Nothing enforces that, so it
 // is the first thing to change when cutting one -- a banner claiming a version
 // that was never released is worse than no banner.
-#define AED_VERSION "1.1.0"
+#define AED_VERSION "1.2.0"
 
 #endif  // _VERSION_H_
