@@ -836,6 +836,82 @@ int main(void) {
         check_lex("42", &g, "NN");
     }
 
+    /*
+     * --- the index a grammar is turned into when it loads ---
+     *
+     * `isword` and `start` answer, per byte value, what the lexer's inner loop
+     * used to ask every rule at every position: is this part of a word, and
+     * which rules could begin here. A rule the index leaves out is a rule that
+     * never runs, so these check the index is complete rather than merely
+     * fast -- a missing bit colours nothing and looks like a grammar bug.
+     */
+    {
+        /* Case folded on both sides. The literal is upper case and the text is
+         * lower, so an index built from the raw byte would not reach the rule
+         * at all. */
+        check("a case-insensitive grammar",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n"
+                        "case = insensitive\n"
+                        "[match]\ncomment.line = eol 'REM'\n") ? 1 : 0, 1);
+        check_lex("rem hi", &g, "CCCCCC");
+        check_lex("ReM hi", &g, "CCCCCC");
+        check_lex("REM hi", &g, "CCCCCC");
+
+        /* A `bol` rule past the line's indentation. Runs of bytes no rule can
+         * begin at are taken in one step now, and the step has to stop where
+         * the indentation does or the rule is never offered the `#`. */
+        check("a grammar with a rule only a line start reaches",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n"
+                        "[match]\nkeyword.control.preprocessor = bol '#'\n"
+                        "keyword.control = words if\n") ? 1 : 0, 1);
+        check_lex("#define X", &g, "PPPPPPPPP");
+        check_lex("    #define X", &g, "TTTTPPPPPPPPP");
+        check_lex("\t\t#define X", &g, "TTPPPPPPPPP");
+        check_lex("x #define X", &g, "TTTTTTTTTTT");
+        /* The byte that ends the run is what decides whether the line still
+         * counts as unstarted. Blanks, then punctuation no rule begins at,
+         * then the literal: the punctuation has started the line, so the rule
+         * must not fire -- which it does if the run swallows it and the flag
+         * is judged on the blank the run began with. */
+        check_lex("  (#define X", &g, "TTTTTTTTTTTT");
+        check_lex("  ;#define X", &g, "TTTTTTTTTTTT");
+        check_lex("   if", &g, "TTTKK");
+        check_lex("  ()[]{},;  if", &g, "TTTTTTTTTTTTKK");
+
+        /* A word outside the set's length range is dismissed without a search,
+         * so the range has to be the real one. `if` is the shortest word here
+         * and `continue` the longest: a word of either length must still be
+         * found, and one byte either side must still be ordinary text. */
+        check("a grammar whose words differ in length",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n"
+                        "[match]\nkeyword.control = words if continue\n")
+              ? 1 : 0, 1);
+        check_lex("if", &g, "KK");
+        check_lex("continue", &g, "KKKKKKKK");
+        check_lex("i", &g, "T");
+        check_lex("continued", &g, "TTTTTTTTT");
+        check_lex("if continue i x", &g, "KKTKKKKKKKKTTTT");
+
+        /* The index is rebuilt for each grammar, so one loaded after another
+         * does not answer with the one before's word characters. BASIC counts
+         * `$` as part of a word and C does not. */
+        check("a grammar with its own word characters",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n"
+                        "wordchars = $\n"
+                        "[match]\nkeyword.control = words mid$\n") ? 1 : 0, 1);
+        check_lex("mid$", &g, "KKKK");
+        check_lex("mid$x", &g, "TTTTT");
+        check("the same grammar file without them",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .t\n"
+                        "[match]\nkeyword.control = words mid\n") ? 1 : 0, 1);
+        check_lex("mid$", &g, "KKKT");
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
