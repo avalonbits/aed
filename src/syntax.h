@@ -295,8 +295,20 @@ bool syn_crosses_lines(const syntax* g);
  * grammar except C so far, and is what keeps a jump in an assembly file free.
  *
  * `buf` is scratch for one line at a time, SYN_SCAN_MAX bytes by preference.
+ *
+ * The walk works out what every line it passes begins inside, and `out` is
+ * where to keep the last `nout` of them rather than drop them: on return
+ * `out[nout - 1]` is the line before `y`, `out[nout - 2]` the one before that,
+ * down to `out[0]` `nout` lines back. A caller that wants a window of answers
+ * ending at `y` is handed one this way, instead of walking the same lines a
+ * second time to build it.
+ *
+ * Entries the walk never reaches are left SYN_STATE_NONE, which is the right
+ * answer for a line above the document's first and harmless for one past its
+ * last, since neither exists to be painted. Pass NULL when only the answer for
+ * `y` is wanted.
  */
 int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
-                     char* buf, int bufmax);
+                     char* buf, int bufmax, char* out, int nout);
 
 #endif  // _SYNTAX_H_

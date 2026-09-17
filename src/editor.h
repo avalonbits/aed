@@ -82,8 +82,18 @@ typedef struct _editor {
      * `synTop_` is the one thing here about the view: which line row topY_
      * draws. Painting is asked about rows, and this is what turns a row into a
      * line.
+     *
+     * How wide it is follows from what fills it. The one expensive thing here
+     * is the read-back a view does when it lands somewhere it has no answer
+     * for, and that walk settles SYN_LOOKBACK lines whether or not there is
+     * anywhere to put them. A window narrower than the walk throws the rest
+     * away and reads them again on the next page up; a window wider than the
+     * walk holds space nothing can fill. So: the walk, and a screen below it
+     * for the rows the view is about to paint.
      */
-    char lineSyn_[SCR_MAX_ROWS];
+#define SYN_WINDOW (SYN_LOOKBACK + SCR_MAX_ROWS)
+
+    char lineSyn_[SYN_WINDOW];
     int synFirst_;
     int synKnown_;
     int synTop_;
