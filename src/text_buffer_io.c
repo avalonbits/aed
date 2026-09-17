@@ -489,8 +489,20 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
 
     char fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
     if (fh == 0) {
-        // Try to create the file.
-        fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
+        /*
+         * A second try that can only make a file, never empty one.
+         *
+         * This used to retry with FA_CREATE_ALWAYS, which truncates. But
+         * FA_OPEN_ALWAYS already creates a file that is not there, so the
+         * retry is only ever reached when the open failed for some other
+         * reason -- and then it destroyed the reader's file and showed them
+         * the empty result of doing so. A 16 KB source opened as a blank
+         * screen and was a blank file afterwards.
+         *
+         * FA_CREATE_NEW refuses a file that exists, so a failure that is not
+         * about absence now stays a failure.
+         */
+        fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_NEW);
         if (fh == 0) {
             tb->fname_[0] = 0;
 
@@ -623,7 +635,9 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
 
     char fh = mos_fopen(name, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
     if (fh == 0) {
-        fh = mos_fopen(name, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
+        // Creates one that is not there, and refuses one that is -- see
+        // tb_load, where the same retry used to empty the file it reopened.
+        fh = mos_fopen(name, FA_READ | FA_WRITE | FA_CREATE_NEW);
         if (fh == 0) {
             return TB_NO_FILE;
         }
@@ -822,16 +836,36 @@ static bool save_sink(void* ctx, const char* buf, int sz) {
     return o->ok;
 }
 
-static bool tb_save_paged(text_buffer* tb) {
-    static const char TMP_SUFFIX[] = ".aeds";
-    static char tmp[TB_FNAME_MAX + sizeof(TMP_SUFFIX)];
+#define TMP_SUFFIX ".aeds"
+#define SAVE_TMP_MAX (TB_FNAME_MAX + (int) sizeof(TMP_SUFFIX))
 
+/*
+ * The name a save writes through before it becomes the document.
+ *
+ * A save that writes over the document has destroyed it before it has anything
+ * to put back, so anything that goes wrong in the middle -- a card that fills,
+ * a machine turned off, an emulator closed -- leaves the reader with whatever
+ * had been written by then. Writing a scratch file and renaming it over the
+ * document afterwards means the document is only ever replaced by something
+ * whole.
+ */
+static bool save_tmp_name(const text_buffer* tb, char* tmp, int max) {
     const int nlen = (int) strlen(tb->fname_);
-    if (nlen + (int) sizeof(TMP_SUFFIX) > (int) sizeof(tmp)) {
+    if (nlen + (int) sizeof(TMP_SUFFIX) > max) {
         return false;
     }
     memcpy(tmp, tb->fname_, (size_t) nlen);
     memcpy(tmp + nlen, TMP_SUFFIX, sizeof(TMP_SUFFIX));
+
+    return true;
+}
+
+static bool tb_save_paged(text_buffer* tb) {
+    static char tmp[SAVE_TMP_MAX];
+
+    if (!save_tmp_name(tb, tmp, (int) sizeof(tmp))) {
+        return false;
+    }
 
     const char fh = mos_fopen(tmp, FA_WRITE | FA_CREATE_ALWAYS);
     if (fh == 0) {
@@ -883,7 +917,22 @@ bool tb_save(text_buffer* tb) {
         return true;
     }
 
-    char fh = mos_fopen(tb->fname_, FA_WRITE | FA_CREATE_ALWAYS);
+    /*
+     * Through a scratch file and a rename, the same way the paged save goes.
+     *
+     * This used to open the document itself with FA_CREATE_ALWAYS, which
+     * empties it before a byte of the new one is written. A card that filled
+     * partway left a short file; a machine that stopped partway left whatever
+     * had reached it; and closing the emulator in that window left nothing at
+     * all. The reader's file was gone and the only copy of it was in a buffer
+     * that went with the editor.
+     */
+    static char tmp[SAVE_TMP_MAX];
+    if (!save_tmp_name(tb, tmp, (int) sizeof(tmp))) {
+        return false;
+    }
+
+    char fh = mos_fopen(tmp, FA_WRITE | FA_CREATE_ALWAYS);
     if (fh == 0) {
         return false;
     }
@@ -905,9 +954,18 @@ bool tb_save(text_buffer* tb) {
     }
 
     mos_fclose(fh);
-    // A card that filled up partway leaves a short file behind, and the buffer
-    // stays dirty so the user is told the save did not happen.
+    // A card that filled up partway leaves the scratch file behind rather than
+    // the document, and the buffer stays dirty so the reader is told.
     if (!ok) {
+        mos_del(tmp);
+
+        return false;
+    }
+    if (mos_ren(tmp, tb->fname_) != 0) {
+        // The document is still whole and the new one is still on the card,
+        // so nothing has been lost; the save simply did not happen.
+        mos_del(tmp);
+
         return false;
     }
     tbi_saved(tb);

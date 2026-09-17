@@ -131,6 +131,68 @@ int main(void) {
 
     tb_destroy(&tb);
 
+    /*
+     * The document on the card must survive a save that fails.
+     *
+     * The in-memory save used to open the document itself with
+     * FA_CREATE_ALWAYS, which empties it before it has a replacement to put
+     * back. Every failure above therefore left the reader with a file that had
+     * been emptied and an editor holding the only copy -- and closing the
+     * editor at that point lost the file. Checked of the card rather than of
+     * the editor, because the question is what is on disk afterwards.
+     */
+    {
+        static const char KEEP[] = "the file that was already there\r\n";
+        stub_file_reset();
+        stub_file_add("/keep.txt", KEEP, (int) sizeof(KEEP) - 1);
+
+        static text_buffer t;
+        tb_init(&t, 8, NULL);
+        tb_set_fname(&t, "/keep.txt", 9);
+        for (int i = 0; i < 40; i++) {
+            put_str(&t, "replacement");
+        }
+
+        stub_file_short_write(8);       /* a card that fills up partway */
+        check("a save that fails is reported", tb_save(&t) ? 1 : 0, 0);
+        stub_file_short_write(-1);
+
+        static char back[128];
+        const char rh = mos_fopen("/keep.txt", FA_READ);
+        const int got = rh != 0 ? (int) mos_fread(rh, back, sizeof(back)) : -1;
+        if (rh != 0) {
+            mos_fclose(rh);
+        }
+        check("  and the file still holds what it held",
+              got, (int) sizeof(KEEP) - 1);
+        check("    byte for byte",
+              got == (int) sizeof(KEEP) - 1
+                  && memcmp(back, KEEP, (size_t) got) == 0 ? 1 : 0, 1);
+
+        /* And the scratch file it wrote through is cleaned up, so a failed
+         * save does not litter the card with half-written leftovers. */
+        const char sh = mos_fopen("/keep.txt.aeds", FA_READ);
+        if (sh != 0) {
+            mos_fclose(sh);
+        }
+        check("  no scratch file left behind", sh != 0 ? 1 : 0, 0);
+
+        /* A save that works still replaces the file. */
+        stub_file_reset();
+        stub_file_add("/keep.txt", KEEP, (int) sizeof(KEEP) - 1);
+        check("a save that works replaces it", tb_save(&t) ? 1 : 0, 1);
+        const char oh = mos_fopen("/keep.txt", FA_READ);
+        static char after[1024];
+        const int asz = oh != 0 ? (int) mos_fread(oh, after, sizeof(after)) : -1;
+        if (oh != 0) {
+            mos_fclose(oh);
+        }
+        check("  the document is what is on the card", asz, 40 * 11);
+        check("    and the scratch file is gone",
+              mos_fopen("/keep.txt.aeds", FA_READ) != 0 ? 1 : 0, 0);
+        tb_destroy(&t);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
