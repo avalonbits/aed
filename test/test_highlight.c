@@ -1635,6 +1635,18 @@ int main(void) {
          */
         check("    leaves a windowful of answers rather than a screenful",
               ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+
+        /*
+         * A jump does not backfill, and that is the difference between a
+         * scroll and a jump. cmd_show lands the view somewhere new, and the
+         * lines above where it landed are never asked about -- a page down
+         * goes on paging down. Backfilling there read back 72 lines on every
+         * repaint and threw them away, which measured 28% of a page down.
+         */
+        cmd_show(&ed);
+        check("  a jump starts the answers where it landed",
+              ed.synFirst_, ed.synTop_);
+
         tb_destroy(&ed.buf_);
     }
 

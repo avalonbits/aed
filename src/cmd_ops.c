@@ -71,6 +71,22 @@
 // The fewest lines of backfill a refill bothers with -- see refill_lines.
 #define SYN_BACKFILL_MIN 8
 
+/*
+ * How far above a line to start the answers when the reader is scrolling.
+ *
+ * Whatever is left of the window once the screen has its share: the rows on
+ * screen have to fit or the answers run out halfway down a repaint, and
+ * everything past them is what scrolling up asks for next.
+ */
+static int syn_backfill(editor* ed) {
+    int back = SCR_MAX_ROWS - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    if (back < SYN_BACKFILL_MIN) {
+        back = SYN_BACKFILL_MIN;
+    }
+
+    return back;
+}
+
 static char synRow_[SYN_ROW_MAX];
 static char synScan_[SYN_ROW_MAX];
 static tok_run synRuns_[SYN_ROW_RUNS];
@@ -104,7 +120,7 @@ static int line_state(editor* ed, int line);
 static void set_line_state(editor* ed, int line, int state);
 static void lines_moved(editor* ed, int line, int delta);
 static int line_at_row(editor* ed, char ypos);
-static int refill_lines(editor* ed, int line);
+static int refill_lines(editor* ed, int line, int back);
 
 /*
  * An edit changed what its line leaves open -- the second character of a
@@ -318,8 +334,17 @@ static void fill_screen(editor* ed, text_buffer* tb) {
      * row above leaves, and each paint records that for the row below as it
      * goes, so the rest chains itself.
      */
+    /*
+     * No backfill here, and that is the difference between a scroll and a
+     * jump. The answers above the top line are what scrolling up asks for
+     * next, so a refill during a scroll keeps the tail of its read-back and
+     * earns it back over the following rows. A view that has landed somewhere
+     * new is about to land somewhere new again -- a page down goes on paging
+     * down -- and the lines above where it landed are never asked about. On
+     * big.c, backfilling here cost a page down 28% and nothing ever read it.
+     */
     ed->synTop_ = tpos;
-    refill_lines(ed, tpos);
+    refill_lines(ed, tpos, 0);
 
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
@@ -602,16 +627,7 @@ static void extend_lines(editor* ed, int upto) {
  * as long as the reader held the key down. Keeping the tail of the walk makes
  * the next SYN_BACKFILL rows a lookup.
  */
-static int refill_lines(editor* ed, int line) {
-    /*
-     * Whatever is left of the window once the screen has its share. The rows
-     * on screen have to fit or the answers run out halfway down a repaint, and
-     * everything past them is what scrolling up will ask for next.
-     */
-    int back = SCR_MAX_ROWS - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
-    if (back < SYN_BACKFILL_MIN) {
-        back = SYN_BACKFILL_MIN;
-    }
+static int refill_lines(editor* ed, int line, int back) {
     int from = line - back;
     if (from < 1) {
         from = 1;
@@ -690,7 +706,7 @@ static int line_state(editor* ed, int line) {
         }
     }
 
-    return refill_lines(ed, line);
+    return refill_lines(ed, line, syn_backfill(ed));
 }
 
 // Records what a line begins inside, when a paint has just worked it out.
