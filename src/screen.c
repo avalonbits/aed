@@ -107,19 +107,29 @@ static void scr_set_pair(screen* scr, char fg, char bg) {
     if (fg == scr->curFg_ && bg == scr->curBg_) {
         return;
     }
-    out_flush();
 
-    char vdu[4];
-    int n = 0;
+    /*
+     * Into the buffer with the text, rather than flushed and sent on its own.
+     *
+     * A VDU stream is a stream: the colour bytes have to arrive before the
+     * characters they colour, and putting them in the buffer in order is what
+     * says so. Sending them separately meant flushing first -- or the buffered
+     * text would overtake them -- and that is two entries into MOS at every run
+     * boundary, a dozen times a row.
+     *
+     * Entries are what a paint costs. putchar is `rst.lil $10`, one entry a
+     * byte, which is why everything else here buffers; a page down was 553 of
+     * them for 1,981 bytes, and 552 were these. The buffer is MAX_COLS, so a
+     * row and the colour changes along it go out together.
+     */
     if (fg != scr->curFg_) {
-        vdu[n++] = 17;
-        vdu[n++] = fg;
+        out_ch(17);
+        out_ch(fg);
     }
     if (bg != scr->curBg_) {
-        vdu[n++] = 17;
-        vdu[n++] = (char) (bg + 128);
+        out_ch(17);
+        out_ch((char) (bg + 128));
     }
-    mos_puts(vdu, (unsigned) n, 0);
     scr->curFg_ = fg;
     scr->curBg_ = bg;
 }
