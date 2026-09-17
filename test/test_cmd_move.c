@@ -51,8 +51,55 @@ static void seek(int line, int x) {
     tb_seek(&ed.buf_, p);
 }
 
+static int at_row(void) { return ed.scr_.currY_; }
+
 int main(void) {
     stub_discard_output();
+
+    /*
+     * PAGE DOWN with the end of the document already on screen.
+     *
+     * The view has nowhere to scroll to, so the cursor walks to the last line
+     * and stops. It used to slam the screen row to the bottom of the text area
+     * whether or not the cursor had anywhere to go, which put the cursor on a
+     * row with no line behind it. On an empty document -- `aed` with no file --
+     * that meant PAGE DOWN dropped the cursor to the foot of the screen and
+     * the first character typed landed there.
+     */
+    {
+        stub_file_reset();
+        stub_file_set_content("", 0);
+        check("an empty document", ed_init(&ed, 8, "/e.txt") != NULL, 1);
+
+        const int top = ed.scr_.topY_;
+        check("  starts on the first row", at_row(), top);
+        cmd_page_down(&ed);
+        check("  PAGE DOWN stays on the first row", at_row(), top);
+        check("    and on the first line", at_line(), 1);
+
+        cmd_page_up(&ed);
+        check("  PAGE UP leaves it there too", at_row(), top);
+        ed_destroy(&ed);
+    }
+
+    /* Two lines, both on screen: PAGE DOWN reaches the last line and the row
+     * follows the cursor rather than jumping past it. */
+    {
+        stub_file_reset();
+        stub_file_set_content("one\r\ntwo", 8);
+        check("a document shorter than the screen",
+              ed_init(&ed, 8, "/s.txt") != NULL, 1);
+
+        const int top = ed.scr_.topY_;
+        cmd_page_down(&ed);
+        check("  PAGE DOWN lands on the last line", at_line(), 2);
+        check("    on the row that line is drawn on", at_row(), top + 1);
+
+        cmd_page_up(&ed);
+        check("  PAGE UP goes back to the first line", at_line(), 1);
+        check("    and to its row", at_row(), top);
+        ed_destroy(&ed);
+    }
 
     /* "one two" / "three four" / "five" */
     static const char DOC[] = "one two\r\nthree four\r\nfive\r\n";
