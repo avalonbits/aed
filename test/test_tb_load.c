@@ -555,7 +555,78 @@ int main(void) {
         tb_init(&fresh, 8, NULL);
         check("a name with no file behind it still opens",
               tb_load(&fresh, "/new.txt"), TB_OK);
+
+        /*
+         * And puts nothing on the card.
+         *
+         * Opening used to pass FA_OPEN_ALWAYS, which creates the file there
+         * and then -- before the reader has typed a character. So `aed
+         * notes.c` for a notes.c that something else had deleted left a
+         * nought-byte notes.c behind, and a nought-byte file where a 16 KB one
+         * used to be is indistinguishable from the editor having emptied it.
+         * It cost a long hunt through the save path for a fault that was not
+         * there. The file appears when it is saved.
+         */
+        {
+            static FILINFO info;
+            check("  without making one", ffs_stat(&info, "/new.txt"),
+                  FR_NO_FILE);
+            const char h = mos_fopen("/new.txt", FA_READ);
+            if (h != 0) {
+                mos_fclose(h);
+            }
+            check("    which the card agrees about", h != 0 ? 1 : 0, 0);
+        }
+        /* Saving is what makes it, and then it is there. */
+        check("  saving the new document", tb_save(&fresh) ? 1 : 0, 1);
+        {
+            static FILINFO info;
+            check("    and now the card has it",
+                  ffs_stat(&info, "/new.txt"), FR_OK);
+        }
         tb_destroy(&fresh);
+
+        /*
+         * A file the card can see and will not open is a failure, never a new
+         * document. mos_fopen answers zero to both, so absence is established
+         * by asking the card rather than assumed from the refusal -- and the
+         * wrong guess here is the one that hands the reader an empty screen
+         * carrying the name of a file that is still on the card, ready for the
+         * next save to write nothing over it.
+         */
+        stub_file_reset();
+        stub_file_add("/there.txt", KEEP, (int) sizeof(KEEP) - 1);
+        static text_buffer locked;
+        tb_init(&locked, 8, NULL);
+        stub_file_fail_opens(1);        /* the open, and nothing after it */
+        check("a file that is there but will not open is a failure",
+              tb_load(&locked, "/there.txt"), TB_NO_FILE);
+        check("  and it keeps no name to save over",
+              tb_valid_file(&locked) ? 1 : 0, 0);
+        {
+            static char back[64];
+            const char rh = mos_fopen("/there.txt", FA_READ);
+            const int got = rh != 0
+                          ? (int) mos_fread(rh, back, sizeof(back)) : -1;
+            if (rh != 0) {
+                mos_fclose(rh);
+            }
+            check("    and the file is untouched", got,
+                  (int) sizeof(KEEP) - 1);
+        }
+        tb_destroy(&locked);
+
+        /* The same when the card cannot say either way. */
+        stub_file_reset();
+        stub_file_add("/there.txt", KEEP, (int) sizeof(KEEP) - 1);
+        static text_buffer erred;
+        tb_init(&erred, 8, NULL);
+        stub_file_fail_opens(1);
+        stub_stat_result(FR_DISK_ERR);
+        check("a card that cannot answer is a failure too",
+              tb_load(&erred, "/there.txt"), TB_NO_FILE);
+        stub_stat_result(0);
+        tb_destroy(&erred);
     }
 
     if (failures > 0) {

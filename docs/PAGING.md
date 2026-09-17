@@ -247,7 +247,7 @@ flag, `tb_destroy` included, which would otherwise hand the original's memory
 back while the cursor that owns it is still reading.
 
 **Streaming** is for everything that has to see text outside the window.
-[`tbi_doc_stream()`](../src/text_buffer_io.c#L766) walks HEAD, then memory, then
+[`tbi_doc_stream()`](../src/text_buffer_io.c#L780) walks HEAD, then memory, then
 what is left of TAIL, feeding a sink. It reads only, so the window and the
 cursor stay where they are. Saving, searching, and measuring or copying a range
 all go through it.
@@ -274,7 +274,7 @@ over. That follows from section 4 — a slide moves whole lines, and a chunk is
 all it moves.
 
 The check is at the front of the file, in
-[`tb_open`](../src/text_buffer_io.c#L619), because everything after it discards
+[`tb_open`](../src/text_buffer_io.c#L633), because everything after it discards
 what is on screen and a file that cannot be opened must leave the editor as it
 was. That catches the file that is one line from end to end, which is what a
 minified anything looks like. A long line further in gets past it, and the load
