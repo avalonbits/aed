@@ -26,7 +26,11 @@
 // A word is a run of these. The dot is in because assembly wants it at both
 // ends of a name -- `.db` is a directive and `rst.lil` is one opcode -- and
 // nothing else in the three languages is hurt by it.
-static bool is_word(const syntax* g, char c) {
+/*
+ * The answer worked out from the grammar's text, for building the table below.
+ * Everything that asks during a lex reads `g->isword` instead.
+ */
+static bool word_char(const syntax* g, char c) {
     if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
             || (c >= '0' && c <= '9') || c == '_' || c == '.') {
         return true;
@@ -40,6 +44,13 @@ static bool is_word(const syntax* g, char c) {
     }
 
     return false;
+}
+
+// One entry per byte value, so `is this part of a word` is a load.
+#define WORDC(g, c) ((g)->isword[(unsigned char) (c)])
+
+static bool is_word(const syntax* g, char c) {
+    return g != NULL ? WORDC(g, c) != 0 : word_char(NULL, c);
 }
 
 static bool is_digit(char c) {
@@ -72,12 +83,30 @@ static int cmp_word(const char* a, int alen, const char* b, bool nocase) {
  * screen, which is more than the painting itself costs.
  */
 static bool in_words(const syntax* g, const syn_rule* r, const char* s, int n) {
+    /*
+     * A word shorter or longer than any in the set cannot be one of them, and
+     * most identifiers in a real file are neither: C's keywords run from two
+     * letters to eight, so every name longer than that is dismissed without a
+     * probe.
+     */
+    if (n < r->wmin || n > r->wmax) {
+        return false;
+    }
+    const char s0 = g->nocase ? fold(s[0]) : s[0];
     int lo = 0;
     int hi = r->word_n - 1;
     while (lo <= hi) {
         const int mid = lo + (hi - lo) / 2;
         const char* w = g->words + g->wordoff[r->word_at + mid];
-        const int c = cmp_word(s, n, w, g->nocase);
+        /*
+         * The first byte settles all but one probe of a binary search, and
+         * settling it here rather than inside cmp_word saves the call: what is
+         * left is a handful of comparisons for a word that shares its initial
+         * with a keyword.
+         */
+        const char w0 = g->nocase ? fold(w[0]) : w[0];
+        const int c = s0 != w0 ? (s0 > w0 ? 1 : -1)
+                               : cmp_word(s, n, w, g->nocase);
         if (c == 0) {
             return true;
         }
@@ -162,10 +191,20 @@ static bool lit_bounded(const syntax* g, const char* s, int len, int at,
  * then the characters numbers are made of. `1st` is not a number and neither is
  * a bare `$`.
  */
+/*
+ * Whether a number could start with this byte at all.
+ *
+ * Shared with the lexer's rule loop, which uses it to decide against calling
+ * number_at rather than repeating the set and letting the two drift apart.
+ */
+static bool num_start(char c) {
+    // `$FF` and `%1010` in assembly, `&FF` in BASIC, `#10` where a language
+    // writes it that way; otherwise a plain digit.
+    return is_digit(c) || c == '$' || c == '%' || c == '#' || c == '&';
+}
+
 static int number_at(const syntax* g, const char* s, int len, int at) {
     int i = at;
-    // `$FF` and `%1010` in assembly, `&FF` in BASIC, `#10` where a language
-    // writes it that way.
     if (i < len && (s[i] == '$' || s[i] == '%' || s[i] == '#' || s[i] == '&')) {
         i++;
         const int start = i;
@@ -384,6 +423,78 @@ static const struct { const char* name; match_kind kind; } VERBS[] = {
     { "label",  M_LABEL  },
 };
 
+/*
+ * Turns a parsed grammar into the form the lexer reads.
+ *
+ * Both of these are answers the lexer would otherwise work out again at every
+ * position of every line: which byte values are word characters, and which
+ * byte each literal rule begins with. Done once here because `nocase` and
+ * `wordchars` are grammar-wide and settled by the time parsing ends, whichever
+ * order the file happened to state them in.
+ */
+static void syn_index(syntax* g) {
+    for (int i = 0; i < SYN_BYTE_VALUES; i++) {
+        g->isword[i] = word_char(g, (char) i) ? 1 : 0;
+    }
+    for (int i = 0; i < SYN_BYTE_VALUES; i++) {
+        const char c = (char) i;
+        syn_mask m = 0;
+        for (int k = 0; k < g->nrules; k++) {
+            const syn_rule* r = &g->rules[k];
+            bool can = false;
+            switch ((match_kind) r->kind) {
+                case M_EOL:
+                case M_SPAN:
+                case M_BOL:
+                    // Only where its opening literal does. Folded on both
+                    // sides for a grammar that ignores case, so `REM` is
+                    // reachable from `r` as well as `R`.
+                    can = r->nopen > 0
+                          && (g->nocase ? fold(c) == fold(r->open[0])
+                                        : c == r->open[0]);
+                    break;
+                case M_WORDS:
+                    can = g->isword[i] != 0;
+                    break;
+                case M_LABEL:
+                    can = g->isword[i] != 0 && !is_digit(c);
+                    break;
+                case M_NUMBER:
+                    can = num_start(c);
+                    break;
+                default:
+                    break;
+            }
+            if (can) {
+                m |= (syn_mask) (1u << k);
+            }
+        }
+        g->start[i] = m;
+    }
+    /*
+     * The length of the shortest and longest word each `words` rule holds, so
+     * in_words can dismiss a name that could not be any of them.
+     */
+    for (int k = 0; k < g->nrules; k++) {
+        syn_rule* r = &g->rules[k];
+        r->wmin = 0;
+        r->wmax = 0;
+        for (int i = 0; i < r->word_n; i++) {
+            const char* w = g->words + g->wordoff[r->word_at + i];
+            int n = 0;
+            while (w[n] != 0) {
+                n++;
+            }
+            if (r->wmin == 0 || n < r->wmin) {
+                r->wmin = (char) n;
+            }
+            if (n > r->wmax) {
+                r->wmax = (char) n;
+            }
+        }
+    }
+}
+
 bool syn_load(syntax* g, const char* path) {
     if (g == NULL || path == NULL) {
         return false;
@@ -561,6 +672,7 @@ bool syn_load(syntax* g, const char* path) {
     if (g2.nrules == 0) {
         return false;           // a grammar that matches nothing is not one
     }
+    syn_index(&g2);
     g2.loaded = true;
     *g = g2;
 
@@ -612,7 +724,38 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
         int took = 0;
         tok_class cls = TOK_TEXT;
 
-        for (int k = 0; k < g->nrules && took == 0; k++) {
+        /*
+         * What every rule wants to know about this position, worked out once.
+         *
+         * `wend` is where the word starting here runs out. Both `words` rules,
+         * the `label` rule and the fallthrough below all need it, and each used
+         * to walk the word for itself -- three passes over every identifier in
+         * the file. `wprev` is the same question about the byte behind, which
+         * is what makes a match a whole word rather than the tail of one.
+         */
+        const char c0 = line[at];
+        const bool wstart = WORDC(g, c0) != 0;
+        const bool wprev = at > 0 && WORDC(g, line[at - 1]) != 0;
+        int wend = at;
+        if (wstart) {
+            while (wend < len && WORDC(g, line[wend]) != 0) {
+                wend++;
+            }
+        }
+
+        /*
+         * Only the rules that can begin at this byte, read from the table the
+         * grammar was indexed into. `rest` is shifted down rather than masked
+         * by a computed bit, because the eZ80 shifts one place at a time; the
+         * loop ends when the last interested rule has had its turn, which for
+         * a byte no rule can begin at is before the first.
+         */
+        syn_mask rest = g->start[(unsigned char) c0];
+
+        for (int k = 0; rest != 0 && took == 0; k++, rest >>= 1) {
+            if ((rest & 1) == 0) {
+                continue;
+            }
             const syn_rule* r = &g->rules[k];
             switch ((match_kind) r->kind) {
                 case M_EOL:
@@ -644,16 +787,11 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
                     cls = (tok_class) r->cls;
                 } break;
                 case M_WORDS: {
-                    if (!is_word(g, line[at])
-                            || (at > 0 && is_word(g, line[at - 1]))) {
+                    if (!wstart || wprev) {
                         break;      // mid-word: not a word boundary
                     }
-                    int i = at;
-                    while (i < len && is_word(g, line[i])) {
-                        i++;
-                    }
-                    if (in_words(g, r, line + at, i - at)) {
-                        took = i - at;
+                    if (in_words(g, r, line + at, wend - at)) {
+                        took = wend - at;
                         cls = (tok_class) r->cls;
                     }
                 } break;
@@ -668,18 +806,14 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
                     }
                     break;
                 case M_LABEL: {
-                    if (at != 0 || !is_word(g, line[at]) || is_digit(line[at])) {
-                        break;      // only where a line starts, and not a number
+                    if (at != 0) {
+                        break;      // only where a line starts
                     }
-                    int i = at;
-                    while (i < len && is_word(g, line[i])) {
-                        i++;
-                    }
-                    took = i - at;
+                    took = wend - at;
                     cls = (tok_class) r->cls;
                 } break;
                 case M_NUMBER: {
-                    if (at > 0 && is_word(g, line[at - 1])) {
+                    if (wprev) {
                         break;      // the tail of a word is not a number
                     }
                     const int k2 = number_at(g, line, len, at);
@@ -697,15 +831,34 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
             // Nothing claimed this byte. A whole word goes at once so that the
             // next position is a boundary again, which is what lets the word
             // rules trust `is_word(g, line[at - 1])`.
-            took = 1;
-            if (is_word(g, line[at])) {
-                while (at + took < len && is_word(g, line[at + took])) {
-                    took++;
+            if (wstart) {
+                took = wend - at;
+            } else {
+                /*
+                 * Neither a word nor a byte any rule could begin at, and
+                 * neither is whatever follows it: indentation, brackets,
+                 * operators and semicolons are most of a C file by position,
+                 * and stepping over them used to be a trip round this loop
+                 * each. They are one run of ordinary text, so they are taken
+                 * as one.
+                 *
+                 * The run stops at the first non-blank while `at_line_start`
+                 * still holds, which leaves that flag exactly what the
+                 * byte-at-a-time walk left it and keeps a `bol` rule reachable
+                 * past a line's indentation.
+                 */
+                int e = at + 1;
+                while (e < len && g->start[(unsigned char) line[e]] == 0
+                        && WORDC(g, line[e]) == 0
+                        && !(at_line_start && line[e] != ' '
+                             && line[e] != '\t')) {
+                    e++;
                 }
+                took = e - at;
             }
             cls = TOK_TEXT;
         }
-        if (line[at] != ' ' && line[at] != '\t') {
+        if (c0 != ' ' && c0 != '\t') {
             at_line_start = false;
         }
         at += took;

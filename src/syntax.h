@@ -122,7 +122,7 @@ typedef enum _match_kind {
 } match_kind;
 
 #define SYN_LIT_MAX    4        // "/*", "//", ";" -- none of them are long
-#define SYN_MAX_RULES  12
+#define SYN_MAX_RULES  12       // one bit each in syn_mask, so at most 16
 #define SYN_WORDS_MAX  1024     // the packed text of every word set
 #define SYN_WORDOFF_MAX 224     // one offset per word, sorted for searching
 
@@ -137,6 +137,8 @@ typedef struct _syn_rule {
     char multiline;             // M_SPAN only: may run past the line end
     int word_at;                // first offset in the grammar's word index
     int word_n;
+    char wmin;                  // the shortest word in the set, and the
+    char wmax;                  // longest; see in_words
 } syn_rule;
 
 #define SYN_NAME_MAX 24
@@ -153,6 +155,36 @@ typedef struct _syn_rule {
  */
 #define SYN_WORDCHARS_MAX 8
 
+/*
+ * Two tables, one entry per byte value, built when a grammar loads.
+ *
+ * The lexer's inner loop used to ask every rule about every position it
+ * reached, and a rule's first act was always to work out from the byte in
+ * front of it that it did not apply. For a C file that was three calls into
+ * lit_at and four into is_word for every byte of the document -- and profiling
+ * a repaint found the rule loop's own dispatch, before any matching, was its
+ * largest single cost.
+ *
+ * Both questions depend only on the byte, so both are answered once here:
+ *
+ *   `isword`  whether the byte is part of a word, which used to be five
+ *             comparisons and a scan of `wordchars`.
+ *   `start`   which rules could begin at the byte, one bit each. The loop
+ *             visits those and no others, and a byte no rule can begin at --
+ *             a space, a bracket, a semicolon, which is much of a C file --
+ *             skips the loop entirely.
+ *
+ * Three quarters of a kilobyte, against about half the time a full-screen
+ * repaint of a C file used to take.
+ */
+#define SYN_BYTE_VALUES 256
+
+/*
+ * One bit per rule, so SYN_MAX_RULES must fit. `short` rather than `int`
+ * because the eZ80's is three bytes and this is 256 of them.
+ */
+typedef unsigned short syn_mask;
+
 typedef struct _syntax {
     char name[SYN_NAME_MAX];
     char exts[SYN_EXTS_MAX];    // ".c .h .cc", as written
@@ -164,6 +196,8 @@ typedef struct _syntax {
     int nwords;                 // bytes used
     int wordoff[SYN_WORDOFF_MAX];
     int noffs;
+    char isword[SYN_BYTE_VALUES];       // see SYN_BYTE_VALUES
+    syn_mask start[SYN_BYTE_VALUES];    // likewise
     bool loaded;
 } syntax;
 

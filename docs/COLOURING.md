@@ -91,7 +91,7 @@ the characters numbers are made of. `1st` is not a number and neither is a bare
 break.** Everything else begins and ends inside one line, and that single fact
 is what makes sections 5 and 6 as small as they are. A grammar with no multiline
 span — assembly, BASIC, INI, which is every shipped grammar but C — skips all of
-it: [`syn_crosses_lines()`](../src/lexer.c#L722) answers that question once and
+it: [`syn_crosses_lines()`](../src/lexer.c#L875) answers that question once and
 the model costs nothing.
 
 ### 2a. Scope names, and why they are kept
@@ -144,7 +144,7 @@ colour is the work without the result.
 
 ## 4. The lexer
 
-[`syn_lex()`](../src/lexer.c#L570) takes one row of text, the state it begins
+[`syn_lex()`](../src/lexer.c#L682) takes one row of text, the state it begins
 in, and returns the runs and the state it leaves.
 
 ```
@@ -156,7 +156,7 @@ and the column it ends at — rather than a colour per column. That is the shape
 the painting wants: it walks the columns and emits a colour change only when it
 crosses a run boundary.
 
-[`add_run()`](../src/lexer.c#L221) merges neighbouring runs of the same class,
+[`add_run()`](../src/lexer.c#L260) merges neighbouring runs of the same class,
 and lets the last run swallow the rest when it runs out of room. Overflow
 therefore costs **colour rather than correctness** — and since the cost of a
 colour change is why a cap is wanted at all, a row that overflows the cap is a
@@ -166,6 +166,38 @@ Everything the lexer touches is bounded: 12 rules, 1,024 bytes of packed word
 text, 224 word offsets, 512 bytes of one row. A grammar file that does not fit
 is **refused rather than half read**, because half a grammar is a grammar that
 silently colours some things and not others.
+
+### 4a. The index a grammar is turned into
+
+The loop above is the editor's hottest code: a page down of a C file lexes a
+hundred and seventy lines, and each line asks every rule about every position it
+reaches. Profiling a repaint of a 16 KB C file found that most of the work
+happened **before any matching did** — a rule's first act was always to work out
+from the byte in front of it that it did not apply. Three calls into `lit_at`
+and four into `is_word` for every byte of the document, and the rule loop's own
+dispatch on top.
+
+Both questions depend only on the byte, so [`syn_index()`](../src/lexer.c#L435)
+answers them once when the grammar loads, into two tables of 256 entries:
+
+| table | answers |
+|---|---|
+| `isword` | whether the byte is part of a word — five comparisons and a scan of `wordchars`, now a load |
+| `start`  | which rules could begin at the byte, one bit each |
+
+The loop then visits the rules `start` names and no others, and a byte no rule
+can begin at — a space, a bracket, a semicolon, which is much of a C file by
+position — skips the loop entirely and joins the run of ordinary text beside it.
+Two smaller filters follow from the same idea: the word under the cursor is
+measured once and shared by every rule that wants it rather than walked again by
+each, and a `words` rule records its shortest and longest word so a name that
+could not be one of them is dismissed without a search.
+
+Together they cut a full lex of that file from 37.6 to 8.7 million instructions
+— **4.3×** — for three quarters of a kilobyte of tables. The tables are built
+from the rules, so a rule the index leaves out is a rule that never runs;
+`test/test_lexer.c` checks the index is *complete* rather than merely fast,
+because a missing bit colours nothing and reads as a bug in the grammar.
 
 ## 5. The problem that makes this hard
 
@@ -188,8 +220,8 @@ It is not needed, because of two observations:
    is `CTRL+G`, `CTRL+END`, landing on a find result, or a window slide.
 
 So: **carry the state forward, and read back a bounded distance after a jump.**
-[`syn_state_before()`](../src/lexer.c#L735) rescans at most
-[`SYN_LOOKBACK`](../src/syntax.h#L222) — 200 lines — which is a trivial lexer
+[`syn_state_before()`](../src/lexer.c#L888) rescans at most
+[`SYN_LOOKBACK`](../src/syntax.h#L256) — 200 lines — which is a trivial lexer
 over about 8 KB, and only on a jump. Zero bytes of document-sized state, and
 correct unless a span runs longer than the lookback.
 
@@ -272,7 +304,9 @@ Three consequences fall out:
 ## 8. What it costs
 
 **Lexing a line of C costs about a millisecond and a half.** Every other number
-here follows from that one.
+here follows from that one. The index in 4a took it to roughly a third of that;
+the arrangement below was designed against the original figure and holds either
+way, because what it avoids is lexing lines at all.
 
 Without a model, painting a row means lexing every row above it to find out what
 it is inside. On a half-screen cursor that is 28 rows, and it measured **45
