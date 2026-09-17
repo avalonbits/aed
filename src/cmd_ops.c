@@ -325,7 +325,16 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     // overlapped; not erasing it is one fewer full-width row per refresh.
     SCR(ed);
     char ypos = scr->topY_;
-    char tpos = tb_ypos(tb);
+    /*
+     * A document line, so an int. It was a char for a while -- a warning got
+     * silenced by narrowing it rather than by widening what it was compared
+     * against -- and a signed char holds a line number as far as 127. Past
+     * that it wrapped negative, so synTop_ was wrong by 256 for any view below
+     * line 127, every line number the colouring works out from it was wrong
+     * with it, and a refill asked about a negative line got the answer for the
+     * top of the document. It read as a repaint that was suspiciously quick.
+     */
+    int tpos = tb_ypos(tb);
 
     /*
      * This is where the screen's answers start from. Only the top row has to

@@ -1638,10 +1638,11 @@ int main(void) {
 
         /*
          * A jump does not backfill, and that is the difference between a
-         * scroll and a jump. cmd_show lands the view somewhere new, and the
-         * lines above where it landed are never asked about -- a page down
-         * goes on paging down. Backfilling there read back 72 lines on every
-         * repaint and threw them away, which measured 28% of a page down.
+         * scroll and a jump. The answers above the top line are what scrolling
+         * up asks for next; a view that has landed somewhere new is about to
+         * land somewhere new again -- a page down goes on paging down -- and
+         * the lines above where it landed are never read. Backfilling here
+         * cost a page down 28% on big.c and nothing ever used it.
          */
         cmd_show(&ed);
         check("  a jump starts the answers where it landed",
