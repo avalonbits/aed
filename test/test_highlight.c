@@ -1582,9 +1582,14 @@ int main(void) {
          * these check its shape: an answer window that reaches above the line
          * it was asked about, and one that keeps its answers when it fills.
          */
-        static char many[8000];
+        /*
+         * Longer than the answer window, or nothing below exercises the slide:
+         * a document that fits in the window never has to drop anything, and
+         * every check about sliding passes without one happening.
+         */
+        static char many[24000];
         int at = 0;
-        for (int i = 0; i < 300; i++) {
+        for (int i = 0; i < SYN_WINDOW * 2; i++) {
             at += sprintf(many + at, "int v%d; /* line %d */\r\n", i, i);
         }
 
@@ -1602,17 +1607,18 @@ int main(void) {
         named_text(&ed, "/main.c", many);
         ed_pick_syntax(&ed);
         cmd_show(&ed);
-        check("a long C file, held whole", tb_ymax(&ed.buf_) > 250 ? 1 : 0, 1);
+        check("a long C file, held whole",
+              tb_ymax(&ed.buf_) > SYN_WINDOW ? 1 : 0, 1);
         check("  and not paged", ed.buf_.paged_ ? 1 : 0, 0);
 
         /* Down past the end of the window, which is where it used to stall. */
-        for (int i = 0; i < SCR_MAX_ROWS + 40; i++) {
+        for (int i = 0; i < SYN_WINDOW + 40; i++) {
             cmd_down(&ed);
         }
-        check("  scrolled well past a windowful", ed.synTop_ > SCR_MAX_ROWS, 1);
+        check("  scrolled well past a windowful", ed.synTop_ > SYN_WINDOW, 1);
         check("    the window slid with it", ed.synFirst_ > 1, 1);
         check("      and kept its answers rather than starting again",
-              ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+              ed.synKnown_ >= SYN_WINDOW / 2, 1);
 
         /*
          * And back up, far enough to leave the window behind -- which is the
@@ -1620,7 +1626,7 @@ int main(void) {
          * windowful stays inside the answers the walk down already built and
          * would pass whatever a refill does, so it proves nothing.
          */
-        for (int i = 0; i < SCR_MAX_ROWS + 20; i++) {
+        for (int i = 0; i < SYN_WINDOW + 20; i++) {
             cmd_up(&ed);
         }
         check("  and scrolling up out of the window again", ed.synTop_ > 1, 1);
@@ -1634,7 +1640,7 @@ int main(void) {
          * when every row starts again.
          */
         check("    leaves a windowful of answers rather than a screenful",
-              ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+              ed.synKnown_ >= SYN_WINDOW / 2, 1);
 
         /*
          * A page down reuses the answers rather than working them out again.

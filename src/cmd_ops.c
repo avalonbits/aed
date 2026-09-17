@@ -79,7 +79,18 @@
  * everything past them is what scrolling up asks for next.
  */
 static int syn_backfill(editor* ed) {
-    int back = SCR_MAX_ROWS - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    int back = SYN_WINDOW - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    /*
+     * Never deeper than the walk that fills it. The backfill is whatever the
+     * read-back leaves behind, and the read-back goes back SYN_LOOKBACK lines
+     * -- so asking for more than that does not read further, it just leaves
+     * entries the walk never reached. Those read as SYN_STATE_NONE, which
+     * says "this line starts clean", and a line in the middle of a block
+     * comment that says so paints as ordinary text.
+     */
+    if (back > SYN_LOOKBACK) {
+        back = SYN_LOOKBACK;
+    }
     if (back < SYN_BACKFILL_MIN) {
         back = SYN_BACKFILL_MIN;
     }
@@ -636,7 +647,7 @@ static void extend_lines(editor* ed, int upto) {
         return;
     }
     int state = ed->lineSyn_[ed->synKnown_ - 1];
-    while (at < upto && ed->synKnown_ < SCR_MAX_ROWS) {
+    while (at < upto && ed->synKnown_ < SYN_WINDOW) {
         const split_line ln = tb_curr_line(&cp);
         const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
         syn_lex(&ed->syn_, synScan_, len, state, &state, NULL, 0);
@@ -670,8 +681,8 @@ static int refill_lines(editor* ed, int line, int back) {
     if (line < 1) {
         line = 1;
     }
-    if (back > SCR_MAX_ROWS - 1) {
-        back = SCR_MAX_ROWS - 1;        // the answers have to fit the window
+    if (back > SYN_WINDOW - 1) {
+        back = SYN_WINDOW - 1;          // the answers have to fit the window
     }
     int from = line - back;
     if (from < 1) {
@@ -701,7 +712,7 @@ static int refill_lines(editor* ed, int line, int back) {
  *
  * Scrolling down fills it, and starting again there would mean a read-back to
  * find what the next line begins inside -- which is what made scrolling down
- * stall once every SCR_MAX_ROWS rows, for as long as the document lasted. The
+ * stall once every SYN_WINDOW rows, for as long as the document lasted. The
  * answers that stay are still good: they are about lines rather than rows, and
  * dropping the ones above changes nothing about the ones below.
  */
@@ -733,15 +744,15 @@ static int line_state(editor* ed, int line) {
         if (at >= 0 && at < ed->synKnown_) {
             return ed->lineSyn_[at];
         }
-        if (at >= ed->synKnown_ && at >= SCR_MAX_ROWS) {
+        if (at >= ed->synKnown_ && at >= SYN_WINDOW) {
             // Full, and the line wanted is past the end of it. Slide rather
             // than start again: half the window is still about lines on or
             // near the screen, and the walk can carry on from the last of
             // them instead of reading back for a fresh start.
-            drop_oldest(ed, SCR_MAX_ROWS / 2);
+            drop_oldest(ed, SYN_WINDOW / 2);
             at = line - ed->synFirst_;
         }
-        if (at >= ed->synKnown_ && at < SCR_MAX_ROWS) {
+        if (at >= ed->synKnown_ && at < SYN_WINDOW) {
             extend_lines(ed, line);
             if (line - ed->synFirst_ < ed->synKnown_) {
                 return ed->lineSyn_[line - ed->synFirst_];
@@ -760,7 +771,7 @@ static void set_line_state(editor* ed, int line, int state) {
     const int at = line - ed->synFirst_;
     if (at >= 0 && at < ed->synKnown_) {
         ed->lineSyn_[at] = (char) state;
-    } else if (at == ed->synKnown_ && at < SCR_MAX_ROWS) {
+    } else if (at == ed->synKnown_ && at < SYN_WINDOW) {
         ed->lineSyn_[at] = (char) state;
         ed->synKnown_++;
     }
