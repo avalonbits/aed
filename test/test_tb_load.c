@@ -504,6 +504,60 @@ int main(void) {
         tb_destroy(&e);
     }
 
+    /* --- an open that fails must not empty the file --- */
+    {
+        /*
+         * What this is about happened to a real file. A 16 KB source opened
+         * as a blank screen, and was a blank file on the card afterwards.
+         *
+         * tb_load opens with FA_OPEN_ALWAYS, which makes a file that is not
+         * there. So the retry behind it is only ever reached when the open
+         * failed for some *other* reason -- and it used to retry with
+         * FA_CREATE_ALWAYS, which truncates. A failure to open became a
+         * deletion of the reader's work, and the editor then showed them the
+         * empty result as though that were the file.
+         *
+         * FA_CREATE_NEW refuses a file that already exists, so the retry can
+         * still make a new file and can no longer empty an old one.
+         */
+        static const char KEEP[] = "one\r\ntwo\r\nthree\r\n";
+        stub_file_reset();
+        stub_file_add("/keep.txt", KEEP, (int) sizeof(KEEP) - 1);
+
+        static text_buffer t;
+        tb_init(&t, 8, NULL);
+        stub_file_fail_opens(1);        /* the first open, and only that one */
+        const tb_result r = tb_load(&t, "/keep.txt");
+
+        check("an open that fails is reported", r != TB_OK ? 1 : 0, 1);
+
+        /* Asked of the card rather than of the editor: the question is what is
+         * on disk afterwards. */
+        {
+            static char back[64];
+            const char rh = mos_fopen("/keep.txt", FA_READ);
+            const int got = rh != 0
+                          ? (int) mos_fread(rh, back, sizeof(back)) : -1;
+            if (rh != 0) {
+                mos_fclose(rh);
+            }
+            check("  and the file still holds what it held",
+                  got, (int) sizeof(KEEP) - 1);
+            check("    byte for byte",
+                  got == (int) sizeof(KEEP) - 1
+                      && memcmp(back, KEEP, (size_t) got) == 0 ? 1 : 0, 1);
+        }
+        tb_destroy(&t);
+
+        /* And the retry still does the job it is there for. */
+        stub_file_reset();
+        static text_buffer fresh;
+        tb_init(&fresh, 8, NULL);
+        check("a name with no file behind it still opens",
+              tb_load(&fresh, "/new.txt"), TB_OK);
+        tb_destroy(&fresh);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

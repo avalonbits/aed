@@ -380,6 +380,7 @@ static int  stub_len;
 static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
+static int  stub_fail_open_n;
 static int  stub_write_opens;
 static int  stub_reads;
 static int  stub_short_read = -1;
@@ -510,6 +511,7 @@ void stub_file_reset(void) {
     stub_opens = 0;
     stub_closes = 0;
     stub_fail_open = 0;
+    stub_fail_open_n = 0;
     stub_write_opens = 0;
     stub_reads = 0;
     stub_short_read = -1;
@@ -541,6 +543,7 @@ int         stub_file_opens_for_write(void) { return stub_write_opens; }
 int         stub_file_reads(void)  { return stub_reads; }
 int         stub_file_closes(void) { return stub_closes; }
 void        stub_file_fail_open(int fail) { stub_fail_open = fail; }
+void        stub_file_fail_opens(int n) { stub_fail_open_n = n; }
 
 void stub_discard_output(void) {
     if (freopen("/dev/null", "w", stdout) == NULL) {
@@ -610,8 +613,16 @@ uint8_t mos_fopen(const char* filename, uint8_t mode) {
     if (stub_fail_open) {
         return 0;       /* MOS reports failure as handle 0 */
     }
+    if (stub_fail_open_n > 0) {
+        stub_fail_open_n--;
+
+        return 0;
+    }
 
     int at = stub_fs_find(filename);
+    if (at >= 0 && (mode & FA_CREATE_NEW) != 0) {
+        return 0;       /* it exists already, which is what CREATE_NEW refuses */
+    }
     if (at < 0 && filename != NULL) {
         if (stub_content != NULL && stub_content_len > 0) {
             /* The fallback stands in for "the file exists and holds this", and
