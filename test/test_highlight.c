@@ -1563,6 +1563,81 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- the answers window slides rather than starting again --- */
+    {
+        /*
+         * Holding an arrow key used to scroll smoothly and then stop dead,
+         * over and over: down stalled once every SCR_MAX_ROWS rows, and up
+         * stalled on nearly every row once the reader passed the top of the
+         * answers. Each stall was a read-back -- two hundred lines sought and
+         * lexed to find what one line begins inside.
+         *
+         * Both came from the window starting *at* the line asked about. Going
+         * down that left no room to grow, so the next row started again; going
+         * up it left nothing above, so the next row -- which is above, because
+         * that is what going up means -- started again too.
+         *
+         * Counting read-backs would need a counter in the lexer, which is
+         * production code paying for a test. The window itself is the fix, so
+         * these check its shape: an answer window that reaches above the line
+         * it was asked about, and one that keeps its answers when it fills.
+         */
+        static char many[8000];
+        int at = 0;
+        for (int i = 0; i < 300; i++) {
+            at += sprintf(many + at, "int v%d; /* line %d */\r\n", i, i);
+        }
+
+        files();
+        setup(&ed, 0);
+        /*
+         * A bigger buffer than setup() hands out. Its 4 KiB holds 128 index
+         * slots, so a document of 300 lines pages -- and a walker may not
+         * slide, so the read-back cannot reach past the window and the whole
+         * thing measures paging rather than the answers. The file that
+         * prompted this is 16 KB in a 72 KiB buffer and is not paged at all.
+         */
+        tb_destroy(&ed.buf_);
+        tb_init(&ed.buf_, 32, NULL);
+        named_text(&ed, "/main.c", many);
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+        check("a long C file, held whole", tb_ymax(&ed.buf_) > 250 ? 1 : 0, 1);
+        check("  and not paged", ed.buf_.paged_ ? 1 : 0, 0);
+
+        /* Down past the end of the window, which is where it used to stall. */
+        for (int i = 0; i < SCR_MAX_ROWS + 40; i++) {
+            cmd_down(&ed);
+        }
+        check("  scrolled well past a windowful", ed.synTop_ > SCR_MAX_ROWS, 1);
+        check("    the window slid with it", ed.synFirst_ > 1, 1);
+        check("      and kept its answers rather than starting again",
+              ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+
+        /*
+         * And back up, far enough to leave the window behind -- which is the
+         * case that used to stall on every row. Coming up less than a
+         * windowful stays inside the answers the walk down already built and
+         * would pass whatever a refill does, so it proves nothing.
+         */
+        for (int i = 0; i < SCR_MAX_ROWS + 20; i++) {
+            cmd_up(&ed);
+        }
+        check("  and scrolling up out of the window again", ed.synTop_ > 1, 1);
+        /*
+         * How wide the window is, rather than how far above the top line it
+         * reaches: the reach is legitimately spent down to nothing just before
+         * the next refill, so it says more about where the walk stopped than
+         * about what a refill does. The width does not move between refills,
+         * so it is the same answer wherever the walk stops -- a windowful when
+         * a refill keeps what its read-back passed through, and a screenful
+         * when every row starts again.
+         */
+        check("    leaves a windowful of answers rather than a screenful",
+              ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+        tb_destroy(&ed.buf_);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 

@@ -68,6 +68,9 @@
  */
 #define AUTO_INDENT_MAX 64
 
+// The fewest lines of backfill a refill bothers with -- see refill_lines.
+#define SYN_BACKFILL_MIN 8
+
 static char synRow_[SYN_ROW_MAX];
 static char synScan_[SYN_ROW_MAX];
 static tok_run synRuns_[SYN_ROW_RUNS];
@@ -101,7 +104,7 @@ static int line_state(editor* ed, int line);
 static void set_line_state(editor* ed, int line, int state);
 static void lines_moved(editor* ed, int line, int delta);
 static int line_at_row(editor* ed, char ypos);
-static void refill_lines(editor* ed, int line);
+static int refill_lines(editor* ed, int line);
 
 /*
  * An edit changed what its line leaves open -- the second character of a
@@ -585,12 +588,72 @@ static void extend_lines(editor* ed, int upto) {
     }
 }
 
-// Starts the answers again at `line`, which is the one case that has to read
-// back to find out what it begins inside.
-static void refill_lines(editor* ed, int line) {
+/*
+ * Starts the answers again around `line`, which is the one case that has to
+ * read back to find out what a line begins inside. Returns the answer for
+ * `line` itself.
+ *
+ * It starts SYN_BACKFILL lines *above* the one asked about, and that is the
+ * whole of the fix for scrolling up. The read-back walks from 200 lines back
+ * to the line wanted and works out what every line between begins inside;
+ * starting the window at the line asked about threw all of that away. Since
+ * scrolling up asks about lines in descending order, the next row up was
+ * outside the window again, and paid for another read-back -- every row, for
+ * as long as the reader held the key down. Keeping the tail of the walk makes
+ * the next SYN_BACKFILL rows a lookup.
+ */
+static int refill_lines(editor* ed, int line) {
+    /*
+     * Whatever is left of the window once the screen has its share. The rows
+     * on screen have to fit or the answers run out halfway down a repaint, and
+     * everything past them is what scrolling up will ask for next.
+     */
+    int back = SCR_MAX_ROWS - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    if (back < SYN_BACKFILL_MIN) {
+        back = SYN_BACKFILL_MIN;
+    }
+    int from = line - back;
+    if (from < 1) {
+        from = 1;
+    }
+    ed->synFirst_ = from;
+    ed->lineSyn_[0] = (char) top_state(ed, from);
+    ed->synKnown_ = 1;
+    if (from < line) {
+        extend_lines(ed, line);
+    }
+    const int at = line - ed->synFirst_;
+    if (at >= 0 && at < ed->synKnown_) {
+        return ed->lineSyn_[at];
+    }
+
+    // The walk could not reach it: a document that ended first, or a window
+    // with no room left. Answer for the line itself, which is what this did
+    // for every line before.
     ed->synFirst_ = line;
     ed->lineSyn_[0] = (char) top_state(ed, line);
     ed->synKnown_ = 1;
+
+    return ed->lineSyn_[0];
+}
+
+/*
+ * Drops the oldest answers so the window can carry on past its end.
+ *
+ * Scrolling down fills it, and starting again there would mean a read-back to
+ * find what the next line begins inside -- which is what made scrolling down
+ * stall once every SCR_MAX_ROWS rows, for as long as the document lasted. The
+ * answers that stay are still good: they are about lines rather than rows, and
+ * dropping the ones above changes nothing about the ones below.
+ */
+static void drop_oldest(editor* ed, int keep) {
+    if (ed->synFirst_ == 0 || ed->synKnown_ <= keep || keep < 1) {
+        return;
+    }
+    const int drop = ed->synKnown_ - keep;
+    memmove(&ed->lineSyn_[0], &ed->lineSyn_[drop], (size_t) keep);
+    ed->synFirst_ += drop;
+    ed->synKnown_ = keep;
 }
 
 /*
@@ -607,9 +670,17 @@ static int line_state(editor* ed, int line) {
         return SYN_STATE_NONE;
     }
     if (ed->synFirst_ != 0) {
-        const int at = line - ed->synFirst_;
+        int at = line - ed->synFirst_;
         if (at >= 0 && at < ed->synKnown_) {
             return ed->lineSyn_[at];
+        }
+        if (at >= ed->synKnown_ && at >= SCR_MAX_ROWS) {
+            // Full, and the line wanted is past the end of it. Slide rather
+            // than start again: half the window is still about lines on or
+            // near the screen, and the walk can carry on from the last of
+            // them instead of reading back for a fresh start.
+            drop_oldest(ed, SCR_MAX_ROWS / 2);
+            at = line - ed->synFirst_;
         }
         if (at >= ed->synKnown_ && at < SCR_MAX_ROWS) {
             extend_lines(ed, line);
@@ -618,9 +689,8 @@ static int line_state(editor* ed, int line) {
             }
         }
     }
-    refill_lines(ed, line);
 
-    return ed->lineSyn_[0];
+    return refill_lines(ed, line);
 }
 
 // Records what a line begins inside, when a paint has just worked it out.
