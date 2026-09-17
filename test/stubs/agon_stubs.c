@@ -381,6 +381,7 @@ static int  stub_opens;
 static int  stub_closes;
 static int  stub_fail_open;
 static int  stub_fail_open_n;
+static int  stub_stat_forced;
 static int  stub_write_opens;
 static int  stub_reads;
 static int  stub_short_read = -1;
@@ -512,6 +513,7 @@ void stub_file_reset(void) {
     stub_closes = 0;
     stub_fail_open = 0;
     stub_fail_open_n = 0;
+    stub_stat_forced = 0;
     stub_write_opens = 0;
     stub_reads = 0;
     stub_short_read = -1;
@@ -634,7 +636,13 @@ uint8_t mos_fopen(const char* filename, uint8_t mode) {
                 memcpy(stub_fs[at].data, stub_content, (size_t) stub_content_len);
                 stub_fs[at].len = stub_content_len;
             }
-        } else if ((mode & FA_WRITE) != 0) {
+        } else if ((mode & (FA_CREATE_NEW | FA_CREATE_ALWAYS
+                            | FA_OPEN_ALWAYS)) != 0) {
+            /* Only the modes that say to make one. FA_WRITE on its own is
+             * FA_OPEN_EXISTING, which fails on a file that is not there --
+             * this used to create for any write, so nothing could tell the
+             * two apart and opening a name that was gone looked like opening
+             * a file. */
             at = stub_fs_make(filename);
         }
     }
@@ -841,6 +849,35 @@ void stub_set_dir(const char* const* names, const unsigned* sizes, int n) {
     stub_dir_sizes = sizes;
     stub_dir_n = n;
     stub_dir_at = 0;
+}
+
+/*
+ * Whether a file is there, which mos_fopen cannot say on its own: it answers
+ * zero both for a file that is absent and for one it could not open.
+ */
+void stub_stat_result(int fresult) { stub_stat_forced = fresult; }
+
+uint8_t ffs_stat(FILINFO* info, const char* filename) {
+    if (stub_stat_forced != 0) {
+        return (uint8_t) stub_stat_forced;
+    }
+    const int at = stub_fs_find(filename);
+    if (at < 0) {
+        /* The fallback content stands in for a file that exists. */
+        if (stub_content == NULL || stub_content_len <= 0) {
+            return FR_NO_FILE;
+        }
+        if (info != NULL) {
+            info->fsize = (uint32_t) stub_content_len;
+        }
+
+        return FR_OK;
+    }
+    if (info != NULL) {
+        info->fsize = (uint32_t) stub_fs[at].len;
+    }
+
+    return FR_OK;
 }
 
 uint8_t ffs_dopen(DIR* dir, const char* path) {
