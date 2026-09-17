@@ -18,6 +18,7 @@
 
 #define FA_READ           0x01
 #define FA_WRITE          0x02
+#define FA_OPEN_EXISTING  0x00    /* the absence of every creating bit */
 #define FA_CREATE_NEW     0x04
 #define FA_CREATE_ALWAYS  0x08
 #define FA_OPEN_ALWAYS    0x10
@@ -41,6 +42,13 @@ typedef struct {
     char     fname[256];
 } FILINFO;
 
+/* FatFS result codes, as far as anything here needs them. */
+#define FR_OK        0
+#define FR_DISK_ERR  1
+#define FR_NO_FILE   4
+#define FR_NO_PATH   5
+
+uint8_t  ffs_stat(FILINFO* info, const char* filename);
 uint8_t  ffs_dopen(DIR* dir, const char* path);
 uint8_t  ffs_dread(DIR* dir, FILINFO* info);
 uint8_t  ffs_dclose(DIR* dir);
@@ -182,6 +190,10 @@ void        stub_file_fail_open(int fail);
  * of a file fail while the retry behind it succeeds -- which is the shape that
  * turned a failed open into a truncated file. */
 void        stub_file_fail_opens(int n);  /* make the next mos_fopen return 0 */
+
+/* Make ffs_stat report this code whatever is on the stub card, so a test can
+ * have a file the editor can see and cannot open. Zero puts it back. */
+void        stub_stat_result(int fresult);
 
 /* Content mos_fread serves, and the size mos_getfil reports. */
 void        stub_file_set_content(const char* data, int len);

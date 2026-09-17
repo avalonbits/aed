@@ -487,27 +487,41 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
     strncpy(tb->fname_, fname, fsz);
     tb->fname_[fsz] = 0;
 
-    char fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
+    /*
+     * FA_OPEN_EXISTING -- no creating bit at all -- so naming a file that is
+     * not there leaves the card alone.
+     *
+     * FA_OPEN_ALWAYS creates the file the moment it is opened, before the
+     * reader has typed a character. `aed notes.c` for a notes.c that had been
+     * deleted therefore left a nought-byte notes.c behind, and a nought-byte
+     * file where a 16 KB one used to be reads as the editor having emptied it.
+     * That cost a long hunt through the save path for a fault that was not
+     * there: another program had removed the file and the editor had put an
+     * empty one in its place. Nothing is written now until the reader saves.
+     */
+    char fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_EXISTING);
     if (fh == 0) {
         /*
-         * A second try that can only make a file, never empty one.
+         * Either there is no such file -- a new document, which is not a
+         * failure -- or there is one this could not open, which is. mos_fopen
+         * answers zero to both, so the card is asked directly: ffs_stat is
+         * MOS 1.03 and reports FR_NO_FILE for absence and something else for
+         * every other complaint.
          *
-         * This used to retry with FA_CREATE_ALWAYS, which truncates. But
-         * FA_OPEN_ALWAYS already creates a file that is not there, so the
-         * retry is only ever reached when the open failed for some other
-         * reason -- and then it destroyed the reader's file and showed them
-         * the empty result of doing so. A 16 KB source opened as a blank
-         * screen and was a blank file afterwards.
-         *
-         * FA_CREATE_NEW refuses a file that exists, so a failure that is not
-         * about absence now stays a failure.
+         * Anything but absence is a failure. A file the editor can see and
+         * cannot read must not become an empty screen carrying its name --
+         * that is the arrangement where the next save writes nothing over it.
          */
-        fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_NEW);
-        if (fh == 0) {
+        static FILINFO info;
+        const uint8_t r = ffs_stat(&info, tb->fname_);
+        if (r != FR_NO_FILE && r != FR_NO_PATH) {
             tb->fname_[0] = 0;
 
             return TB_NO_FILE;
         }
+
+        // Named, empty, and nothing on the card. tb_save makes the file.
+        return TB_OK;
     }
     FIL* fil = mos_getfil(fh);
     if (fil == NULL) {
