@@ -271,7 +271,7 @@ painted plainly with nothing to say they had. Every bug in the feature's first
 week was a site that forgot, and fixing one by adding a call at the site was
 adding a thirteenth place to forget.
 
-So the screen asks. [`scr_set_colourer()`](../src/screen.c#L1291) hands it two
+So the screen asks. [`scr_set_colourer()`](../src/screen.c#L1318) hands it two
 callbacks, once, at startup:
 
 ```c
