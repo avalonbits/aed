@@ -489,8 +489,20 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
 
     char fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
     if (fh == 0) {
-        // Try to create the file.
-        fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
+        /*
+         * A second try that can only make a file, never empty one.
+         *
+         * This used to retry with FA_CREATE_ALWAYS, which truncates. But
+         * FA_OPEN_ALWAYS already creates a file that is not there, so the
+         * retry is only ever reached when the open failed for some other
+         * reason -- and then it destroyed the reader's file and showed them
+         * the empty result of doing so. A 16 KB source opened as a blank
+         * screen and was a blank file afterwards.
+         *
+         * FA_CREATE_NEW refuses a file that exists, so a failure that is not
+         * about absence now stays a failure.
+         */
+        fh = mos_fopen(tb->fname_, FA_READ | FA_WRITE | FA_CREATE_NEW);
         if (fh == 0) {
             tb->fname_[0] = 0;
 
@@ -623,7 +635,9 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
 
     char fh = mos_fopen(name, FA_READ | FA_WRITE | FA_OPEN_ALWAYS);
     if (fh == 0) {
-        fh = mos_fopen(name, FA_READ | FA_WRITE | FA_CREATE_ALWAYS);
+        // Creates one that is not there, and refuses one that is -- see
+        // tb_load, where the same retry used to empty the file it reopened.
+        fh = mos_fopen(name, FA_READ | FA_WRITE | FA_CREATE_NEW);
         if (fh == 0) {
             return TB_NO_FILE;
         }

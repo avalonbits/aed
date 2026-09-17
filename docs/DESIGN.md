@@ -297,7 +297,7 @@ Its longest line, rather than its size: a slide moves whole lines and carries a
 chunk at most, so a line longer than `TB_CHUNK` can never be brought in. That is
 2 KB, against a 72 KiB window — a line of 5,000 characters is refused although it
 would fit in memory many times over.
-[`tb_open`](../src/text_buffer_io.c#L607) reads the front of the file and refuses
+[`tb_open`](../src/text_buffer_io.c#L619) reads the front of the file and refuses
 before discarding what is on screen, and
 [`tb_load`](../src/text_buffer_io.c#L472) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
@@ -324,7 +324,7 @@ goes out of scope, so the last of those has never been called on one — it is
 guarded because it fails as memory corruption rather than as a wrong answer.
 
 Everything else that has to see text outside the window **streams the document**.
-[`tbi_doc_stream()`](../src/text_buffer_io.c#L752) walks HEAD, then memory, then what
+[`tbi_doc_stream()`](../src/text_buffer_io.c#L766) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 

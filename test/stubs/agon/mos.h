@@ -18,6 +18,7 @@
 
 #define FA_READ           0x01
 #define FA_WRITE          0x02
+#define FA_CREATE_NEW     0x04
 #define FA_CREATE_ALWAYS  0x08
 #define FA_OPEN_ALWAYS    0x10
 #define FA_OPEN_APPEND    0x30
@@ -175,7 +176,12 @@ int         stub_file_opens(void);   /* mos_fopen calls */
 int         stub_file_opens_for_write(void); /* those asking to write */
 int         stub_file_reads(void);   /* mos_fread calls */
 int         stub_file_closes(void);  /* mos_fclose calls */
-void        stub_file_fail_open(int fail);  /* make the next mos_fopen return 0 */
+void        stub_file_fail_open(int fail);
+
+/* Fails the next `n` opens and then stops, so a test can make the first open
+ * of a file fail while the retry behind it succeeds -- which is the shape that
+ * turned a failed open into a truncated file. */
+void        stub_file_fail_opens(int n);  /* make the next mos_fopen return 0 */
 
 /* Content mos_fread serves, and the size mos_getfil reports. */
 void        stub_file_set_content(const char* data, int len);
