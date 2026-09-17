@@ -100,6 +100,15 @@ int main(void) {
         const stub_key close[] = { { .ch = 27, .vk = VK_ESCAPE } };
         stub_set_keys(close, 1);
 
+        /*
+         * The help draws over the document, so say the rows underneath hold
+         * text -- which is the case the blank rows between its sections exist
+         * for. A row is blanked only as far as it previously reached, so over
+         * an already-empty screen a blank row writes nothing at all, and the
+         * check below would be reading that rather than the erase.
+         */
+        memset(scr.rowFill_, (unsigned char) scr.cols_, sizeof(scr.rowFill_));
+
         cap_start();
         ui_help(&ui, &scr);
         cap_read(got, sizeof(got) - 1);

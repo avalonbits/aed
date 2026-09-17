@@ -35,20 +35,6 @@ static int failures = 0;
  * goes to the VDP as ordinary characters, so a line that was drawn is literally
  * in there and one that was not is not -- which is how a test tells a repainted
  * row from one the VDP scrolled into place itself. */
-/* The longest run of spaces in the stream. A row blanked because the document
- * no longer reaches it is a full width of them in one go. */
-static int longest_space_run(const char* hay, int n) {
-    int best = 0;
-    int run = 0;
-    for (int i = 0; i < n; i++) {
-        run = hay[i] == ' ' ? run + 1 : 0;
-        if (run > best) {
-            best = run;
-        }
-    }
-
-    return best;
-}
 
 static int stream_has(const char* hay, int n, const char* needle) {
     const int m = (int) strlen(needle);
@@ -107,11 +93,50 @@ static int cap_read(char* out, int max) {
  * vdp_set_text_colour writes 17 (VDU 17) then the colour; a pair of them is one
  * set_colours call, and a foreground equal to the screen's background means the
  * scheme is reversed. */
+/*
+ * The captured stream with its VDU 31,x,y row markers taken out.
+ *
+ * A marker carries its row and column as raw bytes, so a paint at row 12 puts
+ * a 12 in the stream and a paint at column 32 puts a space there. Anything
+ * counting bytes has to look at the text rather than at the positioning, or it
+ * reads a cursor move as a screen clear.
+ */
+static int without_tabs(const char* raw, int n, char* out) {
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        if (raw[i] == 31 && i + 2 < n) {
+            i += 2;
+            continue;
+        }
+        out[m++] = raw[i];
+    }
+
+    return m;
+}
+
+// How many distinct rows a captured frame painted.
+static int rows_in(const char* raw, int n) {
+    char seen[256];
+    memset(seen, 0, sizeof(seen));
+    for (int i = 0; i + 2 < n; i++) {
+        if (raw[i] == 31) {
+            seen[(unsigned char) raw[i + 2]] = 1;
+        }
+    }
+    int rows = 0;
+    for (int i = 0; i < 256; i++) {
+        rows += seen[i];
+    }
+
+    return rows;
+}
+
 static const char* painted(screen* scr, int cols) {
     static char raw[4096];
     const int n = cap_read(raw, sizeof(raw));
     static char out[256];
     int col = 0;
+    int inrow = 0;
     bool inverted = false;
     for (int i = 0; i < n && col < cols && col < (int) sizeof(out) - 1; i++) {
         if (raw[i] == 17 && i + 1 < n) {
@@ -127,6 +152,18 @@ static const char* painted(screen* scr, int cols) {
             continue;
         }
         if (raw[i] == 31 && i + 2 < n) {
+            /*
+             * A new row. The rest of the one before it was not written to, and
+             * a cell nothing wrote to is blank -- which looks like a plain one,
+             * so that is what it reads as. This is what the checks below are
+             * about: how the row looks, rather than how many bytes said so.
+             */
+            while (inrow > 0 && inrow < scr->cols_ && col < cols
+                   && col < (int) sizeof(out) - 1) {
+                out[col++] = '-';
+                inrow++;
+            }
+            inrow = 0;
             i += 2;             /* cursor tab: x, y */
             continue;
         }
@@ -134,6 +171,11 @@ static const char* painted(screen* scr, int cols) {
             continue;           /* any other control byte */
         }
         out[col++] = inverted ? '#' : '-';
+        inrow++;
+    }
+    // And the tail of the last row, for the same reason.
+    while (col < cols && col < (int) sizeof(out) - 1) {
+        out[col++] = '-';
     }
     out[col] = 0;
 
@@ -181,22 +223,78 @@ static int painted_chars(void) {
     return printable;
 }
 
+/*
+ * How many distinct rows a frame painted, read off the VDU 31,x,y each paint
+ * begins with.
+ *
+ * It used to divide the printable characters by the width, which worked while
+ * every row was padded to the full width whatever was on it. A row is now
+ * blanked only as far as it previously reached, so the character count says
+ * more about the length of the text than about the number of rows.
+ */
 static int painted_rows(screen* scr, int cols) {
     (void) scr;
+    (void) cols;
     static char raw[65536];
     const int n = cap_read(raw, sizeof(raw));
-    int printable = 0;
+
+    return rows_in(raw, n);
+}
+
+/*
+ * Says the rows about to be painted are blank, which is what a cleared screen
+ * leaves and what these checks each start from.
+ *
+ * A paint blanks a row only as far as it previously reached, so without this a
+ * check reads what the case before it left behind.
+ */
+static void row_starts_blank(screen* scr) {
+    memset(scr->rowFill_, 0, sizeof(scr->rowFill_));
+}
+
+/*
+ * Rows the frame wrote to that came out holding nothing but spaces.
+ *
+ * This is how "the rows past the end of the document are blanked" is asked
+ * now. Measuring the longest run of spaces used to do it, because every row
+ * was padded to the full width and two blanked rows landed as one run twice as
+ * long. A row is blanked only as far as it previously reached, so two blanked
+ * rows are two short runs -- and a row that was already blank is not written
+ * at all, which is the point rather than a gap.
+ */
+static int rows_blanked(const char* raw, int n) {
+    char wrote[256];
+    char marked[256];
+    memset(wrote, 0, sizeof(wrote));
+    memset(marked, 0, sizeof(marked));
+
+    int row = -1;
     for (int i = 0; i < n; i++) {
-        if (raw[i] == 17 && i + 1 < n) {
-            i++;
+        if (raw[i] == 31 && i + 2 < n) {
+            row = (unsigned char) raw[i + 2];
+            i += 2;
             continue;
         }
-        if ((unsigned char) raw[i] >= 32) {
-            printable++;
+        if (raw[i] == 17 && i + 1 < n) {
+            i++;                        /* a colour, not a cell */
+            continue;
+        }
+        if ((unsigned char) raw[i] < 32 || row < 0 || row > 255) {
+            continue;
+        }
+        wrote[row] = 1;
+        if (raw[i] != ' ') {
+            marked[row] = 1;
+        }
+    }
+    int blank = 0;
+    for (int i = 0; i < 256; i++) {
+        if (wrote[i] && !marked[i]) {
+            blank++;
         }
     }
 
-    return printable / cols;
+    return blank;
 }
 
 static key_command press(VKey vkey, char mods) {
@@ -210,6 +308,11 @@ static key_command press(VKey vkey, char mods) {
 }
 
 int main(void) {
+    /* Row markers in the captured stream: painted() needs them to tell where
+     * one row ends and the next begins, now that a row is not always as wide
+     * as the window, and painted_rows counts them. Turned off again before the
+     * checks that count raw bytes -- see below. */
+    stub_emit_tabs(1);
     /* --- which keys move the cursor --- */
     check("LEFT moves", ed_is_motion(VK_LEFT) ? 1 : 0, 1);
     check("RIGHT moves", ed_is_motion(VK_RIGHT) ? 1 : 0, 1);
@@ -347,6 +450,7 @@ int main(void) {
 
     /* No selection: the row paints plainly from end to end. */
     ed.selecting_ = false;
+    row_starts_blank(scr);
     cap_start();
     scr_write_line(scr, scr->topY_, "hello", 5);
     {
@@ -358,6 +462,7 @@ int main(void) {
     }
 
     /* A span in the middle, given directly in columns. */
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, "hello world", 11, 2, 5);
     {
@@ -370,6 +475,7 @@ int main(void) {
 
     /* An empty span highlights nothing, which is what an unselected row asks
      * for -- and a backwards one must not paint the whole line. */
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, "hello world", 11, 4, 4);
     {
@@ -378,6 +484,7 @@ int main(void) {
         want[cols] = 0;
         check_paint("an empty span highlights nothing", painted(scr, cols), want);
     }
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, "hello world", 11, 6, 2);
     {
@@ -390,6 +497,7 @@ int main(void) {
 
     /* Past the end of the text: the padding is highlighted too, which is how a
      * selected line break shows up as anything at all. */
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, "abc", 3, 1, 5);
     {
@@ -406,6 +514,7 @@ int main(void) {
     scr_set_tab_size(scr, 4);
     check("a tab before the text is four columns wide",
           scr_column_of(scr, "\tab", 1), 4);
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, "\tab", 3,
                        0, scr_column_of(scr, "\tab", 3));
@@ -422,6 +531,7 @@ int main(void) {
 
     /* And the row after a highlighted one must come back plain: the colours are
      * put back at the end of every row, not left for the next one to inherit. */
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, "abc", 3, 0, 3);
     scr_write_line(scr, (char)(scr->topY_ + 1), "def", 3);
@@ -440,6 +550,7 @@ int main(void) {
      * where only the explicit one can save the next row. */
     static char wide[256];
     memset(wide, 'w', (size_t) cols);
+    row_starts_blank(scr);
     cap_start();
     scr_write_line_sel(scr, scr->topY_, wide, cols, 0, cols);
     scr_write_line(scr, (char)(scr->topY_ + 1), "plain", 5);
@@ -490,6 +601,7 @@ int main(void) {
     ed.anchor_ = (tb_pos){2, 4};
     tb_seek(&ed.buf_, (tb_pos){1, 2});
     scr->currY_ = scr->topY_;
+    row_starts_blank(scr);
     cap_start();
     cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
     {
@@ -510,6 +622,7 @@ int main(void) {
      * the repaint that runs when a selection is dropped, so it has to actually
      * remove the highlight rather than leave it where it was. */
     ed.selecting_ = false;
+    row_starts_blank(scr);
     cap_start();
     cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
     {
@@ -833,9 +946,11 @@ int main(void) {
         const int n = cap_read(raw, (int) sizeof(raw));
         check("the refresh wrote something", n > 0, 1);
 
+        static char text[8192];
+        const int tn = without_tabs(raw, n, text);
         int clears = 0;
-        for (int i = 0; i < n; i++) {
-            if (raw[i] == 12) {
+        for (int i = 0; i < tn; i++) {
+            if (text[i] == 12) {
                 clears++;
             }
         }
@@ -844,15 +959,16 @@ int main(void) {
         /* Blanking is not optional in place of the clear: the rows the document
          * no longer reaches have to be written as spaces, or the lines that used
          * to be there stay on screen. One row of text, the rest blank. */
-        int spaces = 0;
-        for (int i = 0; i < n; i++) {
-            if (raw[i] == ' ') {
-                spaces++;
-            }
-        }
-        const int rows = sh.scr_.bottomY_ - sh.scr_.topY_;
-        check("  and pads every row past the end instead",
-              spaces > (rows - 1) * sh.scr_.cols_, 1);
+        /*
+         * Every row the document no longer reaches ends up blank. Asked of the
+         * screen's own record rather than by counting spaces: a row is blanked
+         * only as far as it previously reached, so a row that held three
+         * characters is cleared by three spaces and a row that was already
+         * blank needs none. The count says how much text went away; this says
+         * that none of it is still showing.
+         */
+        check("  and every row past the end is left blank",
+              rows_blanked(raw, n) >= 2, 1);
 
         ed_destroy(&sh);
     }
@@ -1013,12 +1129,8 @@ int main(void) {
         check("the shrinking cut happens",
               cmd_delete_selection(&shrink) ? 1 : 0, 1);
         n = cap_read(raw, (int) sizeof(raw));
-        /* Two rows' worth in one run. One row of spaces proves nothing: the
-         * joined row is short and pads itself to the full width anyway. The two
-         * blanked rows are written back to back with only a cursor tab between,
-         * and a tab emits no bytes, so they land as one run twice as long. */
         check("  rows past the end of the document are blanked",
-              longest_space_run(raw, n) >= shrink.scr_.cols_ * 2, 1);
+              rows_blanked(raw, n) >= 2, 1);
         ed_destroy(&shrink);
 
         /* The same cut on a document whose last line has text on it.
@@ -1051,15 +1163,17 @@ int main(void) {
         check("  the last line is not painted a second time",
               stream_has(raw, n, "five"), 0);
         check("  and those rows are blanked instead",
-              longest_space_run(raw, n) >= last.scr_.cols_ * 2, 1);
+              rows_blanked(raw, n) >= 2, 1);
         ed_destroy(&last);
 
         cap_start();
         check("the cut from above happens",
               cmd_delete_selection(&up_ed) ? 1 : 0, 1);
         n = cap_read(raw, (int) sizeof(raw));
+        // Rows rather than bytes: a repainted area of short lines is fewer
+        // bytes than it used to be, but it is still every row.
         check("  falls back to repainting the area",
-              n > up_ed.scr_.cols_ * 10, 1);
+              rows_in(raw, n) > 10, 1);
         ed_destroy(&up_ed);
     }
 

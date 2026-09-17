@@ -112,45 +112,82 @@ int main(void) {
     }
     screen scr = mkscreen(20);
 
+    /*
+     * Each case below asserts the whole of what its paint put on the wire, and
+     * a paint blanks a row only as far as that row previously reached -- so
+     * without this each case would read the length of the one before it.
+     */
+    #define ROW_BLANK() memset(scr.rowFill_, 0, sizeof(scr.rowFill_))
+
     char l1[] = "\tx";                       /* tab at column 0 -> 4 wide */
+    ROW_BLANK();
     cap_start();
     scr_paint_row(&scr, 3, NULL, 0, l1, 2);
     int n = cap_read(buf, sizeof(buf));
-    check_str("tab at column 0 renders 4 spaces", buf, n, "    x               ");
+    check_str("tab at column 0 renders 4 spaces", buf, n, "    x");
+
+    /*
+     * The rule the row-blanking rests on: what a shorter line leaves behind is
+     * erased. A row is padded only as far as it previously reached rather than
+     * to the window's edge, which is most of what a repaint used to cost -- and
+     * the way for that to be wrong is to blank too little and leave the tail of
+     * the line before still showing.
+     */
+    ROW_BLANK();
+    cap_start();
+    scr_paint_row(&scr, 3, NULL, 0, "abcdefghij", 10);
+    n = cap_read(buf, sizeof(buf));
+    check_str("a long line paints itself and no more", buf, n, "abcdefghij");
+
+    cap_start();
+    scr_paint_row(&scr, 3, NULL, 0, "xy", 2);
+    n = cap_read(buf, sizeof(buf));
+    check_str("  and a shorter one after it blanks the rest",
+              buf, n, "xy        ");
+
+    cap_start();
+    scr_paint_row(&scr, 3, NULL, 0, "xy", 2);
+    n = cap_read(buf, sizeof(buf));
+    check_str("    with nothing left to blank the second time", buf, n, "xy");
 
     char l2[] = "ab\tc";                     /* tab at column 2 -> 2 wide */
+    ROW_BLANK();
     cap_start();
     scr_paint_row(&scr, 3, NULL, 0, l2, 4);
     n = cap_read(buf, sizeof(buf));
-    check_str("tab at column 2 renders 2 spaces", buf, n, "ab  c               ");
+    check_str("tab at column 2 renders 2 spaces", buf, n, "ab  c");
 
     char l3[] = "abcd\te";                   /* tab exactly on a stop -> full width */
+    ROW_BLANK();
     cap_start();
     scr_paint_row(&scr, 3, NULL, 0, l3, 6);
     n = cap_read(buf, sizeof(buf));
-    check_str("tab on a stop renders a full width", buf, n, "abcd    e           ");
+    check_str("tab on a stop renders a full width", buf, n, "abcd    e");
 
     /* The line is held either side of the gap; painting must cross the split. */
+    ROW_BLANK();
     cap_start();
     scr_paint_row(&scr, 3, "ab", 2, "\tc", 2);
     n = cap_read(buf, sizeof(buf));
-    check_str("expansion works across the gap split", buf, n, "ab  c               ");
+    check_str("expansion works across the gap split", buf, n, "ab  c");
 
     /* Scrolled right: the window starts mid-way through an expanded tab. */
     scr.originX_ = 2;
+    ROW_BLANK();
     cap_start();
     scr_paint_row(&scr, 3, NULL, 0, l1, 2);
     n = cap_read(buf, sizeof(buf));
-    check_str("origin 2 shows the tail of the tab", buf, n, "  x                 ");
+    check_str("origin 2 shows the tail of the tab", buf, n, "  x");
     scr.originX_ = 0;
 
     /* A wider tab changes the rendering, not the stored bytes. */
     scr_set_tab_size(&scr, 8);
+    ROW_BLANK();
     cap_start();
     scr_paint_row(&scr, 3, NULL, 0, l2, 4);
     n = cap_read(buf, sizeof(buf));
     check_str("width 8 renders the same bytes differently", buf, n,
-              "ab      c           ");
+              "ab      c");
     scr_set_tab_size(&scr, SCR_DEFAULT_TAB_SIZE);
 
     /* An insertion must repaint from the inserted character, not from the
