@@ -353,6 +353,62 @@ int main(void) {
         check("    and its comment colour", has_colour(cap, n, 8), 1);
 
         /*
+         * And it changes the foreground alone at a token boundary.
+         *
+         * A theme moves the foreground and leaves the pair the document is
+         * drawn on where it is, so the background either side of a boundary is
+         * the same and sending it again spends two bytes to say nothing. VDU
+         * 17 takes one parameter, so a background change is a second 17 with
+         * the index plus 128 -- and the bytes are the cost of a repaint, at
+         * 11.1 us each on the wire with 8.6 us to enter MOS for the write
+         * (test/probes/vducost.c).
+         *
+         * Counted rather than sampled: one 17 per change and no high byte
+         * behind any of them is the whole claim, and a test that looked for
+         * one change would pass while the rest carried both halves.
+         */
+        {
+            int changes = 0;
+            int with_bg = 0;
+            for (int i = 0; i + 1 < n; i++) {
+                if ((unsigned char) cap[i] != 17) {
+                    continue;
+                }
+                changes++;
+                if ((unsigned char) cap[i + 1] >= 128) {
+                    with_bg++;
+                }
+                i++;            // the parameter is not itself a command
+            }
+            check("  a coloured row crosses several boundaries",
+                  changes >= 3 ? 1 : 0, 1);
+            check("    and none of them resends the background", with_bg, 0);
+        }
+
+        /*
+         * A selection does swap the pair, and that one still has to send
+         * both -- the saving is only sound because a theme never touches the
+         * background.
+         */
+        {
+            static char sel[] = "int x; /* hi";
+            cap_start();
+            scr_write_line_sel(&ed.scr_, 1, sel, (int) sizeof(sel) - 1, 0, 3);
+            const int m = cap_read(cap, (int) sizeof(cap));
+            int with_bg = 0;
+            for (int i = 0; i + 1 < m; i++) {
+                if ((unsigned char) cap[i] == 17) {
+                    if ((unsigned char) cap[i + 1] >= 128) {
+                        with_bg++;
+                    }
+                    i++;
+                }
+            }
+            check("  a row with a selection on it still sends a background",
+                  with_bg > 0 ? 1 : 0, 1);
+        }
+
+        /*
          * The line above ended inside a block comment, so the row below it is
          * comment from its first column -- which is the multiline state
          * arriving through the paint rather than through a unit test.
