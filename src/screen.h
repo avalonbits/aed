@@ -54,14 +54,6 @@ typedef int (*scr_colourer)(void* ctx, char ypos, const char* pre, int presz,
  */
 typedef char (*scr_cell_colourer)(void* ctx, char ypos, int col);
 
-/*
- * The tallest screen anything here has to account for.
- *
- * No documented mode is taller than 96 rows -- see rows_ above -- so an array
- * with one entry a row is bounded by this rather than by a mode nobody has.
- */
-#define SCR_MAX_ROWS 96
-
 typedef struct _screen {
     // Wider than a char on purpose. Mode 19 is 1024x768, which MOS reports as
     // 128 columns, and this file is compiled with -fsigned-char -- so a char
@@ -167,25 +159,6 @@ typedef struct _screen {
     // than two answers.
     char curFg_;
     char curBg_;
-
-    /*
-     * How many columns of each row hold something, as of the last full-width
-     * paint of it.
-     *
-     * A repaint has to blank what the old row left past the end of the new
-     * one, and blanking to the window's edge every time was 29% of what a page
-     * down put on the wire -- on an 80-column screen showing 40-column code,
-     * half of every row painted was spaces erasing nothing. Knowing how far
-     * the row actually reached turns that into the difference between the two
-     * lines.
-     *
-     * Conservative when it cannot know: anything that puts content on a row
-     * without going through the full-width paint -- a hardware scroll, a
-     * moved window, a single character -- sets the row back to the full width,
-     * so the next paint blanks all of it. Claiming a row is emptier than it is
-     * leaves text on screen that the document no longer has.
-     */
-    unsigned char rowFill_[SCR_MAX_ROWS];
     // Who to ask for a row's colouring, and for the cursor cell's. NULL paints
     // everything in the document's own colours.
     scr_colourer colour_;
@@ -251,6 +224,14 @@ char scr_bg(screen* scr);
 // pair goes back to when nothing is theming it.
 char scr_base_fg(screen* scr);
 char scr_base_bg(screen* scr);
+
+/*
+ * The tallest screen anything here has to account for.
+ *
+ * No documented mode is taller than 96 rows -- see rows_ above -- so an array
+ * with one entry a row is bounded by this rather than by a mode nobody has.
+ */
+#define SCR_MAX_ROWS 96
 
 // The theme in force, or NULL to paint plainly. The screen does not own it.
 void scr_set_theme(screen* scr, const theme* t);

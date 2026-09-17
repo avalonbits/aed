@@ -88,52 +88,6 @@ void set_colours(char fg, char bg) {
     mos_puts(vdu, sizeof(vdu), 0);
 }
 
-/*
- * The pair the VDP is about to draw in, sending only the half that changed.
- *
- * curFg_ and curBg_ are what the VDP holds, so the other half is already right
- * and sending it again is two bytes down the link that is the whole cost of
- * painting. It is worth the asymmetry because of what a theme is: it colours
- * tokens and leaves the background alone, so on a coloured row the background
- * is the half that never changes -- and this is called at every run boundary,
- * a dozen times a row.
- *
- * Everything that draws in a pair goes through here or records what it left
- * set, which is what makes skipping a half safe. A caller that emitted colour
- * behind this would leave the VDP holding something else and the next row
- * would paint in it.
- */
-static void scr_set_pair(screen* scr, char fg, char bg) {
-    if (fg == scr->curFg_ && bg == scr->curBg_) {
-        return;
-    }
-
-    /*
-     * Into the buffer with the text, rather than flushed and sent on its own.
-     *
-     * A VDU stream is a stream: the colour bytes have to arrive before the
-     * characters they colour, and putting them in the buffer in order is what
-     * says so. Sending them separately meant flushing first -- or the buffered
-     * text would overtake them -- and that is two entries into MOS at every run
-     * boundary, a dozen times a row.
-     *
-     * Entries are what a paint costs. putchar is `rst.lil $10`, one entry a
-     * byte, which is why everything else here buffers; a page down was 553 of
-     * them for 1,981 bytes, and 552 were these. The buffer is MAX_COLS, so a
-     * row and the colour changes along it go out together.
-     */
-    if (fg != scr->curFg_) {
-        out_ch(17);
-        out_ch(fg);
-    }
-    if (bg != scr->curBg_) {
-        out_ch(17);
-        out_ch((char) (bg + 128));
-    }
-    scr->curFg_ = fg;
-    scr->curBg_ = bg;
-}
-
 // The cursor cell shows the character under it, but a control byte cannot be
 // drawn -- sending a tab to the VDP moves the cursor instead of painting it,
 // which left the cursor invisible whenever it sat on one.
@@ -262,8 +216,6 @@ static void get_active_colours(screen* scr) {
     scr->entryFg_ = fg;
     scr->entryBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
-    scr->curFg_ = scr->fg_;
-    scr->curBg_ = scr->bg_;
 }
 
 // Everything the screen layout takes from the current font and mode, in one
@@ -274,10 +226,6 @@ static void get_active_colours(screen* scr) {
 static void derive_geometry(screen* scr) {
     const int cols = getsysvar_scrCols();
     const int rows = getsysvar_scrRows();
-
-    // A row is a different row than it was, and a column a different column.
-    memset(scr->rowFill_, (unsigned char) (cols > 0 ? cols : 0),
-           sizeof(scr->rowFill_));
 
     scr->rows_ = rows;
     scr->barW_ = cols - 1;
@@ -777,8 +725,6 @@ void scr_set_scheme(screen* scr, char fg, char bg) {
     scr->baseFg_ = fg;
     scr->baseBg_ = bg;
     set_colours(scr->fg_, scr->bg_);
-    scr->curFg_ = scr->fg_;
-    scr->curBg_ = scr->bg_;
 }
 
 // A theme's choice, which is a view of the document rather than a setting. The
@@ -792,16 +738,12 @@ void scr_theme_scheme(screen* scr, char fg, char bg) {
     scr->fg_ = fg;
     scr->bg_ = bg;
     set_colours(scr->fg_, scr->bg_);
-    scr->curFg_ = scr->fg_;
-    scr->curBg_ = scr->bg_;
 }
 
 void scr_base_restore(screen* scr) {
     scr->fg_ = scr->baseFg_;
     scr->bg_ = scr->baseBg_;
     set_colours(scr->fg_, scr->bg_);
-    scr->curFg_ = scr->fg_;
-    scr->curBg_ = scr->bg_;
 }
 
 char scr_base_fg(screen* scr) {
@@ -887,22 +829,6 @@ int scr_byte_at(screen* scr, const char* line, int len, int column) {
     return len;
 }
 
-/*
- * Marks rows as holding content to the full width, so the next paint blanks
- * all of them.
- *
- * Every way a row gains content without a full-width paint ends up here: a
- * hardware scroll, which moves content between rows; the window sliding
- * sideways, which changes what a column means; a single character put down by
- * hand; a geometry change, which renumbers the rows. Being wrong the other way
- * -- believing a row emptier than it is -- leaves text on screen the document
- * no longer has, so the guesses all go this way.
- */
-static void rows_hold_all(screen* scr) {
-    memset(scr->rowFill_, (unsigned char) (scr->cols_ > 0 ? scr->cols_ : 0),
-           sizeof(scr->rowFill_));
-}
-
 int scr_place_cursor(screen* scr, const char* line, int len) {
     const int col = scr_column_of(scr, line, len);
     const int width = scr->cols_ > 0 ? scr->cols_ : 1;
@@ -927,10 +853,6 @@ int scr_place_cursor(screen* scr, const char* line, int len) {
         x = 0;
     }
     scr->currX_ = (char) x;
-
-    if (scr->originX_ != origin) {
-        rows_hold_all(scr);     // every column means something else now
-    }
 
     return scr->originX_ - origin;
 }
@@ -1094,7 +1016,6 @@ char* title = "AED: Another Text Editor";
 void scr_clear(screen* scr) {
     // The footer goes with everything else, so it has to be drawn again.
     scr->footerDrawn_ = false;
-    memset(scr->rowFill_, 0, sizeof(scr->rowFill_));   // every row is blank
     vdp_clear_screen();
     vdp_cursor_home();
     vdp_cursor_tab(0,0);
@@ -1280,7 +1201,6 @@ static void reset_viewport(void) {
 }
 
 void scr_clear_textarea(screen* scr, char top, char bottom) {
-    memset(scr->rowFill_, 0, sizeof(scr->rowFill_));   // every row is blank
     // The viewport includes `bottom`, and the callers that refresh the whole
     // screen pass bottomY_ -- which is the footer row. So this erases the
     // footer even though nothing here draws it back. That went unnoticed while
@@ -1356,7 +1276,12 @@ static void highlight(screen* scr, int col, int byte) {
         }
     }
 
-    scr_set_pair(scr, fg, bg);
+    if (fg == scr->curFg_ && bg == scr->curBg_) {
+        return;
+    }
+    set_colours(fg, bg);
+    scr->curFg_ = fg;
+    scr->curBg_ = bg;
 }
 
 void scr_set_theme(screen* scr, const theme* t) {
@@ -1443,42 +1368,10 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     if (suf != NULL && sufsz > 0) {
         col = emit_span(scr, suf, sufsz, col, from, stop, &byte);
     }
-    /*
-     * The padding past the end of the text is highlighted too when the
-     * selection runs through the line break, which is how a selected newline
-     * shows up as anything at all.
-     *
-     * How far it goes is the difference between blanking the row and blanking
-     * what was on it. rowFill_ says where this row's content reached last
-     * time, and there is nothing past that to erase -- so on a screenful of
-     * code the padding is the difference between two lines rather than the
-     * width of the window. A selection running past the text still paints to
-     * its end, because that is text the reader can see.
-     */
-    int pad_to = stop;
-    const bool whole_row = (from <= scr->originX_)
-                        && (stop >= scr->originX_ + scr->cols_)
-                        && ypos < SCR_MAX_ROWS;
-    if (whole_row) {
-        const int held = scr->originX_ + (int) scr->rowFill_[(int) ypos];
-        pad_to = held < stop ? held : stop;
-        if (scr->selTo_ > pad_to) {
-            pad_to = scr->selTo_ < stop ? scr->selTo_ : stop;
-        }
-        // What this paint leaves on the row, for the next one to blank against.
-        int leaves = col - scr->originX_;
-        if (scr->selTo_ - scr->originX_ > leaves) {
-            leaves = scr->selTo_ - scr->originX_;
-        }
-        if (leaves < 0) {
-            leaves = 0;
-        }
-        if (leaves > scr->cols_) {
-            leaves = scr->cols_;
-        }
-        scr->rowFill_[(int) ypos] = (unsigned char) leaves;
-    }
-    for (; col < pad_to; col++) {
+    // The padding past the end of the text is highlighted too when the
+    // selection runs through the line break, which is how a selected newline
+    // shows up as anything at all.
+    for (; col < stop; col++) {
         if (col >= from) {
             highlight(scr, col, byte);
             out_ch(' ');
@@ -1487,7 +1380,11 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
     out_flush();
     // Whatever the row ended in, the next thing painted expects the document's
     // own pair.
-    scr_set_pair(scr, scr->fg_, scr->bg_);
+    if (scr->curFg_ != scr->fg_ || scr->curBg_ != scr->bg_) {
+        set_colours(scr->fg_, scr->bg_);
+        scr->curFg_ = scr->fg_;
+        scr->curBg_ = scr->bg_;
+    }
     // The runs belonged to this row, and the next row asks for its own.
     scr->runs_ = NULL;
     scr->nruns_ = 0;
@@ -1601,7 +1498,6 @@ void scr_sync_cursor(screen* scr) {
 static void scroll_region(
         screen* scr, char topY, char bottomY, const char* vdu, char sz,
         const char* pre, int presz, const char* suf, int sufsz, char ch) {
-    rows_hold_all(scr);         // the content moved between rows
     define_viewport(scr->textX_, bottomY, (char) (scr->textX_ + scr->cols_ - 1), topY);
     mos_puts((char*) vdu, sz, 0);
     reset_viewport();
@@ -1683,9 +1579,6 @@ char scr_glyph_at(screen* scr, const char* line, int len, int col) {
 void scr_put_at(screen* scr, char sx, char sy, char ch) {
     scr_tab(scr, sx, sy);
     putchar(ch);
-    if (sy < SCR_MAX_ROWS) {
-        scr->rowFill_[(int) sy] = (unsigned char) scr->cols_;
-    }
     scr_sync_cursor(scr);
 }
 
@@ -1693,7 +1586,6 @@ void scr_scroll_rows_up(screen* scr, char topY, char bottomY, int rows) {
     if (rows <= 0 || topY > bottomY) {
         return;
     }
-    rows_hold_all(scr);
     const char up[] = {23, 7, 0, 3, scr->charH_};
     define_viewport(scr->textX_, bottomY,
                     (char) (scr->textX_ + scr->cols_ - 1), topY);
@@ -1707,7 +1599,6 @@ void scr_scroll_rows_down(screen* scr, char topY, char bottomY, int rows) {
     if (rows <= 0 || topY > bottomY) {
         return;
     }
-    rows_hold_all(scr);
     const char down[] = {23, 7, 0, 2, scr->charH_};
     define_viewport(scr->textX_, bottomY,
                     (char) (scr->textX_ + scr->cols_ - 1), topY);

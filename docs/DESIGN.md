@@ -115,7 +115,7 @@ flowchart TD
 [`ctrlCmds()`](../src/editor.c#L627) ·
 [`editCmds()`](../src/editor.c#L722) ·
 [`ed_selection_for()`](../src/editor.c#L408) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L810)
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L828)
 
 `main` asks for **72 KiB** — [`AED_DOC_KB`](../src/editor.h#L127) — and that
 single number sizes the document: `tb_init` splits it into 71,424 bytes of
@@ -372,10 +372,10 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L810) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L828) takes a range, and most commands
 pass a single row.
 
-[`screen`](../src/screen.h#L65) derives its geometry from the font's cell size,
+[`screen`](../src/screen.h#L57) derives its geometry from the font's cell size,
 so a font of a different height changes the number of rows without anything else
 knowing. `scr_clear` moves the cursor's row to the top of the text area as a
 side effect, which has caused three separate bugs; it is more than paint.

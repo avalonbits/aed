@@ -358,8 +358,26 @@ static void fill_screen(editor* ed, text_buffer* tb) {
      * what a jump to the end of a document is. Paging through big.c went from
      * 174 lexes a page to a screenful, and 3.1 seconds a page to 2.0.
      */
+    /*
+     * The answers have to cover the top line before a row is painted, and this
+     * is the only place that can promise it.
+     *
+     * Asking line_state instead looks equivalent and is not: it answers NONE
+     * for line 1 without recording anything, so opening a file left synFirst_
+     * at zero. The first row then painted, found no answer, and refilled from
+     * inside the paint -- and a refill walks the document with a copy, which
+     * moves the gap while this loop holds pointers into it for the row it is
+     * drawing.
+     *
+     * So: reuse the answer when it is held, and establish one when it is not.
+     * Either way the window covers the top line before anything is drawn, and
+     * every row below chains from the row above.
+     */
     ed->synTop_ = tpos;
-    (void) line_state(ed, tpos);
+    const int held = ed->synFirst_ != 0 ? tpos - ed->synFirst_ : -1;
+    if (held < 0 || held >= ed->synKnown_) {
+        refill_lines(ed, tpos, 0);
+    }
 
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
