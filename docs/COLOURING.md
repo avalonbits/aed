@@ -248,10 +248,10 @@ Four operations, and no state meaning *give up*:
 
 | | |
 |---|---|
-| [`line_state()`](../src/cmd_ops.c#L717) | inside the window it is a lookup; below it the window grows ([`extend_lines`](../src/cmd_ops.c#L606)); above it the window starts again there ([`refill_lines`](../src/cmd_ops.c#L663)) |
-| [`set_line_state()`](../src/cmd_ops.c#L746) | records what a paint has just worked out |
-| [`lines_moved()`](../src/cmd_ops.c#L787) | the document gained or lost a line at a point |
-| [`line_at_row()`](../src/cmd_ops.c#L824) | `synTop_ + (ypos - topY_)`, the only place a row becomes a line |
+| [`line_state()`](../src/cmd_ops.c#L738) | inside the window it is a lookup; below it the window grows ([`extend_lines`](../src/cmd_ops.c#L621)); above it the window starts again there ([`refill_lines`](../src/cmd_ops.c#L678)) |
+| [`set_line_state()`](../src/cmd_ops.c#L767) | records what a paint has just worked out |
+| [`lines_moved()`](../src/cmd_ops.c#L808) | the document gained or lost a line at a point |
+| [`line_at_row()`](../src/cmd_ops.c#L845) | `synTop_ + (ypos - topY_)`, the only place a row becomes a line |
 
 A join **renumbers** its answers rather than throwing them out, which is worth
 doing: throwing them out costs a screenful of lexing per edit and measured seven
@@ -281,8 +281,8 @@ typedef char (*scr_cell_colourer)(void* ctx, char ypos, int col);
 ```
 
 Every path that paints a row asks the first at paint time —
-[`ed_colour_row()`](../src/cmd_ops.c#L164) — and every path that shows the
-cursor asks the second — [`ed_colour_cell()`](../src/cmd_ops.c#L202). **A row
+[`ed_colour_row()`](../src/cmd_ops.c#L175) — and every path that shows the
+cursor asks the second — [`ed_colour_cell()`](../src/cmd_ops.c#L213). **A row
 cannot be painted without the question being asked**, because asking is inside
 the painting rather than in front of it.
 

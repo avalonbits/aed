@@ -886,7 +886,13 @@ bool syn_crosses_lines(const syntax* g) {
 }
 
 int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
-                     char* buf, int bufmax) {
+                     char* buf, int bufmax, char* out, int nout) {
+    // Every line above the document's first begins clean, and so does every
+    // line of a grammar with nothing that crosses one. That is the answer this
+    // leaves wherever the walk below does not reach.
+    if (out != NULL && nout > 0) {
+        memset(out, SYN_STATE_NONE, (size_t) nout);
+    }
     if (g == NULL || !g->loaded || get == NULL || y <= 0 || buf == NULL
             || bufmax <= 0) {
         return SYN_STATE_NONE;
@@ -910,6 +916,11 @@ int syn_state_before(const syntax* g, int y, syn_line_fn get, void* ctx,
         const int n = get(ctx, i, buf, bufmax);
         if (n < 0) {
             break;              // the document ended early; keep what we have
+        }
+        // This line's answer, before it is lexed: `state` is what the lines
+        // above left open, which is what this one begins inside.
+        if (out != NULL && i >= y - nout) {
+            out[nout - (y - i)] = (char) state;
         }
         syn_lex(g, buf, n, state, &state, NULL, 0);
     }

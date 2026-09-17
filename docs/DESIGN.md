@@ -115,9 +115,9 @@ flowchart TD
 [`ctrlCmds()`](../src/editor.c#L627) ·
 [`editCmds()`](../src/editor.c#L722) ·
 [`ed_selection_for()`](../src/editor.c#L408) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L828)
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L849)
 
-`main` asks for **72 KiB** — [`AED_DOC_KB`](../src/editor.h#L127) — and that
+`main` asks for **72 KiB** — [`AED_DOC_KB`](../src/editor.h#L137) — and that
 single number sizes the document: `tb_init` splits it into 71,424 bytes of
 character buffer and 2,304 index slots, about one slot per 31 bytes. Nothing
 else in the editor picks a size.
@@ -372,7 +372,7 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L828) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L849) takes a range, and most commands
 pass a single row.
 
 [`screen`](../src/screen.h#L57) derives its geometry from the font's cell size,

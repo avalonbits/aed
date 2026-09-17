@@ -1582,9 +1582,14 @@ int main(void) {
          * these check its shape: an answer window that reaches above the line
          * it was asked about, and one that keeps its answers when it fills.
          */
-        static char many[8000];
+        /*
+         * Longer than the answer window, or nothing below exercises the slide:
+         * a document that fits in the window never has to drop anything, and
+         * every check about sliding passes without one happening.
+         */
+        static char many[24000];
         int at = 0;
-        for (int i = 0; i < 300; i++) {
+        for (int i = 0; i < SYN_WINDOW * 2; i++) {
             at += sprintf(many + at, "int v%d; /* line %d */\r\n", i, i);
         }
 
@@ -1602,17 +1607,18 @@ int main(void) {
         named_text(&ed, "/main.c", many);
         ed_pick_syntax(&ed);
         cmd_show(&ed);
-        check("a long C file, held whole", tb_ymax(&ed.buf_) > 250 ? 1 : 0, 1);
+        check("a long C file, held whole",
+              tb_ymax(&ed.buf_) > SYN_WINDOW ? 1 : 0, 1);
         check("  and not paged", ed.buf_.paged_ ? 1 : 0, 0);
 
         /* Down past the end of the window, which is where it used to stall. */
-        for (int i = 0; i < SCR_MAX_ROWS + 40; i++) {
+        for (int i = 0; i < SYN_WINDOW + 40; i++) {
             cmd_down(&ed);
         }
-        check("  scrolled well past a windowful", ed.synTop_ > SCR_MAX_ROWS, 1);
+        check("  scrolled well past a windowful", ed.synTop_ > SYN_WINDOW, 1);
         check("    the window slid with it", ed.synFirst_ > 1, 1);
         check("      and kept its answers rather than starting again",
-              ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+              ed.synKnown_ >= SYN_WINDOW / 2, 1);
 
         /*
          * And back up, far enough to leave the window behind -- which is the
@@ -1620,7 +1626,7 @@ int main(void) {
          * windowful stays inside the answers the walk down already built and
          * would pass whatever a refill does, so it proves nothing.
          */
-        for (int i = 0; i < SCR_MAX_ROWS + 20; i++) {
+        for (int i = 0; i < SYN_WINDOW + 20; i++) {
             cmd_up(&ed);
         }
         check("  and scrolling up out of the window again", ed.synTop_ > 1, 1);
@@ -1634,7 +1640,7 @@ int main(void) {
          * when every row starts again.
          */
         check("    leaves a windowful of answers rather than a screenful",
-              ed.synKnown_ >= SCR_MAX_ROWS / 2, 1);
+              ed.synKnown_ >= SYN_WINDOW / 2, 1);
 
         /*
          * A page down reuses the answers rather than working them out again.
@@ -1656,6 +1662,145 @@ int main(void) {
             check("  a page down reuses the answers", ed.synFirst_, was_first);
             check("    and they still reach where it landed",
                   ed.synTop_ - ed.synFirst_ < ed.synKnown_, 1);
+        }
+
+        /*
+         * A page up keeps the answers above the line it landed on.
+         *
+         * Going up is the direction that cannot chain: the line above is not
+         * one any paint has been asked about, so the view reads back to find
+         * what its new top begins inside. That walk settles the same question
+         * for every line it passes, and the view used to keep only the answer
+         * for the top row -- so the next page up was outside the window again
+         * and read back over lines it had just read. Some page ups were free
+         * and the rest cost a full lookback, which is what made them uneven.
+         *
+         * What says so here is that after a page up the window reaches above
+         * the top row, and that the page up after it finds its own landing
+         * line already answered for. Over a 406 line C file that took a page
+         * up from 125 lexes to 52, and the worst one from 223 to one refill in
+         * four.
+         */
+        {
+            /*
+             * Far enough down that a page up has to leave the window behind:
+             * coming up less than a windowful stays inside the answers the
+             * walk down already built and would pass whatever a refill does.
+             *
+             * What a refill leaves is checked when one happens -- synFirst_
+             * moving is what says one did -- because between refills the reach
+             * above the top row is legitimately spent down to nothing, and
+             * asking after an arbitrary page up measures where the walk
+             * stopped rather than what a refill does.
+             */
+            for (int i = 0; i < 8; i++) {
+                cmd_page_down(&ed);
+            }
+            const int screenful = ed.scr_.bottomY_ - ed.scr_.topY_;
+            int refills = 0;
+            int kept = 1;
+            for (int i = 0; i < 6; i++) {
+                const int was = ed.synFirst_;
+                cmd_page_up(&ed);
+                if (ed.synFirst_ == was) {
+                    continue;               // answered from the window
+                }
+                refills++;
+                if (ed.synTop_ > 1 && ed.synTop_ - ed.synFirst_ < screenful) {
+                    kept = 0;               // read back and kept the screen
+                }
+            }
+            check("  a page up that reads back keeps what the walk passed",
+                  kept, 1);
+            check("    so one read-back serves several page ups",
+                  refills < 6, 1);
+        }
+
+        /*
+         * And the answers it keeps are the right ones.
+         *
+         * The read-back settles what every line it passes begins inside, and
+         * the window is now handed those rather than walking the same lines
+         * again. A second editor reaches the same top line by scrolling down
+         * from the first line, which chains every answer from a line that
+         * certainly starts clean and so cannot be wrong; the two have to agree
+         * wherever their windows overlap.
+         *
+         * The document above cannot show this: every comment on it closes on
+         * its own line, so every answer is NONE and a wrong one looks right.
+         * This one has comments that run for twenty lines at a time.
+         */
+        {
+            static char spans[12000];
+            int sat = 0;
+            for (int i = 0; i < 280; i++) {
+                const int k = i % 40;
+                if (k == 20) {
+                    sat += sprintf(spans + sat, "/* open at %d\r\n", i);
+                } else if (k == 39) {
+                    sat += sprintf(spans + sat, "closed here */\r\n");
+                } else if (k > 20) {
+                    sat += sprintf(spans + sat, "still inside %d\r\n", i);
+                } else {
+                    sat += sprintf(spans + sat, "int v%d;\r\n", i);
+                }
+            }
+
+            static editor paged;
+            static editor walked;
+            for (int which = 0; which < 2; which++) {
+                editor* e = which == 0 ? &paged : &walked;
+                files();
+                setup(e, 0);
+                tb_destroy(&e->buf_);
+                tb_init(&e->buf_, 32, NULL);
+                named_text(e, "/spans.c", spans);
+                ed_pick_syntax(e);
+                cmd_show(e);
+            }
+            check("a C file whose comments run over many lines",
+                  paged.syn_.loaded ? 1 : 0, 1);
+
+            /*
+             * To the top and then to the end, so the refill at the end finds
+             * a window holding answers about the first screen of the document
+             * rather than about the lines it is being asked for. A refill that
+             * widens the window without filling it leaves those in place, and
+             * they are answers about the wrong lines.
+             */
+            cmd_doc_top(&paged);
+            cmd_doc_end(&paged);
+            for (int i = 0; i < 2; i++) {
+                cmd_page_up(&paged);
+            }
+
+            /* Scrolled to the same top line, a row at a time. */
+            int guard = 0;
+            while (walked.synTop_ < paged.synTop_ && guard++ < 4000) {
+                cmd_down(&walked);
+            }
+            check("  both views on the same line", walked.synTop_,
+                  paged.synTop_);
+
+            int agree = 1;
+            int compared = 0;
+            for (int l = paged.synFirst_;
+                 l < paged.synFirst_ + paged.synKnown_; l++) {
+                const int b = l - walked.synFirst_;
+                if (b < 0 || b >= walked.synKnown_) {
+                    continue;
+                }
+                compared++;
+                if (paged.lineSyn_[l - paged.synFirst_] != walked.lineSyn_[b]) {
+                    agree = 0;
+                }
+            }
+            check("  the windows overlap enough to say anything",
+                  compared > 8 ? 1 : 0, 1);
+            check("    and every answer they share agrees", agree, 1);
+
+            tb_destroy(&paged.buf_);
+            tb_destroy(&walked.buf_);
         }
 
         tb_destroy(&ed.buf_);

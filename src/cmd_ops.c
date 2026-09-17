@@ -79,7 +79,18 @@
  * everything past them is what scrolling up asks for next.
  */
 static int syn_backfill(editor* ed) {
-    int back = SCR_MAX_ROWS - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    int back = SYN_WINDOW - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    /*
+     * Never deeper than the walk that fills it. The backfill is whatever the
+     * read-back leaves behind, and the read-back goes back SYN_LOOKBACK lines
+     * -- so asking for more than that does not read further, it just leaves
+     * entries the walk never reached. Those read as SYN_STATE_NONE, which
+     * says "this line starts clean", and a line in the middle of a block
+     * comment that says so paints as ordinary text.
+     */
+    if (back > SYN_LOOKBACK) {
+        back = SYN_LOOKBACK;
+    }
     if (back < SYN_BACKFILL_MIN) {
         back = SYN_BACKFILL_MIN;
     }
@@ -279,8 +290,12 @@ static int back_get(void* ctx, int y, char* buf, int max) {
  * Costs nothing for a grammar with nothing that crosses a line, which is every
  * grammar but C -- syn_state_before answers those without reading a line.
  */
-static int top_state(editor* ed, int line) {
+static int top_state(editor* ed, int line, char* out, int nout) {
     if (!syn_crosses_lines(&ed->syn_) || line <= 1) {
+        if (out != NULL && nout > 0) {
+            memset(out, SYN_STATE_NONE, (size_t) nout);
+        }
+
         return SYN_STATE_NONE;
     }
     // Static, as font_list's DIR is and for the same reason: a text_buffer on
@@ -300,7 +315,7 @@ static int top_state(editor* ed, int line) {
     bs.at = tb_ypos(&bs.cp);
 
     return syn_state_before(&ed->syn_, line - 1, back_get, &bs,
-                            synScan_, SYN_ROW_MAX);
+                            synScan_, SYN_ROW_MAX, out, nout);
 }
 
 /*
@@ -376,7 +391,7 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     ed->synTop_ = tpos;
     const int held = ed->synFirst_ != 0 ? tpos - ed->synFirst_ : -1;
     if (held < 0 || held >= ed->synKnown_) {
-        refill_lines(ed, tpos, 0);
+        refill_lines(ed, tpos, syn_backfill(ed));
     }
 
     for (; ypos < scr->bottomY_; ypos++) {
@@ -632,7 +647,7 @@ static void extend_lines(editor* ed, int upto) {
         return;
     }
     int state = ed->lineSyn_[ed->synKnown_ - 1];
-    while (at < upto && ed->synKnown_ < SCR_MAX_ROWS) {
+    while (at < upto && ed->synKnown_ < SYN_WINDOW) {
         const split_line ln = tb_curr_line(&cp);
         const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
         syn_lex(&ed->syn_, synScan_, len, state, &state, NULL, 0);
@@ -661,29 +676,35 @@ static void extend_lines(editor* ed, int upto) {
  * the next SYN_BACKFILL rows a lookup.
  */
 static int refill_lines(editor* ed, int line, int back) {
+    // A line from before the document begins is the top of it. Callers arrive
+    // with one when an edit has taken lines out from under a view.
+    if (line < 1) {
+        line = 1;
+    }
+    if (back > SYN_WINDOW - 1) {
+        back = SYN_WINDOW - 1;          // the answers have to fit the window
+    }
     int from = line - back;
     if (from < 1) {
         from = 1;
     }
+    /*
+     * The read-back is the whole cost, and it already works out what every
+     * line it passes begins inside -- as many as SYN_LOOKBACK of them.
+     *
+     * It used to be asked about `from` and hand back that one answer, after
+     * which extend_lines walked the lines between `from` and `line` a second
+     * time to fill the window with answers the first walk had just computed
+     * and dropped. Asked about `line` instead, and given somewhere to leave
+     * them, one walk does both: the backfill costs nothing beyond the
+     * read-back that was happening anyway.
+     */
+    const int above = line - from;
     ed->synFirst_ = from;
-    ed->lineSyn_[0] = (char) top_state(ed, from);
-    ed->synKnown_ = 1;
-    if (from < line) {
-        extend_lines(ed, line);
-    }
-    const int at = line - ed->synFirst_;
-    if (at >= 0 && at < ed->synKnown_) {
-        return ed->lineSyn_[at];
-    }
+    ed->lineSyn_[above] = (char) top_state(ed, line, ed->lineSyn_, above);
+    ed->synKnown_ = above + 1;
 
-    // The walk could not reach it: a document that ended first, or a window
-    // with no room left. Answer for the line itself, which is what this did
-    // for every line before.
-    ed->synFirst_ = line;
-    ed->lineSyn_[0] = (char) top_state(ed, line);
-    ed->synKnown_ = 1;
-
-    return ed->lineSyn_[0];
+    return ed->lineSyn_[above];
 }
 
 /*
@@ -691,7 +712,7 @@ static int refill_lines(editor* ed, int line, int back) {
  *
  * Scrolling down fills it, and starting again there would mean a read-back to
  * find what the next line begins inside -- which is what made scrolling down
- * stall once every SCR_MAX_ROWS rows, for as long as the document lasted. The
+ * stall once every SYN_WINDOW rows, for as long as the document lasted. The
  * answers that stay are still good: they are about lines rather than rows, and
  * dropping the ones above changes nothing about the ones below.
  */
@@ -723,15 +744,15 @@ static int line_state(editor* ed, int line) {
         if (at >= 0 && at < ed->synKnown_) {
             return ed->lineSyn_[at];
         }
-        if (at >= ed->synKnown_ && at >= SCR_MAX_ROWS) {
+        if (at >= ed->synKnown_ && at >= SYN_WINDOW) {
             // Full, and the line wanted is past the end of it. Slide rather
             // than start again: half the window is still about lines on or
             // near the screen, and the walk can carry on from the last of
             // them instead of reading back for a fresh start.
-            drop_oldest(ed, SCR_MAX_ROWS / 2);
+            drop_oldest(ed, SYN_WINDOW / 2);
             at = line - ed->synFirst_;
         }
-        if (at >= ed->synKnown_ && at < SCR_MAX_ROWS) {
+        if (at >= ed->synKnown_ && at < SYN_WINDOW) {
             extend_lines(ed, line);
             if (line - ed->synFirst_ < ed->synKnown_) {
                 return ed->lineSyn_[line - ed->synFirst_];
@@ -750,7 +771,7 @@ static void set_line_state(editor* ed, int line, int state) {
     const int at = line - ed->synFirst_;
     if (at >= 0 && at < ed->synKnown_) {
         ed->lineSyn_[at] = (char) state;
-    } else if (at == ed->synKnown_ && at < SCR_MAX_ROWS) {
+    } else if (at == ed->synKnown_ && at < SYN_WINDOW) {
         ed->lineSyn_[at] = (char) state;
         ed->synKnown_++;
     }

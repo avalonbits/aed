@@ -434,23 +434,85 @@ int main(void) {
         char buf[SYN_SCAN_MAX];
         doc_reads = 0;
         check("  line 0 starts clean",
-              syn_state_before(&g, 0, doc_get, NULL, buf, sizeof(buf)),
+              syn_state_before(&g, 0, doc_get, NULL, buf,
+                               sizeof(buf), NULL, 0),
               SYN_STATE_NONE);
         check("    without reading anything", doc_reads, 0);
 
         check("  line 2 starts inside the comment",
-              syn_state_before(&g, 2, doc_get, NULL, buf, sizeof(buf))
+              syn_state_before(&g, 2, doc_get, NULL, buf,
+                               sizeof(buf), NULL, 0)
               != SYN_STATE_NONE, 1);
         check("  line 3 starts inside it too",
-              syn_state_before(&g, 3, doc_get, NULL, buf, sizeof(buf))
+              syn_state_before(&g, 3, doc_get, NULL, buf,
+                               sizeof(buf), NULL, 0)
               != SYN_STATE_NONE, 1);
         check("  line 4 starts clean again",
-              syn_state_before(&g, 4, doc_get, NULL, buf, sizeof(buf)),
+              syn_state_before(&g, 4, doc_get, NULL, buf,
+                               sizeof(buf), NULL, 0),
               SYN_STATE_NONE);
+
+        /*
+         * The walk keeps what it works out, rather than dropping all but the
+         * last answer.
+         *
+         * A view that has jumped reads back to find what its top line begins
+         * inside, and the walk that does it settles the same question for
+         * every line it passes. Those are exactly the answers the view wants
+         * for the rows above it when the reader scrolls back up, and working
+         * them out a second time was most of what a page up cost.
+         */
+        {
+            char out[8];
+            doc_reads = 0;
+            const int at4 = syn_state_before(&g, 4, doc_get, NULL, buf,
+                                             sizeof(buf), out, 4);
+            check("  the walk to line 4 leaves the four above it", doc_reads, 4);
+            check("    line 0 clean", out[0], SYN_STATE_NONE);
+            check("    line 1 clean, the comment opens on it",
+                  out[1], SYN_STATE_NONE);
+            check("    line 2 inside", out[2] != SYN_STATE_NONE ? 1 : 0, 1);
+            check("    line 3 inside, it is where the comment closes",
+                  out[3] != SYN_STATE_NONE ? 1 : 0, 1);
+            check("    and line 4 itself clean", at4, SYN_STATE_NONE);
+
+            /*
+             * Room for more answers than the document can give. The walk
+             * stops at line 0 and the entries below it stand for lines above
+             * the document's first, which begin clean because there is
+             * nothing above them to be inside of. Filled from the end, so the
+             * last entry is always the line before the one asked about.
+             */
+            memset(out, 0x7f, sizeof(out));
+            syn_state_before(&g, 3, doc_get, NULL, buf, sizeof(buf), out, 6);
+            check("  a walk shorter than the room asked for", out[0],
+                  SYN_STATE_NONE);
+            check("    leaves no answer from before it", out[2],
+                  SYN_STATE_NONE);
+            check("    and fills from the end", out[5] != SYN_STATE_NONE ? 1 : 0,
+                  1);
+            check("      and line 1, where the comment opens, begins clean", out[4],
+                  SYN_STATE_NONE);
+
+            /* Every answer it hands back has to be the one it would give if
+             * asked for that line on its own. */
+            char all[4];
+            syn_state_before(&g, 4, doc_get, NULL, buf, sizeof(buf), all, 4);
+            int agree = 1;
+            for (int y = 0; y < 4; y++) {
+                const int alone = syn_state_before(&g, y, doc_get, NULL, buf,
+                                                   sizeof(buf), NULL, 0);
+                if (all[y] != (char) alone) {
+                    agree = 0;
+                }
+            }
+            check("  and each agrees with asking for that line alone",
+                  agree, 1);
+        }
 
         /* And the state it finds is the one that paints the row. */
         const int at2 = syn_state_before(&g, 2, doc_get, NULL, buf,
-                                         sizeof(buf));
+                               sizeof(buf), NULL, 0);
         check_map("  so line 2 paints as comment",
                   lexed_in(&g, d[2], at2, NULL), "CCCCC");
         check_map("  and without it would not",
@@ -467,7 +529,8 @@ int main(void) {
                         "comment.line = eol ';'\n") ? 1 : 0, 1);
         doc_reads = 0;
         check("  answers NONE for any line",
-              syn_state_before(&g, 4, doc_get, NULL, buf, sizeof(buf)),
+              syn_state_before(&g, 4, doc_get, NULL, buf,
+                               sizeof(buf), NULL, 0),
               SYN_STATE_NONE);
         check("    having read no lines at all", doc_reads, 0);
     }
@@ -497,13 +560,13 @@ int main(void) {
         doc_reads = 0;
         check("  a line just inside the lookback is found",
               syn_state_before(&g, SYN_LOOKBACK, doc_get, NULL, buf,
-                               sizeof(buf)) != SYN_STATE_NONE, 1);
+                               sizeof(buf), NULL, 0) != SYN_STATE_NONE, 1);
         check("    reading exactly the lookback", doc_reads, SYN_LOOKBACK);
 
         doc_reads = 0;
         check("  one line further back is missed",
               syn_state_before(&g, SYN_LOOKBACK + 1, doc_get, NULL, buf,
-                               sizeof(buf)), SYN_STATE_NONE);
+                               sizeof(buf), NULL, 0), SYN_STATE_NONE);
         check("    still reading only the lookback", doc_reads, SYN_LOOKBACK);
     }
 
