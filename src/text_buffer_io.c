@@ -874,6 +874,29 @@ static bool save_tmp_name(const text_buffer* tb, char* tmp, int max) {
     return true;
 }
 
+/*
+ * Puts the finished scratch file in the document's place.
+ *
+ * A rename cannot do it on its own: FatFS answers FR_EXIST for a target that
+ * already exists and so does MOS -- measured, because the host stub used to
+ * model a rename as an overwrite and every save test passed against a save
+ * that could not work on the hardware. So the document is deleted first, and
+ * the window between the two is the one unavoidable moment in a save.
+ *
+ * It is a small window and it is recoverable: what is on the card during it is
+ * the whole new document under the scratch name. So a rename that fails leaves
+ * that file alone rather than tidying it away -- it is the only complete copy
+ * at that point, and deleting it is the one thing that would turn a failed
+ * save into a lost document.
+ */
+static bool swap_in(const char* tmp, const char* fname) {
+    // A document being saved for the first time has nothing to remove, and
+    // mos_del says so; the rename is what decides.
+    mos_del(fname);
+
+    return mos_ren(tmp, fname) == 0;
+}
+
 static bool tb_save_paged(text_buffer* tb) {
     static char tmp[SAVE_TMP_MAX];
 
@@ -906,9 +929,7 @@ static bool tb_save_paged(text_buffer* tb) {
 
         return false;
     }
-    if (mos_ren(tmp, tb->fname_) != 0) {
-        mos_del(tmp);
-
+    if (!swap_in(tmp, tb->fname_)) {
         return false;
     }
 
@@ -975,11 +996,7 @@ bool tb_save(text_buffer* tb) {
 
         return false;
     }
-    if (mos_ren(tmp, tb->fname_) != 0) {
-        // The document is still whole and the new one is still on the card,
-        // so nothing has been lost; the save simply did not happen.
-        mos_del(tmp);
-
+    if (!swap_in(tmp, tb->fname_)) {
         return false;
     }
     tbi_saved(tb);

@@ -382,6 +382,7 @@ static int  stub_closes;
 static int  stub_fail_open;
 static int  stub_fail_open_n;
 static int  stub_stat_forced;
+static int  stub_fail_ren_n;
 static int  stub_write_opens;
 static int  stub_reads;
 static int  stub_short_read = -1;
@@ -514,6 +515,7 @@ void stub_file_reset(void) {
     stub_fail_open = 0;
     stub_fail_open_n = 0;
     stub_stat_forced = 0;
+    stub_fail_ren_n = 0;
     stub_write_opens = 0;
     stub_reads = 0;
     stub_short_read = -1;
@@ -590,13 +592,34 @@ uint8_t mos_del(const char* filename) {
     return 0;
 }
 
+/*
+ * A rename, refusing a name that is already taken.
+ *
+ * This used to delete the target first, which made a rename an overwrite --
+ * and nothing in the editor was then able to notice that MOS does not work
+ * that way. FatFS's f_rename answers FR_EXIST for a target that exists, and
+ * measured on MOS 3.0.2 so does mos_ren (test/probes/renmode.c). The save path
+ * renames a scratch file over the document, so a stub that overwrote made
+ * every one of those tests pass against a save that could not work on the
+ * hardware.
+ */
+/* Make the next n renames fail, for the window between removing a document
+ * and putting its replacement in place. */
+void stub_file_fail_ren(int n) { stub_fail_ren_n = n; }
+
 uint8_t mos_ren(const char* filename, const char* newname) {
+    if (stub_fail_ren_n > 0) {
+        stub_fail_ren_n--;
+
+        return 1;       /* FR_DISK_ERR */
+    }
     const int at = stub_fs_find(filename);
     if (at < 0 || newname == NULL) {
         return 4;       /* FR_NO_FILE */
     }
-    mos_del(newname);
-    stub_delete_count--;    /* a rename is not a delete the test asked for */
+    if (stub_fs_find(newname) >= 0) {
+        return 8;       /* FR_EXIST */
+    }
     size_t n = strlen(newname);
     if (n >= STUB_NAME_MAX) {
         n = STUB_NAME_MAX - 1;

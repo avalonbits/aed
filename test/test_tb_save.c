@@ -169,8 +169,8 @@ int main(void) {
               got == (int) sizeof(KEEP) - 1
                   && memcmp(back, KEEP, (size_t) got) == 0 ? 1 : 0, 1);
 
-        /* And the scratch file it wrote through is cleaned up, so a failed
-         * save does not litter the card with half-written leftovers. */
+        /* The scratch file it wrote through is cleaned up, so a failed save
+         * does not litter the card with half-written leftovers. */
         const char sh = mos_fopen("/keep.txt.aeds", FA_READ);
         if (sh != 0) {
             mos_fclose(sh);
@@ -188,8 +188,82 @@ int main(void) {
             mos_fclose(oh);
         }
         check("  the document is what is on the card", asz, 40 * 11);
+
         check("    and the scratch file is gone",
               mos_fopen("/keep.txt.aeds", FA_READ) != 0 ? 1 : 0, 0);
+
+        /*
+         * Saving over a document that is already there.
+         *
+         * The scratch file cannot simply be renamed into place: FatFS answers
+         * FR_EXIST for a target that exists and so does MOS, so the document
+         * has to be removed first. The stub modelled a rename as an overwrite
+         * for a while, and every test here passed against a save that could
+         * not work on an Agon -- a reader on real hardware could not save at
+         * all, and was told so on the way out.
+         */
+        stub_file_reset();
+        stub_file_add("/keep.txt", KEEP, (int) sizeof(KEEP) - 1);
+        static text_buffer over;
+        tb_init(&over, 8, NULL);
+        tb_set_fname(&over, "/keep.txt", 9);
+        put_str(&over, "the replacement");
+        check("a save over a document that exists", tb_save(&over) ? 1 : 0, 1);
+        check("  and the buffer is clean afterwards",
+              tb_changed(&over) ? 1 : 0, 0);
+        {
+            static char back[64];
+            const char rh = mos_fopen("/keep.txt", FA_READ);
+            const int got = rh != 0
+                          ? (int) mos_fread(rh, back, sizeof(back)) : -1;
+            if (rh != 0) {
+                mos_fclose(rh);
+            }
+            check("    the card holds the new document", got, 15);
+            check("      and not the old one",
+                  got == 15 && memcmp(back, "the replacement", 15) == 0
+                      ? 1 : 0, 1);
+        }
+        /* Twice over, because the second save is the one that has both a
+         * document and a scratch name to contend with. */
+        put_str(&over, "!");
+        check("  and again", tb_save(&over) ? 1 : 0, 1);
+        check("    with no scratch file left",
+              mos_fopen("/keep.txt.aeds", FA_READ) != 0 ? 1 : 0, 0);
+        tb_destroy(&over);
+
+        /*
+         * A rename that fails leaves the scratch file alone.
+         *
+         * Between removing the document and renaming the scratch file over it,
+         * the only complete copy of the reader's work is that scratch file.
+         * Tidying it away on the error path is the one thing that would turn a
+         * failed save into a lost document, so it stays -- under a name beside
+         * the document's, where it can be found.
+         */
+        stub_file_reset();
+        stub_file_add("/keep.txt", KEEP, (int) sizeof(KEEP) - 1);
+        static text_buffer stuck;
+        tb_init(&stuck, 8, NULL);
+        tb_set_fname(&stuck, "/keep.txt", 9);
+        put_str(&stuck, "work that must survive");
+        stub_file_fail_ren(1);
+        check("a save whose rename fails is reported",
+              tb_save(&stuck) ? 1 : 0, 0);
+        check("  and the buffer stays dirty", tb_changed(&stuck) ? 1 : 0, 1);
+        {
+            static char back[64];
+            const char rh = mos_fopen("/keep.txt.aeds", FA_READ);
+            const int got = rh != 0
+                          ? (int) mos_fread(rh, back, sizeof(back)) : -1;
+            if (rh != 0) {
+                mos_fclose(rh);
+            }
+            check("    the work is on the card under the scratch name", got, 22);
+            check("      whole", got == 22
+                  && memcmp(back, "work that must survive", 22) == 0 ? 1 : 0, 1);
+        }
+        tb_destroy(&stuck);
         tb_destroy(&t);
     }
 
