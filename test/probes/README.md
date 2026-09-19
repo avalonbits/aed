@@ -50,6 +50,20 @@ See `.internal/docs/KEYBOARD.md` for what they were written to investigate.
   A raw image (`--sdcard-img`) would make FatFS run for real and would answer
   the seek and overhead questions, but still not throughput. It needs
   `dosfstools` and `mtools`, neither of which is installed here.
+- `renmode.c` — whether `mos_ren` replaces a target that already exists, and
+  what attributes directories carry. Written after a user reported that saving
+  on exit did not work on real hardware.
+
+  It does not: **`mos_ren` answers `FR_EXIST` (8) for a target that exists**,
+  the same as FatFS's `f_rename`, and leaves both files where they were. A
+  rename onto a free name works. So a save that writes a scratch file has to
+  remove the document before renaming, and the host stub had been modelling a
+  rename as an overwrite -- which is why every save test passed against a save
+  that could not work on an Agon.
+
+  Directory attributes came back `0x10` (`AM_DIR` alone) for `/config`,
+  `/config/aed`, `/config/aed/syntax`, `/config/aed/themes` and for a directory
+  `mos_mkdir` had just made: no read-only, hidden or system bit anywhere.
 - `openmode.c` — what MOS does with `FA_OPEN_EXISTING`, and what `ffs_stat`
   says about a file that is there and one that is not. Written for the change
   that stopped `tb_load` passing `FA_OPEN_ALWAYS`: naming a file that is not
