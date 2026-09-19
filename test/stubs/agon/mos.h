@@ -195,6 +195,9 @@ void        stub_file_fail_opens(int n);  /* make the next mos_fopen return 0 */
  * have a file the editor can see and cannot open. Zero puts it back. */
 void        stub_stat_result(int fresult);
 
+/* Make the next n mos_ren calls fail. */
+void        stub_file_fail_ren(int n);
+
 /* Content mos_fread serves, and the size mos_getfil reports. */
 void        stub_file_set_content(const char* data, int len);
 void        stub_file_readback(void);
