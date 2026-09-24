@@ -265,6 +265,11 @@ with its defaults and simply does not save them.
 AED colours a file it recognises as you type. There is nothing to switch on: open a
 `.c` and it is coloured.
 
+It needs a screen mode with at least 16 colours. In a 2 or 4 colour mode a theme's
+colours fold onto the few the mode has -- in 2 colours most of a file lands on the
+background and disappears -- so there AED leaves the document in your own colours, as
+it does a file it has no grammar for.
+
 Two directories decide what happens, and AED reads both every time you open a file:
 
 ```

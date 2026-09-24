@@ -109,12 +109,12 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L25) ·
-[`ed_init()`](../src/editor.c#L220) ·
-[`ed_run()`](../src/editor.c#L536) ·
-[`read_input()`](../src/editor.c#L771) ·
-[`ctrlCmds()`](../src/editor.c#L627) ·
-[`editCmds()`](../src/editor.c#L722) ·
-[`ed_selection_for()`](../src/editor.c#L408) ·
+[`ed_init()`](../src/editor.c#L237) ·
+[`ed_run()`](../src/editor.c#L553) ·
+[`read_input()`](../src/editor.c#L788) ·
+[`ctrlCmds()`](../src/editor.c#L644) ·
+[`editCmds()`](../src/editor.c#L739) ·
+[`ed_selection_for()`](../src/editor.c#L425) ·
 [`cmd_repaint_rows()`](../src/cmd_ops.c#L849)
 
 `main` asks for **72 KiB** — [`AED_DOC_KB`](../src/editor.h#L137) — and that
@@ -146,14 +146,14 @@ either side, which is why the host tests drive whole commands as well as the
 model.
 
 A key becomes a command in one of two tables —
-[`ctrlCmds()`](../src/editor.c#L627) for a key with CTRL held,
-[`editCmds()`](../src/editor.c#L722) for one without — and both are exported so
+[`ctrlCmds()`](../src/editor.c#L644) for a key with CTRL held,
+[`editCmds()`](../src/editor.c#L739) for one without — and both are exported so
 a test can assert a binding. **A command nothing can reach is not a feature; a
 command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/editor.c#L408) decides what a keystroke does to
+[`ed_selection_for()`](../src/editor.c#L425) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
@@ -492,15 +492,15 @@ Four things learned the hard way:
 * **Something on the document** goes in the `text_buffer_*.c` whose job it is,
   and anything two of them need goes in `text_buffer_int.h` with a `tbi_` name.
 * **A command** needs a function in `cmd_ops.c`, a declaration in `cmd_ops.h`, a
-  case in [`ctrlCmds()`](../src/editor.c#L627) or
-  [`editCmds()`](../src/editor.c#L722), a row in the help table in
+  case in [`ctrlCmds()`](../src/editor.c#L644) or
+  [`editCmds()`](../src/editor.c#L739), a row in the help table in
   `user_input.c`, a line in the README, and a test that goes through the *table*
   and the loop rather than calling the function.
 * **If it moves the cursor**, it seeks. Stepping is for moving by one.
 * **If it reads a range**, it streams. There has been one wrong second walk over
   the document already.
 * **If it owns the selection**, say so in
-  [`owns_selection()`](../src/editor.c#L393), or the loop will take the
+  [`owns_selection()`](../src/editor.c#L410), or the loop will take the
   selection away before the command runs.
 * **Anything on a hot path** is measured on the emulator before and after.
 * **If it moves code any document links to**, run `./test/docs.sh --fix`. A

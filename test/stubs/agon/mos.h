@@ -77,6 +77,7 @@ uint16_t getsysvar_scrheight(void);
 uint8_t  getsysvar_scrCols(void);
 uint8_t  getsysvar_scrRows(void);
 uint8_t  getsysvar_scrColours(void);
+void     stub_set_scr_colours(int n);  /* what getsysvar_scrColours reports */
 
 /* A scripted key sequence, served through the stubbed <agon/keyboard.h> queue.
  * Every blocking read in AED -- the main loop and the modal prompts alike --

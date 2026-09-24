@@ -175,6 +175,9 @@ static bool theme_for(theme* t, int bg) {
     return got;
 }
 
+// The fewest colours a mode needs before a document is highlighted in it.
+#define SYN_MIN_COLOURS 16
+
 void ed_pick_syntax(editor* ed) {
     if (ed == NULL) {
         return;
@@ -188,6 +191,20 @@ void ed_pick_syntax(editor* ed) {
     scr_set_theme(&ed->scr_, NULL);
     scr_base_restore(&ed->scr_);
 
+    /*
+     * Only where the screen has the colours to say it with.
+     *
+     * A theme names colours out of the sixteen every Agon mode of that depth
+     * has, and a mode with fewer shows the index modulo what it has. In a two
+     * colour mode that sends most of a C file to colour 0 -- black on a black
+     * background, so the document vanishes as it is coloured. Four colours is
+     * no better in kind: a theme's choices collide with the background
+     * unpredictably. So below sixteen there is no highlighting, and the
+     * document is drawn in the reader's own pair as a file with no grammar is.
+     */
+    if (ed->scr_.colors_ < SYN_MIN_COLOURS) {
+        return;
+    }
     const char* fname = tb_fname(&ed->buf_);
     if (fname == NULL || fname[0] == 0) {
         return;                 // a document with no name has no extension
