@@ -327,7 +327,13 @@ uint16_t getsysvar_scrwidth(void)  { return (uint16_t)(stub_cellw * stub_cols); 
 uint16_t getsysvar_scrheight(void) { return (uint16_t)(stub_cellh * stub_rows); }
 uint8_t getsysvar_scrCols(void)    { return stub_cols; }
 uint8_t getsysvar_scrRows(void)    { return stub_rows; }
-uint8_t getsysvar_scrColours(void) { return 16; }
+static int stub_scr_colours = 16;
+
+/* How many colours the mode shows. 16 unless a test says otherwise: the
+ * stock Agon modes are 2, 4, 16 and 64, and colouring depends on which. */
+void stub_set_scr_colours(int n) { stub_scr_colours = n; }
+
+uint8_t getsysvar_scrColours(void) { return (uint8_t) stub_scr_colours; }
 
 /* --- MOS: a small filesystem, in memory ---
  *

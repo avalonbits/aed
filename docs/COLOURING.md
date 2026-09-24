@@ -127,7 +127,7 @@ type    = 14
 ```
 
 A colour that reads well on black is unreadable on white, so **the background in
-force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L178) chooses the
+force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L181) chooses the
 grammar by the document's extension and then the first theme that covers the
 background, and it runs at startup, on open, and when the settings modal leaves
 a different background behind.

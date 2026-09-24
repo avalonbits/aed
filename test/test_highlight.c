@@ -968,6 +968,40 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- a mode with too few colours to highlight in --- */
+    {
+        /*
+         * Reported from a two colour mode: a C file came up black. A theme
+         * names colours out of sixteen, and a mode with fewer shows each index
+         * modulo what it has -- in two colours most of a C file lands on 0,
+         * which is the background. Below sixteen the document is left in the
+         * reader's own pair, as a file with no grammar is.
+         *
+         * Through ed_init, because the colour count is read when the screen
+         * starts and the grammar is chosen straight after.
+         */
+        static const int depths[] = { 2, 4, 16, 64 };
+        static const int want[]   = { 0, 0, 1,  1  };
+        static const char INC[] = "int x;\r\n";
+        for (int i = 0; i < 4; i++) {
+            files();
+            stub_file_add("/depth.c", INC, (int) sizeof(INC) - 1);
+            stub_set_scr_colours(depths[i]);
+            static editor ed_d;
+            char name[64];
+            snprintf(name, sizeof(name), "a C file in a %d colour mode",
+                     depths[i]);
+            check(name, ed_init(&ed_d, 8, "/depth.c") != NULL, 1);
+            check(want[i] ? "  is highlighted" : "  is left plain",
+                  ed_d.syn_.loaded ? 1 : 0, want[i]);
+            check(want[i] ? "    with a theme to colour by"
+                          : "    and the screen has no theme",
+                  ed_d.scr_.theme_ != NULL ? 1 : 0, want[i]);
+            ed_destroy(&ed_d);
+        }
+        stub_set_scr_colours(16);
+    }
+
     /* --- the cell the cursor starts on --- */
     {
         /*
