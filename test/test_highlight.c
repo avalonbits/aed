@@ -968,6 +968,58 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- the cursor after a find --- */
+    {
+        /*
+         * Reported from mos.h: a find landed on the right line with the
+         * cursor in the right place, and then moving the cursor turned the
+         * first letter of some words -- and sometimes whole words -- the wrong
+         * colour.
+         *
+         * A find repaints through cmd_repaint_rows, which works out the new
+         * top line from the cursor and never told the colouring. So synTop_
+         * still named the view before the jump, and the colour a cell is put
+         * back in when the cursor leaves it was read from the same column of
+         * a line some way above. Every line here but the one found starts
+         * with plain text, so a cell coloured from the wrong line comes back
+         * plain.
+         */
+        static char doc[4000];
+        int at = 0;
+        for (int i = 1; i <= 150; i++) {
+            at += sprintf(doc + at, i == 120 ? "int needle_here;\r\n"
+                                             : "x = %d;\r\n", i);
+        }
+        files();
+        setup(&ed, 0);
+        tb_destroy(&ed.buf_);
+        tb_init(&ed.buf_, 32, NULL);
+        named_text(&ed, "/find.c", doc);
+        ed_pick_syntax(&ed);
+        cmd_show(&ed);
+
+        memcpy(ed.find_, "needle_here", 11);
+        ed.findsz_ = 11;
+        cmd_find_next(&ed);
+        check("a find lands on the line", tb_ypos(&ed.buf_), 120);
+        check("  and the colouring knows which line each row shows",
+              ed.synTop_,
+              tb_ypos(&ed.buf_) - (ed.scr_.currY_ - ed.scr_.topY_));
+
+        /* The cursor to the `i` of `int`, and off it again. */
+        tb_home(&ed.buf_);
+        ed.scr_.currX_ = 0;
+        ed.scr_.originX_ = 0;
+        stub_emit_colours(1);
+        cap_start();
+        scr_hide_cursor_ch(&ed.scr_, 'i');
+        const int n = cap_read(cap, (int) sizeof(cap));
+        stub_emit_colours(0);
+        check("    so the cell the cursor leaves gets its own colour back",
+              has_colour(cap, n, theme_colour(&ed.theme_, TOK_TYPE)), 1);
+        tb_destroy(&ed.buf_);
+    }
+
     /* --- a mode with too few colours to highlight in --- */
     {
         /*

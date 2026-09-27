@@ -328,6 +328,31 @@ static int top_state(editor* ed, int line, char* out, int nout) {
  * assembly or BASIC file costs exactly what it did before.
  */
 
+/*
+ * Tells the colouring which line the top row now shows, and makes sure it has
+ * an answer for that line before anything is painted.
+ *
+ * Every row's colour is worked out through line_at_row, which counts down from
+ * synTop_. So anything that repaints a view that has moved has to say where
+ * it moved to first. fill_screen always did; cmd_repaint_rows did not, and a
+ * find repaints through it -- so after a jump synTop_ still named the view
+ * before it, and the colour a cell was put back in when the cursor left it was
+ * read from the same column of a line well above. It showed as the first
+ * letter of some words, and sometimes the whole word, changing colour as the
+ * cursor passed.
+ *
+ * The answer has to be held before the first row is drawn: a refill walks the
+ * document with a copy, and doing that from inside a paint moves the gap while
+ * the paint holds pointers into it.
+ */
+static void view_top_is(editor* ed, int top) {
+    ed->synTop_ = top;
+    const int held = ed->synFirst_ != 0 ? top - ed->synFirst_ : -1;
+    if (held < 0 || held >= ed->synKnown_) {
+        refill_lines(ed, top, syn_backfill(ed));
+    }
+}
+
 static void fill_screen(editor* ed, text_buffer* tb) {
     // No clear first. scr_write_line pads every row it paints to the full width,
     // so it covers whatever was there -- clearing the area and then painting
@@ -388,11 +413,7 @@ static void fill_screen(editor* ed, text_buffer* tb) {
      * Either way the window covers the top line before anything is drawn, and
      * every row below chains from the row above.
      */
-    ed->synTop_ = tpos;
-    const int held = ed->synFirst_ != 0 ? tpos - ed->synFirst_ : -1;
-    if (held < 0 || held >= ed->synKnown_) {
-        refill_lines(ed, tpos, syn_backfill(ed));
-    }
+    view_top_is(ed, tpos);
 
     for (; ypos < scr->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
@@ -857,10 +878,14 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
         toY = scr->bottomY_ - 1;
     }
 
+    // Where the view is now, before any row asks the colouring about it.
+    const int top = top_line(scr, tb);
+    view_top_is(ed, top);
+
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_pos start;
-    start.line = top_line(scr, tb) + (fromY - scr->topY_);
+    start.line = top + (fromY - scr->topY_);
     start.x = 0;
     tb_seek(&cp, start);
     if (tb_ypos(&cp) != start.line) {
