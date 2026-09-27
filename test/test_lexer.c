@@ -596,6 +596,12 @@ int main(void) {
         check("  C is case sensitive", g.nocase ? 1 : 0, 0);
 
         check_lex("int x = 42;", &g, "YYYTTTTTNNT");
+        /* The eZ80's own widths. An int is 24 bits here, and agondev's
+         * headers spell that out as uint24_t and int24_t all through mos.h,
+         * so they are types like any other stdint name. */
+        check_lex("uint24_t n;", &g, "YYYYYYYYTTT");
+        check_lex("int24_t d;", &g, "YYYYYYYTTT");
+        check_lex("uint16_t w;", &g, "YYYYYYYYTTT");
         check_lex("return 0;", &g, "KKKKKKTNT");
         check_lex("// a comment", &g, "CCCCCCCCCCCC");
         check_lex("#include <stdio.h>", &g, "PPPPPPPPPPPPPPPPPP");
