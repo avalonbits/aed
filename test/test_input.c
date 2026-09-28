@@ -57,7 +57,7 @@ static key_command one(stub_key k) {
     script[0] = k;
     stub_set_keys(script, 1);
 
-    return read_input();
+    return ed_translate(&AED_KEYS, keys_wait());
 }
 
 int main(void) {
@@ -133,7 +133,7 @@ int main(void) {
     {
         const stub_key a = { 'a', 22 /* VK_a */, 0, 0 };
         const key_command kc = one(a);
-        check("'a' -> CMD_PUTC", kc.cmd == CMD_PUTC, 1);
+        check("'a' puts a character", (kc.flags & KC_PUTC) ? 1 : 0, 1);
         check("'a' carries the character", kc.k.key, 'a');
     }
 
@@ -147,7 +147,7 @@ int main(void) {
             { ASC_RIGHT, VKC_RIGHT,  MOD_CTRL | MOD_SHFT, 0 }, /* press   */
         };
         stub_set_keys(script, 3);
-        const key_command kc = read_input();
+        const key_command kc = ed_translate(&AED_KEYS, keys_wait());
         check("releases are skipped", kc.cmd == cmd_w_right, 1);
         check("...all of them", stub_keys_read(), 3);
     }
@@ -164,7 +164,7 @@ int main(void) {
             { ASC_RIGHT, VKC_RIGHT, MOD_CTRL | MOD_SHFT, 0 },
         };
         stub_set_keys(script, 3);
-        const key_command kc = read_input();
+        const key_command kc = ed_translate(&AED_KEYS, keys_wait());
         check("the modifiers themselves never reach the editor",
               kc.cmd == cmd_w_right, 1);
         check("...and all three were taken from the queue",

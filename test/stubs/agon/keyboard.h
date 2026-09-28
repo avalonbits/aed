@@ -2,7 +2,7 @@
  *
  * The real one fills a ring buffer from a MOS key vector. This one serves the
  * sequence a test scripted with stub_set_keys, so the whole input path --
- * keys_wait's filtering, read_input's translation, the modal prompt loops --
+ * keys_wait's filtering, ed_translate's reading of it, the modal prompt loops --
  * runs against the same events a keyboard would produce. */
 #ifndef _TEST_STUB_AGON_KEYBOARD_H_
 #define _TEST_STUB_AGON_KEYBOARD_H_

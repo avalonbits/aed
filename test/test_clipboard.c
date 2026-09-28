@@ -112,14 +112,11 @@ static void select_from(tb_pos a, tb_pos b) {
     tb_seek(&ed.doc_.buf_, b);
 }
 
-static key_command press(VKey vkey, char ch, cmd_op cmd) {
-    key_command kc;
-    kc.cmd = cmd;
-    kc.k.key = ch;
-    kc.k.vkey = vkey;
-    kc.mods = 0;
+/* What a key means under AED's keymap. */
+static key_command keyed(VKey vkey, char ch, char mods) {
+    const key_press kp = { ch, vkey, mods };
 
-    return kc;
+    return ed_translate(&AED_KEYS, kp);
 }
 
 int main(void) {
@@ -915,18 +912,18 @@ int main(void) {
 
     /* --- typing over a selection replaces it --- */
     check("a printable key edits",
-          ed_key_edits(press(VK_a, 'a', CMD_PUTC)) ? 1 : 0, 1);
-    check("RETURN edits", ed_key_edits(press(VK_RETURN, 0, NULL)) ? 1 : 0, 1);
-    check("TAB edits", ed_key_edits(press(VK_TAB, '\t', NULL)) ? 1 : 0, 1);
-    check("BACKSPACE edits", ed_key_edits(press(VK_BACKSPACE, 0, NULL)) ? 1 : 0, 1);
-    check("DELETE edits", ed_key_edits(press(VK_DELETE, 0, NULL)) ? 1 : 0, 1);
-    check("an arrow does not", ed_key_edits(press(VK_RIGHT, 0, NULL)) ? 1 : 0, 0);
-    check("nor does HOME", ed_key_edits(press(VK_HOME, 0, NULL)) ? 1 : 0, 0);
+          (keyed(VK_a, 'a', 0).flags & KC_EDITS) ? 1 : 0, 1);
+    check("RETURN edits", (keyed(VK_RETURN, 0, 0).flags & KC_EDITS) ? 1 : 0, 1);
+    check("TAB edits", (keyed(VK_TAB, '\t', 0).flags & KC_EDITS) ? 1 : 0, 1);
+    check("BACKSPACE edits", (keyed(VK_BACKSPACE, 0, 0).flags & KC_EDITS) ? 1 : 0, 1);
+    check("DELETE edits", (keyed(VK_DELETE, 0, 0).flags & KC_EDITS) ? 1 : 0, 1);
+    check("an arrow does not", (keyed(VK_RIGHT, 0, 0).flags & KC_EDITS) ? 1 : 0, 0);
+    check("nor does HOME", (keyed(VK_HOME, 0, 0).flags & KC_EDITS) ? 1 : 0, 0);
 
     restart();
     select_from(at(1, 0), at(1, 3));
     check("a printable key replaces the selection",
-          ed_selection_for(&ed, press(VK_a, 'a', CMD_PUTC)), SEL_REPLACE);
+          ed_selection_for(&ed, keyed(VK_a, 'a', 0)), SEL_REPLACE);
     check("  and the selection is still there to delete", ed.doc_.selecting_ ? 1 : 0, 1);
     cmd_delete_selection(&ed);
     check_s("  which deleting removes", doc_of(&ed.doc_.buf_), "/two/three/");
@@ -936,39 +933,39 @@ int main(void) {
     restart();
     select_from(at(1, 0), at(1, 3));
     check("copy does not end the selection",
-          ed_selection_for(&ed, press(VK_c, 0, cmd_copy)), SEL_NONE);
+          ed_selection_for(&ed, keyed(VK_c, 0, MOD_CTRL)), SEL_NONE);
     check("  still selecting", ed.doc_.selecting_ ? 1 : 0, 1);
     check("cut does not either",
-          ed_selection_for(&ed, press(VK_x, 0, cmd_cut)), SEL_NONE);
+          ed_selection_for(&ed, keyed(VK_x, 0, MOD_CTRL)), SEL_NONE);
     check("paste does not either",
-          ed_selection_for(&ed, press(VK_v, 0, cmd_paste)), SEL_NONE);
+          ed_selection_for(&ed, keyed(VK_v, 0, MOD_CTRL)), SEL_NONE);
     check("nor does select all",
-          ed_selection_for(&ed, press(VK_a, 0, cmd_select_all)), SEL_NONE);
+          ed_selection_for(&ed, keyed(VK_a, 0, MOD_CTRL)), SEL_NONE);
     check("  and the selection is still live", ed.doc_.selecting_ ? 1 : 0, 1);
 
     /* --- the bindings --- */
     key_command kc;
     memset(&kc, 0, sizeof(kc));
     kc.k.vkey = VK_c;
-    check("CTRL+C copies", ctrlCmds(kc, 0).cmd == cmd_copy, 1);
+    check("CTRL+C copies", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_copy, 1);
     /* ALT is ignored on C now. The colour picker used to hang off CTRL+ALT+C
      * and is reached through the settings on CTRL+E, so the chord is not a
      * second binding any more -- it copies, like the chord without ALT. */
     check("CTRL+ALT+C copies too, ALT meaning nothing here",
-          ctrlCmds(kc, MOD_ALT).cmd == cmd_copy, 1);
+          keyed(kc.k.vkey, 0, MOD_CTRL | MOD_ALT).cmd == cmd_copy, 1);
     kc.k.vkey = VK_x;
-    check("CTRL+X cuts", ctrlCmds(kc, 0).cmd == cmd_cut, 1);
+    check("CTRL+X cuts", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_cut, 1);
     kc.k.vkey = VK_v;
-    check("CTRL+V pastes", ctrlCmds(kc, 0).cmd == cmd_paste, 1);
+    check("CTRL+V pastes", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_paste, 1);
     kc.k.vkey = VK_a;
-    check("CTRL+A selects everything", ctrlCmds(kc, 0).cmd == cmd_select_all, 1);
+    check("CTRL+A selects everything", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_select_all, 1);
     /* And none of them took a key something else was using. */
     kc.k.vkey = VK_s;
-    check("CTRL+S still saves", ctrlCmds(kc, 0).cmd == CMD_SAVE, 1);
+    check("CTRL+S still saves", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == ed_cmd_save, 1);
     kc.k.vkey = VK_o;
-    check("CTRL+O still opens", ctrlCmds(kc, 0).cmd == cmd_open, 1);
+    check("CTRL+O still opens", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_open, 1);
     kc.k.vkey = VK_q;
-    check("CTRL+Q still quits", ctrlCmds(kc, 0).cmd == CMD_QUIT, 1);
+    check("CTRL+Q still quits", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == ed_cmd_quit, 1);
 
     ed_destroy(&ed);
     started = false;

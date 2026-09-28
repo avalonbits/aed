@@ -127,6 +127,13 @@ static int doc_is(text_buffer* tb, const char* want) {
     return 0;
 }
 
+/* What a key means under AED's keymap. */
+static key_command keyed(VKey vkey, char ch, char mods) {
+    const key_press kp = { ch, vkey, mods };
+
+    return ed_translate(&AED_KEYS, kp);
+}
+
 int main(void) {
     stub_discard_output();
 
@@ -741,36 +748,36 @@ int main(void) {
     key_command kc;
     memset(&kc, 0, sizeof(kc));
     kc.k.vkey = VK_o;
-    check("CTRL+O opens a file", ctrlCmds(kc, 0).cmd == cmd_open, 1);
+    check("CTRL+O opens a file", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_open, 1);
     kc.k.vkey = VK_O;
-    check("  shifted too", ctrlCmds(kc, 0).cmd == cmd_open, 1);
+    check("  shifted too", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_open, 1);
     /* And it did not take a key something else was already using. */
     kc.k.vkey = VK_s;
-    check("CTRL+S still saves", ctrlCmds(kc, 0).cmd == CMD_SAVE, 1);
+    check("CTRL+S still saves", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == ed_cmd_save, 1);
     check("CTRL+ALT+S is still save-as",
-          ctrlCmds(kc, MOD_ALT).cmd == cmd_save_as, 1);
+          keyed(kc.k.vkey, 0, MOD_CTRL | MOD_ALT).cmd == cmd_save_as, 1);
     kc.k.vkey = VK_q;
-    check("CTRL+Q still quits", ctrlCmds(kc, 0).cmd == CMD_QUIT, 1);
+    check("CTRL+Q still quits", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == ed_cmd_quit, 1);
     kc.k.vkey = VK_g;
-    check("CTRL+G still goes to a line", ctrlCmds(kc, 0).cmd == cmd_goto, 1);
+    check("CTRL+G still goes to a line", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_goto, 1);
     kc.k.vkey = VK_HOME;
     check("CTRL+HOME is the top of the file",
-          ctrlCmds(kc, 0).cmd == cmd_doc_top, 1);
+          keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_doc_top, 1);
     kc.k.vkey = VK_KP_HOME;
-    check("  on the keypad too", ctrlCmds(kc, 0).cmd == cmd_doc_top, 1);
+    check("  on the keypad too", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_doc_top, 1);
     kc.k.vkey = VK_END;
-    check("CTRL+END is the bottom", ctrlCmds(kc, 0).cmd == cmd_doc_end, 1);
+    check("CTRL+END is the bottom", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_doc_end, 1);
     kc.k.vkey = VK_KP_END;
-    check("  on the keypad too", ctrlCmds(kc, 0).cmd == cmd_doc_end, 1);
-    /* And without CTRL they are still the ends of the line. editCmds is the
-     * table the plain keys come from. */
+    check("  on the keypad too", keyed(kc.k.vkey, 0, MOD_CTRL).cmd == cmd_doc_end, 1);
+    /* And without CTRL they are still the ends of the line: the plain keys
+     * come from the same table, without CTRL. */
     memset(&kc, 0, sizeof(kc));
     kc.k.vkey = VK_HOME;
     check("HOME on its own is still the start of the line",
-          editCmds(kc).cmd == cmd_home, 1);
+          keyed(kc.k.vkey, 0, 0).cmd == cmd_home, 1);
     kc.k.vkey = VK_END;
     check("END on its own is still the end of it",
-          editCmds(kc).cmd == cmd_end, 1);
+          keyed(kc.k.vkey, 0, 0).cmd == cmd_end, 1);
 
     /* Starting with nothing to show must still show the cursor.
      *
