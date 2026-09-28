@@ -76,11 +76,12 @@ static void files(void) {
 
 static void setup(editor* ed, int bg) {
     memset(ed, 0, sizeof(*ed));
+    scr_set_view(&ed->scr_, NULL);
     ed->scr_.rows_ = 25;
-    ed->scr_.cols_ = 20;
-    ed->scr_.topY_ = 1;
-    ed->scr_.bottomY_ = 24;
-    ed->scr_.currY_ = 1;
+    ed->scr_.v_->cols_ = 20;
+    ed->scr_.v_->topY_ = 1;
+    ed->scr_.v_->bottomY_ = 24;
+    ed->scr_.v_->currY_ = 1;
     ed->scr_.colors_ = 16;
     ed->scr_.baseFg_ = 15;
     ed->scr_.baseBg_ = (char) bg;
@@ -433,7 +434,7 @@ int main(void) {
         named_text(&ed, "/main.c", "int x; /* hi\r\nplain\r\n");
         ed_pick_syntax(&ed);
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
 
         cap_start();
         cmd_repaint_rows(&ed, 1, 1);
@@ -534,7 +535,7 @@ int main(void) {
         ed_pick_syntax(&ed);
         tb_home(&ed.doc_.buf_);
         tb_down(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;             /* the cursor row is the top row */
+        ed.scr_.v_->currY_ = 1;             /* the cursor row is the top row */
         check("the view is on the second line", tb_ypos(&ed.doc_.buf_), 2);
 
         cap_start();
@@ -575,9 +576,9 @@ int main(void) {
         stub_file_add("/edit.c", doc, k);
         tb_load(&ed.doc_.buf_, "/edit.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;           /* a short screen, so the edge is near */
+        ed.scr_.v_->bottomY_ = 6;           /* a short screen, so the edge is near */
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
 
         cap_start();
         cmd_show(&ed);
@@ -610,7 +611,7 @@ int main(void) {
         check("  delete keeps it", has_colour(cap, n, 14), 1);
 
         /* Down to the bottom row, then one more, which scrolls the view. */
-        while (ed.scr_.currY_ < ed.scr_.bottomY_ - 1) {
+        while (ed.scr_.v_->currY_ < ed.scr_.v_->bottomY_ - 1) {
             cmd_down(&ed);
         }
         cap_start();
@@ -627,7 +628,7 @@ int main(void) {
          */
         cmd_up(&ed);
         cap_start();
-        cmd_repaint_rows(&ed, ed.scr_.currY_, ed.scr_.currY_);
+        cmd_repaint_rows(&ed, ed.scr_.v_->currY_, ed.scr_.v_->currY_);
         n = cap_read(cap, (int) sizeof(cap));
         check("  and the row is still coloured afterwards",
               has_colour(cap, n, 14), 1);
@@ -659,9 +660,9 @@ int main(void) {
         stub_file_add("/open.c", doc2, k2);
         tb_load(&ed.doc_.buf_, "/open.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;
+        ed.scr_.v_->bottomY_ = 6;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
         tb_end(&ed.doc_.buf_);
@@ -710,7 +711,7 @@ int main(void) {
         tb_load(&ed.doc_.buf_, "/tab.c");
         ed_pick_syntax(&ed);
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
 
         cap_start();
         cmd_repaint_rows(&ed, 1, 1);
@@ -749,7 +750,7 @@ int main(void) {
         named(&ed, "/cursor.c");        /* "int x;" */
         ed_pick_syntax(&ed);
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);                  /* which is what fills the model in */
 
         cmd_right(&ed);
@@ -776,7 +777,7 @@ int main(void) {
         named(&ed, "/cursor.txt");
         ed_pick_syntax(&ed);
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
         stub_emit_colours(1);
         cap_start();
@@ -808,9 +809,9 @@ int main(void) {
         stub_file_add("/nl.c", NL, (int) sizeof(NL) - 1);
         tb_load(&ed.doc_.buf_, "/nl.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;
+        ed.scr_.v_->bottomY_ = 6;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
         check("the cursor is at the start of a line with a token on it",
@@ -861,9 +862,9 @@ int main(void) {
         stub_file_add("/shift.c", SHIFT, (int) sizeof(SHIFT) - 1);
         tb_load(&ed.doc_.buf_, "/shift.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;
+        ed.scr_.v_->bottomY_ = 6;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);                  /* which is what fills the answers in */
 
         cap_start();
@@ -874,7 +875,7 @@ int main(void) {
 
         /* A line in front of everything, which moves all three rows down. */
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_newl(&ed);
 
         cap_start();
@@ -911,16 +912,16 @@ int main(void) {
         stub_file_add("/join.c", JOIN, (int) sizeof(JOIN) - 1);
         tb_load(&ed.doc_.buf_, "/join.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 7;
+        ed.scr_.v_->bottomY_ = 7;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
-        const int top_was = tb_ypos(&ed.doc_.buf_) - (ed.scr_.currY_ - ed.scr_.topY_);
+        const int top_was = tb_ypos(&ed.doc_.buf_) - (ed.scr_.v_->currY_ - ed.scr_.v_->topY_);
         cmd_end(&ed);                   /* end of line 1 */
         cmd_del(&ed);                   /* which joins it to line 2 */
         check("joining leaves the view's top line where it was",
-              tb_ypos(&ed.doc_.buf_) - (ed.scr_.currY_ - ed.scr_.topY_), top_was);
+              tb_ypos(&ed.doc_.buf_) - (ed.scr_.v_->currY_ - ed.scr_.v_->topY_), top_was);
 
         cap_start();
         cmd_repaint_rows(&ed, 2, 2);
@@ -956,22 +957,22 @@ int main(void) {
         stub_file_add("/scroll.c", SCROLL, (int) sizeof(SCROLL) - 1);
         tb_load(&ed.doc_.buf_, "/scroll.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 5;           /* four rows: lines 1 to 4 */
+        ed.scr_.v_->bottomY_ = 5;           /* four rows: lines 1 to 4 */
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
-        while (ed.scr_.currY_ < ed.scr_.bottomY_ - 1) {
+        while (ed.scr_.v_->currY_ < ed.scr_.v_->bottomY_ - 1) {
             cmd_down(&ed);
         }
-        check("the cursor is on the bottom row", ed.scr_.currY_,
-              ed.scr_.bottomY_ - 1);
+        check("the cursor is on the bottom row", ed.scr_.v_->currY_,
+              ed.scr_.v_->bottomY_ - 1);
 
         check("  and the painted screen left its answers behind",
-              ed.synTop_, 1);
+              ed.scr_.v_->synTop_, 1);
         cmd_down(&ed);                  /* line 5 scrolls into view */
         check("  the view has moved down one", tb_ypos(&ed.doc_.buf_), 5);
-        check("    and the top row draws the line below", ed.synTop_, 2);
+        check("    and the top row draws the line below", ed.scr_.v_->synTop_, 2);
         check("      while the answers themselves did not move",
               ed.doc_.synFirst_, 1);
 
@@ -1032,11 +1033,11 @@ int main(void) {
         stub_file_add("/merge.c", MERGE, (int) sizeof(MERGE) - 1);
         tb_load(&ed.doc_.buf_, "/merge.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 5;
+        ed.scr_.v_->bottomY_ = 5;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
-        check("the screen left its answers behind", ed.synTop_, 1);
+        check("the screen left its answers behind", ed.scr_.v_->synTop_, 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 3, 3);
@@ -1094,13 +1095,13 @@ int main(void) {
         cmd_find_next(&ed);
         check("a find lands on the line", tb_ypos(&ed.doc_.buf_), 120);
         check("  and the colouring knows which line each row shows",
-              ed.synTop_,
-              tb_ypos(&ed.doc_.buf_) - (ed.scr_.currY_ - ed.scr_.topY_));
+              ed.scr_.v_->synTop_,
+              tb_ypos(&ed.doc_.buf_) - (ed.scr_.v_->currY_ - ed.scr_.v_->topY_));
 
         /* The cursor to the `i` of `int`, and off it again. */
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currX_ = 0;
-        ed.scr_.originX_ = 0;
+        ed.scr_.v_->currX_ = 0;
+        ed.scr_.v_->originX_ = 0;
         stub_emit_colours(1);
         cap_start();
         scr_hide_cursor_ch(&ed.scr_, 'i');
@@ -1198,9 +1199,9 @@ int main(void) {
         stub_file_add("/bk.c", BK, (int) sizeof(BK) - 1);
         tb_load(&ed.doc_.buf_, "/bk.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;
+        ed.scr_.v_->bottomY_ = 6;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
         /* Down to the short line, to its end, and backspace off the end of it
@@ -1245,9 +1246,9 @@ int main(void) {
         stub_file_add("/rn.c", RN, (int) sizeof(RN) - 1);
         tb_load(&ed.doc_.buf_, "/rn.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 7;
+        ed.scr_.v_->bottomY_ = 7;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
         cap_start();
@@ -1258,7 +1259,7 @@ int main(void) {
 
         /* A line in at the very top, which moves everything down one. */
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_newl(&ed);
         check("  the document gained a line", tb_ymax(&ed.doc_.buf_), 8);
 
@@ -1314,10 +1315,10 @@ int main(void) {
         stub_file_add("/pr.c", PR, (int) sizeof(PR) - 1);
         tb_load(&ed.doc_.buf_, "/pr.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;
-        ed.scr_.cols_ = 40;
+        ed.scr_.v_->bottomY_ = 6;
+        ed.scr_.v_->cols_ = 40;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
         /* To just after the `(`, which is byte 7. */
@@ -1380,10 +1381,10 @@ int main(void) {
         stub_file_add("/inv.c", INV, (int) sizeof(INV) - 1);
         tb_load(&ed.doc_.buf_, "/inv.c");
         ed_pick_syntax(&ed);
-        ed.scr_.bottomY_ = 6;
-        ed.scr_.cols_ = 40;
+        ed.scr_.v_->bottomY_ = 6;
+        ed.scr_.v_->cols_ = 40;
         tb_home(&ed.doc_.buf_);
-        ed.scr_.currY_ = 1;
+        ed.scr_.v_->currY_ = 1;
         cmd_show(&ed);
 
         /* On the quote, so the cursor cell is a colour the document is not. */
@@ -1520,7 +1521,7 @@ int main(void) {
         check("a C file on a dark background",
               strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
 
-        ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
+        ui_init(&ed.ui_, 256, ed.scr_.v_->bottomY_, ed.scr_.v_->cols_);
 
         /* Down to the colours, into the picker, background 0 -> 2, accept,
          * close. bold.cfg is the one that covers 2. */
@@ -1562,7 +1563,7 @@ int main(void) {
         ed_pick_syntax(&ed);
         check("a grammar and theme in force", ed.doc_.syn_.loaded ? 1 : 0, 1);
 
-        ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
+        ui_init(&ed.ui_, 256, ed.scr_.v_->bottomY_, ed.scr_.v_->cols_);
 
         /* Background 0 -> 7. Nothing here covers 7. */
         const stub_key to_bare[] = {
@@ -1602,7 +1603,7 @@ int main(void) {
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
 
-        ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
+        ui_init(&ed.ui_, 256, ed.scr_.v_->bottomY_, ed.scr_.v_->cols_);
 
         /* UP is the foreground, and 15 wraps to 0. */
         const stub_key fg_only[] = {
@@ -1662,7 +1663,7 @@ int main(void) {
         cmd_newl(&ed);
         check("  RETURN at the end of an indented line", tb_ypos(&ed.doc_.buf_), 2);
         check("    starts the new line under the text", NEW_INDENT(&ed), 4);
-        check("      and the cursor sits there", ed.scr_.currX_, 4);
+        check("      and the cursor sits there", ed.scr_.v_->currX_, 4);
         {
             const split_line ln = tb_curr_line(&ed.doc_.buf_);
             check("      as spaces, which is what the line had",
@@ -1792,7 +1793,7 @@ int main(void) {
         cmd_newl(&ed);
         check("  so RETURN leaves the new line at the margin",
               NEW_INDENT(&ed), 0);
-        check("    and the cursor with it", ed.scr_.currX_, 0);
+        check("    and the cursor with it", ed.scr_.v_->currX_, 0);
         tb_destroy(&ed.doc_.buf_);
     }
 
@@ -1848,7 +1849,7 @@ int main(void) {
         for (int i = 0; i < SYN_WINDOW + 40; i++) {
             cmd_down(&ed);
         }
-        check("  scrolled well past a windowful", ed.synTop_ > SYN_WINDOW, 1);
+        check("  scrolled well past a windowful", ed.scr_.v_->synTop_ > SYN_WINDOW, 1);
         check("    the window slid with it", ed.doc_.synFirst_ > 1, 1);
         check("      and kept its answers rather than starting again",
               ed.doc_.synKnown_ >= SYN_WINDOW / 2, 1);
@@ -1862,7 +1863,7 @@ int main(void) {
         for (int i = 0; i < SYN_WINDOW + 20; i++) {
             cmd_up(&ed);
         }
-        check("  and scrolling up out of the window again", ed.synTop_ > 1, 1);
+        check("  and scrolling up out of the window again", ed.scr_.v_->synTop_ > 1, 1);
         /*
          * How wide the window is, rather than how far above the top line it
          * reaches: the reach is legitimately spent down to nothing just before
@@ -1894,7 +1895,7 @@ int main(void) {
             cmd_page_down(&ed);
             check("  a page down reuses the answers", ed.doc_.synFirst_, was_first);
             check("    and they still reach where it landed",
-                  ed.synTop_ - ed.doc_.synFirst_ < ed.doc_.synKnown_, 1);
+                  ed.scr_.v_->synTop_ - ed.doc_.synFirst_ < ed.doc_.synKnown_, 1);
         }
 
         /*
@@ -1929,7 +1930,7 @@ int main(void) {
             for (int i = 0; i < 8; i++) {
                 cmd_page_down(&ed);
             }
-            const int screenful = ed.scr_.bottomY_ - ed.scr_.topY_;
+            const int screenful = ed.scr_.v_->bottomY_ - ed.scr_.v_->topY_;
             int refills = 0;
             int kept = 1;
             for (int i = 0; i < 6; i++) {
@@ -1939,7 +1940,7 @@ int main(void) {
                     continue;               // answered from the window
                 }
                 refills++;
-                if (ed.synTop_ > 1 && ed.synTop_ - ed.doc_.synFirst_ < screenful) {
+                if (ed.scr_.v_->synTop_ > 1 && ed.scr_.v_->synTop_ - ed.doc_.synFirst_ < screenful) {
                     kept = 0;               // read back and kept the screen
                 }
             }
@@ -2009,11 +2010,11 @@ int main(void) {
 
             /* Scrolled to the same top line, a row at a time. */
             int guard = 0;
-            while (walked.synTop_ < paged.synTop_ && guard++ < 4000) {
+            while (walked.scr_.v_->synTop_ < paged.scr_.v_->synTop_ && guard++ < 4000) {
                 cmd_down(&walked);
             }
-            check("  both views on the same line", walked.synTop_,
-                  paged.synTop_);
+            check("  both views on the same line", walked.scr_.v_->synTop_,
+                  paged.scr_.v_->synTop_);
 
             int agree = 1;
             int compared = 0;

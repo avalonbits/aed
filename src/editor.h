@@ -56,14 +56,6 @@ typedef struct _editor {
     // text area before anything else happens.
     bool banner_;
 
-    /*
-     * Which document line row topY_ draws. Painting is asked about rows, and
-     * this is what turns a row into a line for the document's syntax window
-     * -- see document.h. It belongs to the view rather than the document: the
-     * same document shown twice would be drawn from two different lines.
-     */
-    int synTop_;
-
     clipboard clip_;
     // What was last searched for, so CTRL+N and CTRL+P have something to
     // repeat. Session state, like the clipboard.

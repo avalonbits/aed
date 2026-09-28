@@ -20,6 +20,7 @@
 #define _SCREEN_H_
 
 #include "syntax.h"
+#include "view.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -69,14 +70,9 @@ typedef struct _screen {
     // is 127 on the widest mode there is, which is exactly what a signed char
     // holds.
     int rows_;
-    // Width of the *text area*, not of the screen. The header and footer are
-    // wider: see barW_ and textX_ below.
-    int cols_;
-    // First screen column of the text area, and the width the header and footer
-    // rows span. The text area sits one column in from each edge; the two bars
-    // run the full drawable width, so they are the only things that reach
-    // column 0.
-    char textX_;
+    // The width the header and footer rows span. They run the full drawable
+    // width, so they are the only things that reach column 0; the text area
+    // is a view -- see view.h.
     int barW_;
     char colors_;
 
@@ -90,11 +86,7 @@ typedef struct _screen {
     char charW_;
     char charH_;
 
-    char currX_;
-    char currY_;
 
-    char topY_;
-    char bottomY_;
 
     // What the footer last showed, so an unchanged one is not redrawn. That is
     // not only a saving: the footer is a whole row of characters plus two
@@ -127,10 +119,13 @@ typedef struct _screen {
     int bootFont_;
 
     char tab_size_;
-    // Document column shown at screen column 0. The view scrolls horizontally
-    // by moving this rather than by slicing lines at a byte offset, which is
-    // what lets one byte occupy more than one column.
-    int originX_;
+
+    // The view the screen paints into: its rectangle, cursor and scroll. It
+    // starts as whole_, the text area of the whole screen, laid out from the
+    // mode and font. A front end showing more than one view points it at each
+    // in turn -- see scr_set_view.
+    view whole_;
+    view* v_;
     char cursor_;
     // The pair everything paints with. A theme may move this while a file it
     // knows how to colour is open.
@@ -181,6 +176,13 @@ typedef struct _screen {
 
 // Setup.
 screen* scr_init(screen* scr, char cursor);
+
+// Points the screen at a view: everything painted from here on is placed in
+// its rectangle, at its cursor and scroll. NULL goes back to whole_, the text
+// area of the whole screen, which is where it starts. The view is not copied,
+// so it must outlive its use; a font or mode change lays out whole_ again and
+// leaves any other view to its owner.
+void scr_set_view(screen* scr, view* v);
 // Tells the VDP how many frames to pause for when a line wraps while CTRL is
 // held. Its own default is 3, which is what makes CTRL with an arrow key drag
 // once a line reaches the right-hand edge; 0 turns it off.

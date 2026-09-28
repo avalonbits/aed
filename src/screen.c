@@ -241,6 +241,11 @@ static void get_active_colours(screen* scr) {
     set_colours(scr->fg_, scr->bg_);
 }
 
+// The footer is the screen's, on its last row, whatever view is being drawn.
+static char footer_row(const screen* scr) {
+    return (char) (scr->rows_ - 1);
+}
+
 // Everything the screen layout takes from the current font and mode, in one
 // place so that a font change re-runs it rather than patching the fields it
 // moved. They are not independent: the row count, the bottom row and the cell
@@ -252,9 +257,13 @@ static void derive_geometry(screen* scr) {
 
     scr->rows_ = rows;
     scr->barW_ = cols - 1;
-    scr->textX_ = 1;
-    scr->cols_ = scr->barW_ - 1;
-    scr->bottomY_ = rows - 1;
+
+    // The whole screen's text area: one column in from each side, between the
+    // header row and the footer on the last row.
+    scr->whole_.textX_ = 1;
+    scr->whole_.cols_ = scr->barW_ - 1;
+    scr->whole_.topY_ = 1;
+    scr->whole_.bottomY_ = rows - 1;
 
     // Cell size for the VDU 23,7 movement byte, derived rather than assumed.
     // Every stock Agon mode uses the 8x8 system font, so this is 8 until a font
@@ -265,6 +274,10 @@ static void derive_geometry(screen* scr) {
     const int h = rows > 0 ? getsysvar_scrheight() / rows : 0;
     scr->charW_ = (char) (w > 0 && w < 256 ? w : 8);
     scr->charH_ = (char) (h > 0 && h < 256 ? h : 8);
+}
+
+void scr_set_view(screen* scr, view* v) {
+    scr->v_ = (v != NULL) ? v : &scr->whole_;
 }
 
 screen *scr_init(screen* scr, char cursor) {
@@ -347,6 +360,11 @@ screen *scr_init(screen* scr, char cursor) {
     // stops one short of barW_ and starts one column in, so the blank column on
     // the right is matched by one on the left and the text sits centred between
     // them rather than pushed against one edge.
+    scr->whole_.currX_ = 0;
+    scr->whole_.currY_ = 0;
+    scr->whole_.originX_ = 0;
+    scr->whole_.synTop_ = 1;
+    scr->v_ = &scr->whole_;
     derive_geometry(scr);
     scr->colors_ = getsysvar_scrColours();
     scr->fontLoaded_ = false;
@@ -359,8 +377,6 @@ screen *scr_init(screen* scr, char cursor) {
     scr->lastFname_[0] = 0;
     scr->lastPosW_ = 0;
     scr->footerDrawn_ = false;
-    scr->topY_ = 1;
-    scr->originX_ = 0;
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
     scr->theme_ = NULL;
@@ -854,8 +870,8 @@ int scr_byte_at(screen* scr, const char* line, int len, int column) {
 
 int scr_place_cursor(screen* scr, const char* line, int len) {
     const int col = scr_column_of(scr, line, len);
-    const int width = scr->cols_ > 0 ? scr->cols_ : 1;
-    const int origin = scr->originX_;
+    const int width = scr->v_->cols_ > 0 ? scr->v_->cols_ : 1;
+    const int origin = scr->v_->originX_;
 
     // Keep the cursor inside the window by moving the window, not by pinning
     // the cursor to an edge and losing track of where it really is.
@@ -863,21 +879,21 @@ int scr_place_cursor(screen* scr, const char* line, int len) {
         // Scrolling left: if everything up to the cursor already fits, show the
         // line from its start rather than leaving the window parked mid-line,
         // which would blank out every shorter row on screen.
-        scr->originX_ = col < width ? 0 : col;
+        scr->v_->originX_ = col < width ? 0 : col;
     } else if (col > origin + width - 1) {
-        scr->originX_ = col - (width - 1);
+        scr->v_->originX_ = col - (width - 1);
     }
 
-    int x = col - scr->originX_;
+    int x = col - scr->v_->originX_;
     if (x > width - 1) {
         x = width - 1;
     }
     if (x < 0) {
         x = 0;
     }
-    scr->currX_ = (char) x;
+    scr->v_->currX_ = (char) x;
 
-    return scr->originX_ - origin;
+    return scr->v_->originX_ - origin;
 }
 
 void scr_destroy(screen* scr) {
@@ -906,12 +922,13 @@ void scr_destroy(screen* scr) {
     set_colours(scr->entryFg_, scr->entryBg_);
     vdp_clear_screen();
 
-    scr->currX_ = 0;
-    scr->currY_ = 0;
+    scr->whole_.currX_ = 0;
+    scr->whole_.currY_ = 0;
+    scr->whole_.cols_ = 0;
+    scr->whole_.textX_ = 0;
+    scr->v_ = &scr->whole_;
     scr->rows_ = 0;
-    scr->cols_ = 0;
     scr->barW_ = 0;
-    scr->textX_ = 0;
 }
 
 void scr_footer_invalidate(screen* scr) {
@@ -996,11 +1013,11 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     // for this costs a MOS call per column -- the padding is a putchar loop --
     // and the row is mostly spaces that were already spaces.
     if (same_file) {
-        vdp_cursor_tab((char) (scr->barW_ - posw), scr->bottomY_);
+        vdp_cursor_tab((char) (scr->barW_ - posw), footer_row(scr));
         set_colours(scr->bg_, scr->fg_);
         footer_position(x, y);
         set_colours(scr->fg_, scr->bg_);
-        scr_tab(scr, scr->currX_, scr->currY_);
+        scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
 
         return;
     }
@@ -1019,11 +1036,11 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     // the footer row, cleared in the bar's own colours, covers every column of
     // it including the one nothing may be printed in.
     set_colours(scr->bg_, scr->fg_);
-    define_viewport(0, scr->bottomY_, (char) scr->barW_, scr->bottomY_);
+    define_viewport(0, footer_row(scr), (char) scr->barW_, footer_row(scr));
     vdp_clear_screen();
     reset_viewport();
 
-    vdp_cursor_tab(0, scr->bottomY_);
+    vdp_cursor_tab(0, footer_row(scr));
 
     out_str(fname, fnsz);
     out_ch(dirty ? '*' : ' ');
@@ -1032,7 +1049,7 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     footer_position(x, y);
 
     set_colours(scr->fg_, scr->bg_);
-    scr_tab(scr, scr->currX_, scr->currY_);
+    scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
 }
 
 char* title = "AED: Another Text Editor";
@@ -1057,10 +1074,10 @@ void scr_clear(screen* scr) {
     set_colours(scr->fg_, scr->bg_);
     out_run('-', right);
     out_flush();
-    scr->currX_ = 0;
-    scr->currY_ = scr->topY_;
-    scr->originX_ = 0;
-    scr_tab(scr, scr->currX_, scr->currY_);
+    scr->v_->currX_ = 0;
+    scr->v_->currY_ = scr->v_->topY_;
+    scr->v_->originX_ = 0;
+    scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
 }
 
 void scr_hide_cursor_ch(screen* scr, char ch) {
@@ -1077,8 +1094,8 @@ void scr_hide_cursor_ch(screen* scr, char ch) {
     if (scr->theme_ != NULL && scr->cellColour_ != NULL) {
         // This cell: the screen has not moved yet, so currX_ and currY_ still
         // name the one being put back.
-        const char c = scr->cellColour_(scr->colourCtx_, scr->currY_,
-                                        scr->originX_ + scr->currX_);
+        const char c = scr->cellColour_(scr->colourCtx_, scr->v_->currY_,
+                                        scr->v_->originX_ + scr->v_->currX_);
         if (c >= 0 && c < scr->colors_) {
             fg = c;
         }
@@ -1132,11 +1149,11 @@ int scr_putc(screen* scr, char ch, char* prefix, int psz, char* suffix, int ssz)
      * column left of the cursor that is safe to leave alone.
      */
     const int at = scr->theme_ != NULL
-                 ? scr->originX_
+                 ? scr->v_->originX_
                  : scr_column_of(scr, prefix, psz > 0 ? psz - 1 : 0);
     const int scrolled = scr_place_cursor(scr, prefix, psz);
     if (scrolled == 0) {
-        scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz, at);
+        scr_paint_from(scr, scr->v_->currY_, prefix, psz, suffix, ssz, at);
         scr_sync_cursor(scr);
         scr_show_cursor_ch(scr,
                            (suffix != NULL && ssz > 0) ? suffix[0] : scr->cursor_);
@@ -1160,8 +1177,8 @@ int scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
             // The whole row, for the reason scr_putc paints one: deleting a
             // character can change the colour of what is left of the cursor,
             // and scr_paint_tail starts at the cursor.
-            scr_paint_from(scr, scr->currY_, prefix, psz, suffix, ssz,
-                           scr->originX_);
+            scr_paint_from(scr, scr->v_->currY_, prefix, psz, suffix, ssz,
+                           scr->v_->originX_);
         } else {
             scr_paint_tail(scr, suffix, ssz);
         }
@@ -1179,10 +1196,10 @@ int scr_bksp(screen* scr, char* prefix, int psz, char* suffix, int ssz) {
 int scr_up(screen* scr, char from_ch, char to_ch,
            const char* pre, int presz) {
     scr_hide_cursor_ch(scr, from_ch);
-    scr->currY_--;
+    scr->v_->currY_--;
     const int scrolled = scr_place_cursor(scr, pre, presz);
     if (scrolled == 0) {
-        scr_tab(scr, scr->currX_, scr->currY_);
+        scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
         scr_show_cursor_ch(scr, to_ch);
     }
 
@@ -1192,10 +1209,10 @@ int scr_up(screen* scr, char from_ch, char to_ch,
 int scr_down(screen* scr, char from_ch, char to_ch,
            const char* pre, int presz) {
     scr_hide_cursor_ch(scr, from_ch);
-    scr->currY_++;
+    scr->v_->currY_++;
     const int scrolled = scr_place_cursor(scr, pre, presz);
     if (scrolled == 0) {
-        scr_tab(scr, scr->currX_, scr->currY_);
+        scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
         scr_show_cursor_ch(scr, to_ch);
     }
 
@@ -1225,15 +1242,16 @@ static void reset_viewport(void) {
 
 void scr_clear_textarea(screen* scr, char top, char bottom) {
     // The viewport includes `bottom`, and the callers that refresh the whole
-    // screen pass bottomY_ -- which is the footer row. So this erases the
+    // screen pass the view's bottomY_ -- which, for the whole screen, is the
+    // footer row. So this erases the
     // footer even though nothing here draws it back. That went unnoticed while
     // the footer was redrawn on every pass of the event loop; now that an
     // unchanged one sends nothing, it has to be said out loud or a full
     // refresh leaves the row blank until the cursor happens to move.
-    if (bottom >= scr->bottomY_) {
+    if (bottom >= footer_row(scr)) {
         scr->footerDrawn_ = false;
     }
-    define_viewport(scr->textX_, bottom, (char) (scr->textX_ + scr->cols_ - 1), top);
+    define_viewport(scr->v_->textX_, bottom, (char) (scr->v_->textX_ + scr->v_->cols_ - 1), top);
     vdp_clear_screen();
     reset_viewport();
 
@@ -1349,8 +1367,8 @@ static int emit_span(screen* scr, const char* buf, int sz, int col,
 // the window, or left of from_col, are skipped rather than redrawn.
 static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
                     const char* suf, int sufsz, int from_col, int to_col) {
-    const int edge = scr->originX_ + scr->cols_;
-    const int from = from_col > scr->originX_ ? from_col : scr->originX_;
+    const int edge = scr->v_->originX_ + scr->v_->cols_;
+    const int from = from_col > scr->v_->originX_ ? from_col : scr->v_->originX_;
     const int stop = to_col < edge ? to_col : edge;
     if (from >= stop) {
         return;
@@ -1372,7 +1390,7 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
         }
     }
 
-    scr_tab(scr, from - scr->originX_, ypos);
+    scr_tab(scr, from - scr->v_->originX_, ypos);
     /*
      * curFg_ and curBg_ are what the VDP actually holds, and this used to
      * overwrite them with what it assumed: the document's own pair. Anything
@@ -1422,7 +1440,7 @@ static void scr_paint_span(screen* scr, char ypos, const char* pre, int presz,
 static void scr_paint_from(screen* scr, char ypos, const char* pre, int presz,
                     const char* suf, int sufsz, int from_col) {
     scr_paint_span(scr, ypos, pre, presz, suf, sufsz, from_col,
-                   scr->originX_ + scr->cols_);
+                   scr->v_->originX_ + scr->v_->cols_);
 }
 
 void scr_write_line_sel_split(screen* scr, char ypos,
@@ -1431,7 +1449,7 @@ void scr_write_line_sel_split(screen* scr, char ypos,
                               int from_col, int to_col) {
     scr_write_line_span_split(scr, ypos, pre, presz, suf, sufsz,
                               from_col, to_col,
-                              scr->originX_, scr->originX_ + scr->cols_);
+                              scr->v_->originX_, scr->v_->originX_ + scr->v_->cols_);
 }
 
 void scr_write_line_sel(screen* scr, char ypos, char* buf, int sz,
@@ -1453,14 +1471,14 @@ void scr_write_line_span_split(screen* scr, char ypos,
 
 void scr_paint_row(screen* scr, char ypos, const char* pre, int presz,
                    const char* suf, int sufsz) {
-    scr_paint_from(scr, ypos, pre, presz, suf, sufsz, scr->originX_);
+    scr_paint_from(scr, ypos, pre, presz, suf, sufsz, scr->v_->originX_);
 }
 
 void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
-    const int at = scr->originX_ + scr->currX_;
-    const int stop = scr->originX_ + scr->cols_;
+    const int at = scr->v_->originX_ + scr->v_->currX_;
+    const int stop = scr->v_->originX_ + scr->v_->cols_;
 
-    scr_tab(scr, scr->currX_, scr->currY_);
+    scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
     int col = at;
     /*
      * This paints from the cursor and so cannot know where the line began,
@@ -1477,9 +1495,9 @@ void scr_paint_tail(screen* scr, const char* suf, int sufsz) {
     scr_sync_cursor(scr);
 }
 
-// Returns true when the horizontal origin moved. The origin is screen-wide, so
-// every other visible row is then drawn against the old one and the caller must
-// repaint the text area -- the view cannot, it has no access to the document.
+// Returns true when the horizontal origin moved. The origin is the view's, so
+// every other row of the view is then drawn against the old one and the caller
+// must repaint the view -- the screen cannot, it has no access to the document.
 int scr_move_cursor(screen* scr, char from_ch, char to_ch,
                     const char* pre, int presz) {
     scr_hide_cursor_ch(scr, from_ch);
@@ -1497,7 +1515,7 @@ void scr_write_line(screen* scr, char ypos, char* buf, int sz) {
 }
 
 void scr_tab(screen* scr, int col, char row) {
-    vdp_cursor_tab((char) (col + scr->textX_), row);
+    vdp_cursor_tab((char) (col + scr->v_->textX_), row);
 }
 
 void scr_tab_bar(screen* scr, int col, char row) {
@@ -1517,7 +1535,7 @@ void scr_bar_line(screen* scr, char row, const char* buf, int sz) {
 
 void scr_sync_cursor(screen* scr) {
     out_flush();
-    scr_tab(scr, scr->currX_, scr->currY_);
+    scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
 }
 
 // VDU 23,7,extent,direction,movement -- scroll the current text viewport by one
@@ -1525,10 +1543,10 @@ void scr_sync_cursor(screen* scr) {
 static void scroll_region(
         screen* scr, char topY, char bottomY, const char* vdu, char sz,
         const char* pre, int presz, const char* suf, int sufsz, char ch) {
-    define_viewport(scr->textX_, bottomY, (char) (scr->textX_ + scr->cols_ - 1), topY);
+    define_viewport(scr->v_->textX_, bottomY, (char) (scr->v_->textX_ + scr->v_->cols_ - 1), topY);
     mos_puts((char*) vdu, sz, 0);
     reset_viewport();
-    scr_paint_row(scr, scr->currY_, pre, presz, suf, sufsz);
+    scr_paint_row(scr, scr->v_->currY_, pre, presz, suf, sufsz);
     scr_sync_cursor(scr);
     scr_show_cursor_ch(scr, ch);
 }
@@ -1550,7 +1568,7 @@ void scr_scroll_h(screen* scr, int cols) {
     }
     scroll[4] = scr->charW_;   // one character cell, in pixels
 
-    define_viewport(scr->textX_, scr->bottomY_ - 1, (char) (scr->textX_ + scr->cols_ - 1), scr->topY_);
+    define_viewport(scr->v_->textX_, scr->v_->bottomY_ - 1, (char) (scr->v_->textX_ + scr->v_->cols_ - 1), scr->v_->topY_);
     for (int i = 0; i < n; i++) {
         VDP_PUTS(scroll);
     }
@@ -1614,8 +1632,8 @@ void scr_scroll_rows_up(screen* scr, char topY, char bottomY, int rows) {
         return;
     }
     const char up[] = {23, 7, 0, 3, scr->charH_};
-    define_viewport(scr->textX_, bottomY,
-                    (char) (scr->textX_ + scr->cols_ - 1), topY);
+    define_viewport(scr->v_->textX_, bottomY,
+                    (char) (scr->v_->textX_ + scr->v_->cols_ - 1), topY);
     for (int i = 0; i < rows; i++) {
         mos_puts((char*) up, sizeof(up), 0);
     }
@@ -1627,8 +1645,8 @@ void scr_scroll_rows_down(screen* scr, char topY, char bottomY, int rows) {
         return;
     }
     const char down[] = {23, 7, 0, 2, scr->charH_};
-    define_viewport(scr->textX_, bottomY,
-                    (char) (scr->textX_ + scr->cols_ - 1), topY);
+    define_viewport(scr->v_->textX_, bottomY,
+                    (char) (scr->v_->textX_ + scr->v_->cols_ - 1), topY);
     for (int i = 0; i < rows; i++) {
         mos_puts((char*) down, sizeof(down), 0);
     }

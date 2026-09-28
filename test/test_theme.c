@@ -226,7 +226,7 @@ int main(void) {
          */
         static user_input ui;
         check("a screen and a prompt", start(), 1);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         scr_set_scheme(&scr, 15, 0);        /* the user's choice */
         scr_theme_scheme(&scr, 3, 6);       /* a theme takes over */
@@ -374,7 +374,7 @@ int main(void) {
         fixed_n = 3;
         scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
-        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        scr_write_line(&scr, scr.v_->topY_, "int x;  // hi", 13);
         check_map("no theme paints the row in one colour",
                   fg_map(13, 7), "7777777777777");
 
@@ -384,7 +384,7 @@ int main(void) {
         fixed_n = 3;
         scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
-        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        scr_write_line(&scr, scr.v_->topY_, "int x;  // hi", 13);
         check_map("a theme colours each run", fg_map(13, 7), "4447777722222");
 
         /* A class the theme says nothing about falls back to its text colour,
@@ -394,7 +394,7 @@ int main(void) {
         fixed_n = 1;
         scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
-        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        scr_write_line(&scr, scr.v_->topY_, "int x;  // hi", 13);
         check_map("an uncoloured class falls back to text",
                   fg_map(13, 7), "7777777777777");
 
@@ -436,7 +436,7 @@ int main(void) {
         fixed_n = 3;
         scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
-        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        scr_write_line(&scr, scr.v_->topY_, "int x;  // hi", 13);
         const int changes = colour_changes();
         check("  thirteen columns in three runs", changes <= 4 ? 1 : 0, 1);
         check("    and it really is about three", changes >= 2 ? 1 : 0, 1);
@@ -446,7 +446,7 @@ int main(void) {
         scr_set_theme(&scr, NULL);
         scr_set_colourer(&scr, NULL, NULL, NULL);
         cap_start();
-        scr_write_line(&scr, scr.topY_, "int x;  // hi", 13);
+        scr_write_line(&scr, scr.v_->topY_, "int x;  // hi", 13);
         check("  a plain row still costs no colour change at all",
               colour_changes(), 0);
 
@@ -479,7 +479,7 @@ int main(void) {
         scr_set_colourer(&scr, answer_fixed, NULL, NULL);
         cap_start();
         /* columns 2..4 selected: those show the reversed pair, bg as fg */
-        scr_write_line_sel(&scr, scr.topY_, "abcdefgh", 8, 2, 5);
+        scr_write_line_sel(&scr, scr.v_->topY_, "abcdefgh", 8, 2, 5);
         check_map("a selection reverses over the token colour",
                   fg_map(8, 7), "44000444");
 

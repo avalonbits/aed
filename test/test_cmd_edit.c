@@ -71,7 +71,7 @@ static void expected_window(editor* ed, char* out, int max) {
     }
 
     int w = 0;
-    for (int c = ed->scr_.originX_; c < ed->scr_.originX_ + ed->scr_.cols_
+    for (int c = ed->scr_.v_->originX_; c < ed->scr_.v_->originX_ + ed->scr_.v_->cols_
                                     && c < n && w < max - 1; c++) {
         out[w++] = line[c];
     }
@@ -92,21 +92,22 @@ static int contains(const char* hay, int hn, const char* needle) {
 /* A 20-column screen so the window has to move after only a few columns. */
 static void setup(editor* ed) {
     memset(ed, 0, sizeof(*ed));
+    scr_set_view(&ed->scr_, NULL);
     ed->scr_.rows_ = 25;
-    ed->scr_.cols_ = 20;
+    ed->scr_.v_->cols_ = 20;
     ed->scr_.cursor_ = 32;
-    ed->scr_.topY_ = 1;
-    ed->scr_.bottomY_ = 24;
+    ed->scr_.v_->topY_ = 1;
+    ed->scr_.v_->bottomY_ = 24;
     ed->scr_.tab_size_ = SCR_DEFAULT_TAB_SIZE;
-    ed->scr_.currY_ = 1;
-    ed->scr_.currX_ = 0;
-    ed->scr_.originX_ = 0;
+    ed->scr_.v_->currY_ = 1;
+    ed->scr_.v_->currX_ = 0;
+    ed->scr_.v_->originX_ = 0;
 
     if (!tb_init(&ed->doc_.buf_, 4, NULL)) {
         fprintf(stderr, "tb_init failed\n");
         return;
     }
-    if (!ui_init(&ed->ui_, 64, ed->scr_.bottomY_, ed->scr_.cols_)) {
+    if (!ui_init(&ed->ui_, 64, ed->scr_.v_->bottomY_, ed->scr_.v_->cols_)) {
         fprintf(stderr, "ui_init failed\n");
     }
 }
@@ -130,7 +131,7 @@ int main(void) {
     int psz = 0;
     char* pre = tb_prefix(&ed.doc_.buf_, &psz);
     (void) scr_place_cursor(&ed.scr_, pre, psz);
-    check("cursor is off the left edge of the window", ed.scr_.originX_, 40 - 19);
+    check("cursor is off the left edge of the window", ed.scr_.v_->originX_, 40 - 19);
 
     /* Insert at the right edge: this both changes the row and moves the window.
      * The document becomes ...xyzZ with the cursor after Z, so the window shows
@@ -157,15 +158,15 @@ int main(void) {
 
     /* Now a backspace that *does* move the window: walk the cursor to the left
      * edge first, so deleting pushes it past the origin. */
-    while (ed.scr_.currX_ > 0) {
+    while (ed.scr_.v_->currX_ > 0) {
         cmd_left(&ed);
     }
-    const int origin_before = ed.scr_.originX_;
+    const int origin_before = ed.scr_.v_->originX_;
     cap_start();
     cmd_bksp(&ed);
     n = cap_read(buf, sizeof(buf));
     check("backspace at the left edge moves the window",
-          ed.scr_.originX_ < origin_before, 1);
+          ed.scr_.v_->originX_ < origin_before, 1);
     expected_window(&ed, want, sizeof(want));
     check("and redraws the row from the document",
           contains(buf, n, want), 1);

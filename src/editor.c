@@ -239,7 +239,7 @@ void ed_pick_syntax(editor* ed) {
     // What was worked out belongs to the document that was there before this.
     ed->doc_.synFirst_ = 0;
     ed->doc_.synKnown_ = 0;
-    ed->synTop_ = 1;
+    ed->scr_.v_->synTop_ = 1;
     syn_clear(&ed->doc_.syn_);
     theme_clear(&ed->theme_);
     scr_set_theme(&ed->scr_, NULL);
@@ -391,7 +391,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         return ed_failed(ed, ED_BUF);
     }
     tb_set_undo(&ed->doc_.buf_, &ed->doc_.undo_);
-    if (!ui_init(&ed->ui_, 256, ed->scr_.bottomY_, ed->scr_.cols_)) {
+    if (!ui_init(&ed->ui_, 256, ed->scr_.v_->bottomY_, ed->scr_.v_->cols_)) {
         return ed_failed(ed, ED_UNDO);
     }
 
@@ -524,7 +524,7 @@ void ed_selection_repaint(editor* ed, sel_action act, char y_before,
 
     screen* scr = &ed->scr_;
     text_buffer* tb = &ed->doc_.buf_;
-    const int top_after = tb_ypos(tb) - (scr->currY_ - scr->topY_);
+    const int top_after = tb_ypos(tb) - (scr->v_->currY_ - scr->v_->topY_);
 
     // The whole text area whenever the view moved under the text. Dropping a
     // selection has to clear a highlight that could be anywhere on screen; a
@@ -533,23 +533,23 @@ void ed_selection_repaint(editor* ed, sel_action act, char y_before,
     // the ones not repainted showing their old columns.
     if (act == SEL_DROP
         || top_after != top_before
-        || scr->originX_ != origin_before) {
-        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
-    } else if (y_before == scr->currY_) {
+        || scr->v_->originX_ != origin_before) {
+        cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
+    } else if (y_before == scr->v_->currY_) {
         // The cursor stayed on its row, so the highlight changed only between
         // the column it was in and the one it is in now -- a character for an
         // arrow, a word for CTRL with one. The rest of the row already shows
         // what it should, and a row is eighty characters down a serial link.
         // One column past the far end, because the cell the cursor vacated has
         // to be repainted as ordinary text.
-        const char from = x_before < scr->currX_ ? x_before : scr->currX_;
-        const char to = x_before < scr->currX_ ? scr->currX_ : x_before;
-        cmd_repaint_span(ed, scr->currY_, scr->originX_ + from,
-                         scr->originX_ + to + 1);
+        const char from = x_before < scr->v_->currX_ ? x_before : scr->v_->currX_;
+        const char to = x_before < scr->v_->currX_ ? scr->v_->currX_ : x_before;
+        cmd_repaint_span(ed, scr->v_->currY_, scr->v_->originX_ + from,
+                         scr->v_->originX_ + to + 1);
     } else {
         // It changed rows without the view moving, so both rows need doing.
-        const char lo = y_before < scr->currY_ ? y_before : scr->currY_;
-        const char hi = y_before < scr->currY_ ? scr->currY_ : y_before;
+        const char lo = y_before < scr->v_->currY_ ? y_before : scr->v_->currY_;
+        const char hi = y_before < scr->v_->currY_ ? scr->v_->currY_ : y_before;
         cmd_repaint_rows(ed, lo, hi);
     }
     scr_show_cursor_ch(scr, tb_peek(tb));
@@ -641,10 +641,10 @@ void ed_run(editor* ed) {
 
         // Where the view was, so the repaint afterwards can tell a cursor that
         // moved within the screen from one that moved the screen.
-        const char y_before = scr->currY_;
-        const char x_before = scr->currX_;
-        const int top_before = tb_ypos(buf) - (y_before - scr->topY_);
-        const int origin_before = scr->originX_;
+        const char y_before = scr->v_->currY_;
+        const char x_before = scr->v_->currX_;
+        const int top_before = tb_ypos(buf) - (y_before - scr->v_->topY_);
+        const int origin_before = scr->v_->originX_;
 
         if (act == SEL_REPLACE) {
             cmd_delete_selection(ed);
@@ -695,7 +695,7 @@ void ed_clear_banner(editor* ed) {
         return;
     }
     ed->banner_ = false;
-    scr_clear_textarea(&ed->scr_, ed->scr_.topY_, (char) (ed->scr_.bottomY_ - 1));
+    scr_clear_textarea(&ed->scr_, ed->scr_.v_->topY_, (char) (ed->scr_.v_->bottomY_ - 1));
     scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_.buf_));
 }
 

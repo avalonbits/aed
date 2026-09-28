@@ -409,8 +409,8 @@ int main(void) {
     /* The view has to be wound back too: a long line scrolled right, then a
      * short file opened, would otherwise paint from a column that no longer
      * exists in any line. */
-    check("  the view is back at the left", ed.scr_.originX_, 0);
-    check("  and at the top", ed.scr_.currY_, ed.scr_.topY_);
+    check("  the view is back at the left", ed.scr_.v_->originX_, 0);
+    check("  and at the top", ed.scr_.v_->currY_, ed.scr_.v_->topY_);
 
     /* Escaping the prompt changes nothing. */
     stub_key esc[] = { { .ch = 0, .vk = VK_ESCAPE } };
@@ -520,7 +520,7 @@ int main(void) {
     editor wide;
     check("editor starts on a long line", ed_init(&wide, 8, "wide.txt") != NULL, 1);
     cmd_end(&wide);
-    check("  and the end of it is off screen", wide.scr_.originX_ > 0, 1);
+    check("  and the end of it is off screen", wide.scr_.v_->originX_ > 0, 1);
 
     stub_file_reset();
     stub_file_set_content(first, (int) sizeof(first) - 1);
@@ -536,9 +536,9 @@ int main(void) {
     stub_set_keys(openit, n);
     cmd_open(&wide);
     check("opening a short file loaded it", doc_is(&wide.doc_.buf_, "alpha\nbeta\n\n"), 1);
-    check("  and wound the horizontal scroll back", wide.scr_.originX_, 0);
-    check("  and put the cursor at the top", wide.scr_.currY_, wide.scr_.topY_);
-    check("  at the left", wide.scr_.currX_, 0);
+    check("  and wound the horizontal scroll back", wide.scr_.v_->originX_, 0);
+    check("  and put the cursor at the top", wide.scr_.v_->currY_, wide.scr_.v_->topY_);
+    check("  at the left", wide.scr_.v_->currX_, 0);
     ed_destroy(&wide);
 
     /* --- a refused open says why, and changes nothing --- */
@@ -682,7 +682,7 @@ int main(void) {
          * cursor against the edge it travelled towards -- without that the
          * cursor row stays where it was while the text under it changes. */
         check("  with the cursor against the bottom of the view",
-              (int) ged.scr_.currY_, (int) ged.scr_.bottomY_ - 1);
+              (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->bottomY_ - 1);
 
         GO_TO("200");
         check("and back up to one well behind it", tb_ypos(&ged.doc_.buf_), 200);
@@ -690,7 +690,7 @@ int main(void) {
               memcmp(tb_curr_line(&ged.doc_.buf_).suffix_,
                      go + 199 * GO_LEN, 5) == 0, 1);
         check("  with the cursor against the top of it",
-              (int) ged.scr_.currY_, (int) ged.scr_.topY_);
+              (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->topY_);
 
         /* The column is carried over, which is what stepping a line at a time
          * did: going to a line does not also go to its start. */
@@ -720,12 +720,12 @@ int main(void) {
         cmd_doc_top(&ged);
         check("CTRL+HOME goes to the first line", tb_ypos(&ged.doc_.buf_), 1);
         check("  with the cursor at the top of the view",
-              (int) ged.scr_.currY_, (int) ged.scr_.topY_);
+              (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->topY_);
 
         cmd_doc_end(&ged);
         check("CTRL+END goes to the last", tb_ypos(&ged.doc_.buf_), GO_LINES + 1);
         check("  with the cursor at the bottom of the view",
-              (int) ged.scr_.currY_, (int) ged.scr_.bottomY_ - 1);
+              (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->bottomY_ - 1);
 
         cmd_doc_top(&ged);
         check("and CTRL+HOME comes back from there", tb_ypos(&ged.doc_.buf_), 1);

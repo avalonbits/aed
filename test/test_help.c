@@ -94,7 +94,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         /* One key closes it when everything fits on a 60-row screen. */
         const stub_key close[] = { { .ch = 27, .vk = VK_ESCAPE } };
@@ -170,7 +170,7 @@ int main(void) {
         stub_set_screen(80, 30);
         stub_set_cell(8, 16);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         const stub_key page[] = {
             { .ch = ' ', .vk = VK_SPACE },
@@ -198,7 +198,7 @@ int main(void) {
         stub_set_screen(80, 30);
         stub_set_cell(8, 16);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         /* Forward twice, then back twice, then close. Ending up on page one
          * means the first section is on screen again at the end. */
@@ -233,7 +233,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         /* Everything fits, so DOWN and UP have nowhere to go. Neither should
          * drop out of the help; only the ESC should. */
@@ -362,7 +362,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         cap_start();
         ui_banner(&ui, &scr);
@@ -412,14 +412,14 @@ int main(void) {
                 }
                 const int y = (unsigned char) got[i + 2];
                 i += 2;
-                if (y == scr.currY_) {
+                if (y == scr.v_->currY_) {
                     continue;
                 }
                 if (y < lo) { lo = y; }
                 if (y > hi) { hi = y; }
             }
             const int mid = (lo + hi) / 2;
-            const int want = (scr.topY_ + scr.bottomY_) / 2;
+            const int want = (scr.v_->topY_ + scr.v_->bottomY_) / 2;
             /* Within a row: the box is an even number of rows tall, so its
              * middle can land either side of the area's. */
             check("  and centred in the text area", mid >= want - 1 && mid <= want + 1, 1);
@@ -492,8 +492,8 @@ int main(void) {
         {
             stub_emit_tabs(1);
             cap_start();
-            scr_clear_textarea(&empty.scr_, empty.scr_.topY_,
-                               (char) (empty.scr_.bottomY_ - 1));
+            scr_clear_textarea(&empty.scr_, empty.scr_.v_->topY_,
+                               (char) (empty.scr_.v_->bottomY_ - 1));
             const int m = cap_read(got, sizeof(got) - 1);
             stub_emit_tabs(0);
 
@@ -512,7 +512,7 @@ int main(void) {
             }
             check("the viewport reset is followed by a tab", tabbed > 0, 1);
             check("  back to the document, not the title bar",
-                  tabbed, empty.scr_.currY_);
+                  tabbed, empty.scr_.v_->currY_);
         }
         ed_destroy(&empty);
         ed_destroy(&named);

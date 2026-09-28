@@ -218,9 +218,9 @@ int main(void) {
         scr_load_font(&scr, "/f.bin");
 
         check("after: rows", scr.rows_, 53);
-        check("after: the last row moved with them", scr.bottomY_, 52);
+        check("after: the last row moved with them", scr.v_->bottomY_, 52);
         check("after: cell height, which VDU 23,7 scrolls by", scr.charH_, 9);
-        check("after: the width is untouched", scr.cols_, 78);
+        check("after: the width is untouched", scr.v_->cols_, 78);
         check("after: and so is the bar", scr.barW_, 79);
     }
 

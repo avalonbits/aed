@@ -317,7 +317,7 @@ int main(void) {
      * tb_copy, and a copy that carried the log could record an edit while
      * drawing. */
     undo_clear(u);
-    cmd_repaint_rows(&ed, ed.scr_.topY_, ed.scr_.bottomY_);
+    cmd_repaint_rows(&ed, ed.scr_.v_->topY_, ed.scr_.v_->bottomY_);
     check("painting the screen records nothing", undo_count(u), 0);
     {
         text_buffer cp;
@@ -657,8 +657,8 @@ int main(void) {
         stub_file_set_content(many, mn);
         editor e;
         check("an editor to measure in", ed_init(&e, 8, "m.txt") != NULL, 1);
-        e.scr_.currY_ = (char) (e.scr_.topY_ + 10);
-        const int full = e.scr_.cols_ * (e.scr_.bottomY_ - e.scr_.topY_);
+        e.scr_.v_->currY_ = (char) (e.scr_.v_->topY_ + 10);
+        const int full = e.scr_.v_->cols_ * (e.scr_.v_->bottomY_ - e.scr_.v_->topY_);
 
         tb_seek(&e.doc_.buf_, (tb_pos){50, 4});
         put_str(&e.doc_.buf_, "XYZ");
@@ -666,7 +666,7 @@ int main(void) {
         cmd_undo(&e);
         int n = cap_read(raw, (int) sizeof(raw));
         check("undoing a one-line edit costs about a row",
-              n < e.scr_.cols_ * 3, 1);
+              n < e.scr_.v_->cols_ * 3, 1);
         check("  not a screenful", n < full / 4, 1);
 
         /* Lines removed: the rows below scroll up. One break per record here --
