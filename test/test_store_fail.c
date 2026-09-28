@@ -23,7 +23,6 @@
 
 #include <agon/mos.h>
 
-#include "editor.h"
 #include "text_buffer.h"
 #include "text_buffer_int.h"
 #include "line_buffer.h"

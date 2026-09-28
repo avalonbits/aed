@@ -62,9 +62,9 @@ flowchart LR
 
 [`doc_store`](../src/doc_store.h#L69) owns the two scratch files and offers four
 operations — push and pop at each end — plus a read for saving.
-[`store_init`](../src/doc_store.c#L101) creates them;
-[`store_head_push`](../src/doc_store.c#L217) and
-[`store_tail_pop`](../src/doc_store.c#L254) are the pair a downward slide uses.
+[`store_init`](../src/doc_store.c#L109) creates them;
+[`store_head_push`](../src/doc_store.c#L225) and
+[`store_tail_pop`](../src/doc_store.c#L262) are the pair a downward slide uses.
 
 Two files rather than one, because the two ends grow independently and a single
 file would need the middle moved every time either did.

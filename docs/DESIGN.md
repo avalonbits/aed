@@ -80,7 +80,7 @@ editor may call, a `tbi_` name is one of those six talking to another.
 it works around is in a calling sequence that C cannot reach.
 
 There is no global state. Everything hangs off one
-[`editor`](../src/editor.h#L32), which `main` owns and passes down by address;
+[`editor`](../src/editor.h#L33), which `main` owns and passes down by address;
 nothing reaches it any other way.
 
 It is a `static` local rather than an ordinary one, which is a placement rather
@@ -109,15 +109,15 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L25) ·
-[`ed_init()`](../src/editor.c#L263) ·
-[`ed_run()`](../src/editor.c#L579) ·
-[`read_input()`](../src/editor.c#L814) ·
-[`ctrlCmds()`](../src/editor.c#L670) ·
-[`editCmds()`](../src/editor.c#L765) ·
-[`ed_selection_for()`](../src/editor.c#L451) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L870)
+[`ed_init()`](../src/editor.c#L286) ·
+[`ed_run()`](../src/editor.c#L606) ·
+[`read_input()`](../src/editor.c#L841) ·
+[`ctrlCmds()`](../src/editor.c#L697) ·
+[`editCmds()`](../src/editor.c#L792) ·
+[`ed_selection_for()`](../src/editor.c#L478) ·
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L871)
 
-`main` asks for **72 KiB** — [`AED_DOC_KB`](../src/editor.h#L137) — and that
+`main` asks for **72 KiB** — [`TB_DOC_KB`](../src/text_buffer.h#L172) — and that
 single number sizes the document: `tb_init` splits it into 71,424 bytes of
 character buffer and 2,304 index slots, about one slot per 31 bytes. Nothing
 else in the editor picks a size.
@@ -146,14 +146,14 @@ either side, which is why the host tests drive whole commands as well as the
 model.
 
 A key becomes a command in one of two tables —
-[`ctrlCmds()`](../src/editor.c#L670) for a key with CTRL held,
-[`editCmds()`](../src/editor.c#L765) for one without — and both are exported so
+[`ctrlCmds()`](../src/editor.c#L697) for a key with CTRL held,
+[`editCmds()`](../src/editor.c#L792) for one without — and both are exported so
 a test can assert a binding. **A command nothing can reach is not a feature; a
 command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/editor.c#L451) decides what a keystroke does to
+[`ed_selection_for()`](../src/editor.c#L478) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
@@ -372,7 +372,7 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L870) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L871) takes a range, and most commands
 pass a single row.
 
 [`screen`](../src/screen.h#L57) derives its geometry from the font's cell size,
@@ -492,15 +492,15 @@ Four things learned the hard way:
 * **Something on the document** goes in the `text_buffer_*.c` whose job it is,
   and anything two of them need goes in `text_buffer_int.h` with a `tbi_` name.
 * **A command** needs a function in `cmd_ops.c`, a declaration in `cmd_ops.h`, a
-  case in [`ctrlCmds()`](../src/editor.c#L670) or
-  [`editCmds()`](../src/editor.c#L765), a row in the help table in
+  case in [`ctrlCmds()`](../src/editor.c#L697) or
+  [`editCmds()`](../src/editor.c#L792), a row in the help table in
   `user_input.c`, a line in the README, and a test that goes through the *table*
   and the loop rather than calling the function.
 * **If it moves the cursor**, it seeks. Stepping is for moving by one.
 * **If it reads a range**, it streams. There has been one wrong second walk over
   the document already.
 * **If it owns the selection**, say so in
-  [`owns_selection()`](../src/editor.c#L436), or the loop will take the
+  [`owns_selection()`](../src/editor.c#L463), or the loop will take the
   selection away before the command runs.
 * **Anything on a hot path** is measured on the emulator before and after.
 * **If it moves code any document links to**, run `./test/docs.sh --fix`. A

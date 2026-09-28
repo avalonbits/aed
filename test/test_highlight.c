@@ -225,6 +225,10 @@ int main(void) {
     static editor ed;
     static char cap[8192];
 
+    /* ed_init hands the core AED's context; setup() stands in for ed_init, so
+     * it is set here instead. */
+    app_set(&AED_APP);
+
     /* --- a C file gets the C grammar --- */
     {
         files();
@@ -238,6 +242,42 @@ int main(void) {
               strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
         check("  and C is a language that crosses lines",
               syn_crosses_lines(&ed.syn_) ? 1 : 0, 1);
+        tb_destroy(&ed.buf_);
+    }
+
+    /* --- grammars and themes come from the program's directories --- */
+    {
+        /*
+         * The same four files, only under another program's directories. A
+         * context naming those finds them; AED's, which names its own, finds
+         * nothing -- so the walk goes where the context says rather than to a
+         * directory it knows by heart.
+         */
+        static const app_context ELSEWHERE = {
+            .name = "ade",
+            .syntax_dir = "/config/ade/syntax",
+            .theme_dir = "/config/ade/themes",
+        };
+        stub_file_reset();
+        stub_set_dir(DIR_NAMES, DIR_SIZES, 4);
+        stub_file_add("/config/ade/syntax/c.cfg", C_CFG, (int) sizeof(C_CFG) - 1);
+        stub_file_add("/config/ade/themes/dark.cfg", DARK, (int) sizeof(DARK) - 1);
+
+        app_set(&ELSEWHERE);
+        setup(&ed, 0);
+        named(&ed, "/main.c");
+        ed_pick_syntax(&ed);
+        check("a grammar is found where the program keeps them",
+              ed.syn_.loaded ? 1 : 0, 1);
+        check("  and a theme beside it", ed.scr_.theme_ != NULL ? 1 : 0, 1);
+        tb_destroy(&ed.buf_);
+
+        app_set(&AED_APP);
+        setup(&ed, 0);
+        named(&ed, "/main.c");
+        ed_pick_syntax(&ed);
+        check("  and not where another program keeps its own",
+              ed.syn_.loaded ? 1 : 0, 0);
         tb_destroy(&ed.buf_);
     }
 

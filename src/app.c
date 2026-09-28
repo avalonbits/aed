@@ -16,24 +16,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "editor.h"
-#include "editor.h"
-#include "screen.h"
+#include "app.h"
 
-#include <stdio.h>
+#include <stddef.h>
 
-int main(int argc, char** argv) {
-    static editor ed;
+static const app_context* current = NULL;
 
-    const char* fname = NULL;
-    if (argc > 1) {
-        fname = argv[1];
-    }
-    if (!ed_init(&ed, TB_DOC_KB, fname)) {
-        return 1;
-    }
-    ed_run(&ed);
+void app_set(const app_context* app) {
+    current = app;
+}
 
-    ed_destroy(&ed);
-    return 0;
+const app_context* app_get(void) {
+    return current;
 }

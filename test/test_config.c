@@ -20,6 +20,14 @@
 #include "cmd_ops.h"
 #include "vkey.h"
 
+/* AED's settings file and its old name, as ed_init hands them to the core. */
+#define AED_INI AED_APP.cfg_path
+#define AED_CFG AED_APP.cfg_old
+
+static bool migrate_aed(void) {
+    return cfg_migrate(AED_CFG, AED_INI);
+}
+
 static int failures = 0;
 
 static void check(const char* name, int got, int want) {
@@ -158,14 +166,14 @@ int main(void) {
     config cfg;
     cfg_defaults(&cfg);
     stub_file_reset();   /* opens, but the file is empty */
-    check("an empty file loads nothing", cfg_load(&cfg, CFG_PATH) ? 1 : 0, 0);
+    check("an empty file loads nothing", cfg_load(&cfg, AED_INI) ? 1 : 0, 0);
     check("  and leaves the settings alone", cfg.tab_size, -1);
 
     stub_file_reset();
     static const char body[] = "[editor]\ntab=3\n";
     stub_file_set_content(body, (int) sizeof(body) - 1);
     cfg_defaults(&cfg);
-    check("loading a real file", cfg_load(&cfg, CFG_PATH) ? 1 : 0, 1);
+    check("loading a real file", cfg_load(&cfg, AED_INI) ? 1 : 0, 1);
     check("  applies its settings", cfg.tab_size, 3);
 
     /* The normal case for most users: no settings file at all. It must not be
@@ -174,7 +182,7 @@ int main(void) {
     stub_file_reset();
     stub_file_fail_open(1);
     cfg_defaults(&cfg);
-    check("a missing file loads nothing", cfg_load(&cfg, CFG_PATH) ? 1 : 0, 0);
+    check("a missing file loads nothing", cfg_load(&cfg, AED_INI) ? 1 : 0, 0);
     check("  and changes nothing", cfg.tab_size, -1);
 
     check("a NULL path is refused", cfg_load(&cfg, NULL) ? 1 : 0, 0);
@@ -244,7 +252,7 @@ int main(void) {
 
     /* --- saving --- */
     stub_file_reset();
-    check("save reports success", cfg_save(&out, CFG_PATH) ? 1 : 0, 1);
+    check("save reports success", cfg_save(&out, AED_INI) ? 1 : 0, 1);
     check("  and wrote the rendered bytes", stub_file_size(), rn);
     check("  and closed the file", stub_file_closes(), 1);
     check("  after trying to create the directory", stub_mkdirs(), 1);
@@ -253,7 +261,7 @@ int main(void) {
     stub_file_reset();
     stub_file_fail_open(1);
     check("save fails quietly when the file cannot be opened",
-          cfg_save(&out, CFG_PATH) ? 1 : 0, 0);
+          cfg_save(&out, AED_INI) ? 1 : 0, 0);
     check("  and wrote nothing", stub_file_size(), 0);
 
     /* --- a short write must not leave a truncated file behind --- */
@@ -261,12 +269,29 @@ int main(void) {
      * and never rewrite the settings that never made it to disk. */
     stub_file_reset();
     stub_file_short_write(20);
-    check("a short write reports failure", cfg_save(&out, CFG_PATH) ? 1 : 0, 0);
+    check("a short write reports failure", cfg_save(&out, AED_INI) ? 1 : 0, 0);
     check("  and the partial file is removed", stub_deletes(), 1);
 
     stub_file_reset();
-    check("a complete write keeps the file", cfg_save(&out, CFG_PATH) ? 1 : 0, 1);
+    check("a complete write keeps the file", cfg_save(&out, AED_INI) ? 1 : 0, 1);
     check("  and deletes nothing", stub_deletes(), 0);
+
+    /* --- ed_init moves AED's own settings file, under AED's own names --- */
+    {
+        /* Spelled out rather than taken from AED_APP: these are the names on
+         * every card AED has been run from, and they must not move. */
+        static const char old[] = "[editor]\r\ntab = 6\r\n";
+        stub_file_reset();
+        stub_file_add("/config/aed.cfg", old, (int) sizeof(old) - 1);
+        editor moved;
+        check("editor starts from an old settings file",
+              ed_init(&moved, 8, NULL) != NULL, 1);
+        check("  which is moved to the new name",
+              stub_file_exists("/config/aed.ini"), 1);
+        check("  and taken from the old", stub_file_exists("/config/aed.cfg"), 0);
+        check("  and read", scr_tab_size(&moved.scr_), 6);
+        ed_destroy(&moved);
+    }
 
     /* --- what ed_init does with a settings file --- */
     /* Each setting applies on its own: one named in the file takes effect, one
@@ -320,7 +345,7 @@ int main(void) {
 
     stub_file_reset();
     stub_file_set_content(handwritten, (int) sizeof(handwritten) - 1);
-    check("update succeeds", cfg_update(&change, CFG_PATH) ? 1 : 0, 1);
+    check("update succeeds", cfg_update(&change, AED_INI) ? 1 : 0, 1);
     const int mn = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) mn);
     merged[mn] = 0;
@@ -363,7 +388,7 @@ int main(void) {
 
         stub_file_reset();
         stub_file_set_content(stub_cr, (int) sizeof(stub_cr) - 1);
-        check("truncated last line updates", cfg_update(&trunc, CFG_PATH) ? 1 : 0, 1);
+        check("truncated last line updates", cfg_update(&trunc, AED_INI) ? 1 : 0, 1);
         const int tn = stub_file_size();
         char out[512];
         memcpy(out, stub_file_bytes(), (size_t) tn);
@@ -388,7 +413,7 @@ int main(void) {
     static const char no_colours[] = "[editor]\r\ntab = 4\r\n";
     stub_file_reset();
     stub_file_set_content(no_colours, (int) sizeof(no_colours) - 1);
-    check("update with a missing key succeeds", cfg_update(&change, CFG_PATH) ? 1 : 0, 1);
+    check("update with a missing key succeeds", cfg_update(&change, AED_INI) ? 1 : 0, 1);
     const int an = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) an);
     merged[an] = 0;
@@ -424,7 +449,7 @@ int main(void) {
     }
     stub_file_reset();
     stub_file_set_content(huge, hn);
-    check("an oversized file is not merged", cfg_update(&change, CFG_PATH) ? 1 : 0, 0);
+    check("an oversized file is not merged", cfg_update(&change, AED_INI) ? 1 : 0, 0);
     check("  and is left untouched on disk", stub_file_opens_for_write(), 0);
 
     /* A file whose last line has no newline: an appended setting must start on
@@ -433,7 +458,7 @@ int main(void) {
     stub_file_reset();
     stub_file_set_content(unterminated, (int) sizeof(unterminated) - 1);
     check("update a file with no trailing newline",
-          cfg_update(&change, CFG_PATH) ? 1 : 0, 1);
+          cfg_update(&change, AED_INI) ? 1 : 0, 1);
     const int un = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) un);
     merged[un] = 0;
@@ -446,7 +471,7 @@ int main(void) {
     stub_file_reset();
     stub_file_fail_open(1);
     check("update with no file to merge into still fails cleanly",
-          cfg_update(&change, CFG_PATH) ? 1 : 0, 0);
+          cfg_update(&change, AED_INI) ? 1 : 0, 0);
 
     /* A trailing comment on a line whose value *does* change must survive too.
      * The tab line above keeps its comment only because its value was already
@@ -455,7 +480,7 @@ int main(void) {
         "[colours]\r\nfg = 15  # my foreground\r\n";
     stub_file_reset();
     stub_file_set_content(commented, (int) sizeof(commented) - 1);
-    check("update a commented line", cfg_update(&change, CFG_PATH) ? 1 : 0, 1);
+    check("update a commented line", cfg_update(&change, AED_INI) ? 1 : 0, 1);
     const int cn = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) cn);
     merged[cn] = 0;
@@ -577,13 +602,13 @@ int main(void) {
 
         /* Only the old one: it is copied across and taken away. */
         stub_file_reset();
-        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
-        cfg_migrate();
-        check("the old name is gone", stub_file_exists(CFG_PATH_OLD), 0);
-        check("  and the new one is there", stub_file_exists(CFG_PATH), 1);
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
+        migrate_aed();
+        check("the old name is gone", stub_file_exists(AED_CFG), 0);
+        check("  and the new one is there", stub_file_exists(AED_INI), 1);
         {
             int n = 0;
-            const char* got = stub_file_content(CFG_PATH, &n);
+            const char* got = stub_file_content(AED_INI, &n);
             check("    holding what the old one held",
                   (got != NULL && n == (int) sizeof(OLD) - 1
                    && memcmp(got, OLD, (size_t) n) == 0) ? 1 : 0, 1);
@@ -592,7 +617,7 @@ int main(void) {
             config cfg;
             cfg_defaults(&cfg);
             check("      and it reads back as the same settings",
-                  cfg_load(&cfg, CFG_PATH) ? 1 : 0, 1);
+                  cfg_load(&cfg, AED_INI) ? 1 : 0, 1);
             check("        tab", cfg.tab_size, 3);
             check("        fg", cfg.fg, 9);
             check("        bg", cfg.bg, 2);
@@ -606,14 +631,14 @@ int main(void) {
          */
         static const char NEW[] = "[colours]\r\nfg = 1\r\n";
         stub_file_reset();
-        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
-        stub_file_add(CFG_PATH, NEW, (int) sizeof(NEW) - 1);
-        cfg_migrate();
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
+        stub_file_add(AED_INI, NEW, (int) sizeof(NEW) - 1);
+        migrate_aed();
         check("with both, the old one is left alone",
-              stub_file_exists(CFG_PATH_OLD), 1);
+              stub_file_exists(AED_CFG), 1);
         {
             int n = 0;
-            const char* got = stub_file_content(CFG_PATH, &n);
+            const char* got = stub_file_content(AED_INI, &n);
             check("  and the new one is not written over",
                   (got != NULL && n == (int) sizeof(NEW) - 1
                    && memcmp(got, NEW, (size_t) n) == 0) ? 1 : 0, 1);
@@ -621,9 +646,9 @@ int main(void) {
 
         /* Neither: a first run, and nothing to move. */
         stub_file_reset();
-        cfg_migrate();
+        migrate_aed();
         check("with neither, nothing is made",
-              stub_file_exists(CFG_PATH), 0);
+              stub_file_exists(AED_INI), 0);
 
         /*
          * A copy that cannot finish leaves the old file exactly where it was
@@ -631,14 +656,14 @@ int main(void) {
          * be read as the whole of them next time.
          */
         stub_file_reset();
-        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
         stub_file_short_write(4);
-        cfg_migrate();
+        migrate_aed();
         stub_file_short_write(-1);
         check("a copy that fails keeps the old file",
-              stub_file_exists(CFG_PATH_OLD), 1);
+              stub_file_exists(AED_CFG), 1);
         check("  and leaves no half-written new one",
-              stub_file_exists(CFG_PATH), 0);
+              stub_file_exists(AED_INI), 0);
 
         /*
          * And says so, which is the part that matters. The editor writes a
@@ -648,20 +673,57 @@ int main(void) {
          * good. One full card at the wrong moment and they are gone.
          */
         stub_file_reset();
-        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
         stub_file_short_write(4);
-        check("  and says the move is still to do", cfg_migrate() ? 1 : 0, 0);
+        check("  and says the move is still to do", migrate_aed() ? 1 : 0, 0);
         stub_file_short_write(-1);
 
         /* The cases that are done say so too, so nothing is held back. */
         stub_file_reset();
-        stub_file_add(CFG_PATH_OLD, OLD, (int) sizeof(OLD) - 1);
-        check("a move that finishes says so", cfg_migrate() ? 1 : 0, 1);
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
+        check("a move that finishes says so", migrate_aed() ? 1 : 0, 1);
         stub_file_reset();
-        check("and so does having nothing to move", cfg_migrate() ? 1 : 0, 1);
+        check("and so does having nothing to move", migrate_aed() ? 1 : 0, 1);
         stub_file_reset();
-        stub_file_add(CFG_PATH, OLD, (int) sizeof(OLD) - 1);
-        check("and so does having moved already", cfg_migrate() ? 1 : 0, 1);
+        stub_file_add(AED_INI, OLD, (int) sizeof(OLD) - 1);
+        check("and so does having moved already", migrate_aed() ? 1 : 0, 1);
+    }
+
+    /* --- the move is between the names the program gives --- */
+    {
+        static const char OLD[] = "[editor]\r\ntab = 3\r\n";
+        /* Another program's pair, with AED's files present too: only the
+         * named pair moves, so the paths are the caller's and not built in. */
+        stub_file_reset();
+        stub_file_add("/config/ade.cfg", OLD, (int) sizeof(OLD) - 1);
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
+        check("another program's settings move",
+              cfg_migrate("/config/ade.cfg", "/config/ade.ini") ? 1 : 0, 1);
+        check("  to its new name", stub_file_exists("/config/ade.ini"), 1);
+        check("  from its old one", stub_file_exists("/config/ade.cfg"), 0);
+        check("  leaving AED's alone", stub_file_exists(AED_CFG), 1);
+        check("  and making none for AED", stub_file_exists(AED_INI), 0);
+
+        /* Moved already means that program's file is there, whoever else's
+         * is: its old name is left alone once the new one exists. */
+        stub_file_reset();
+        stub_file_add("/config/ade.cfg", OLD, (int) sizeof(OLD) - 1);
+        stub_file_add("/config/ade.ini", OLD, (int) sizeof(OLD) - 1);
+        check("another program that has moved already says so",
+              cfg_migrate("/config/ade.cfg", "/config/ade.ini") ? 1 : 0, 1);
+        check("  and its old file is left where it is",
+              stub_file_exists("/config/ade.cfg"), 1);
+
+        /* A program whose file never had another name has nothing to move,
+         * and says so without touching the card -- nor asking MOS to open a
+         * NULL name, which it would read as a string from address zero. */
+        stub_file_reset();
+        stub_file_add(AED_CFG, OLD, (int) sizeof(OLD) - 1);
+        check("no old name is nothing to move",
+              cfg_migrate(NULL, "/config/ade.ini") ? 1 : 0, 1);
+        check("  and opens nothing", stub_file_opens(), 0);
+        check("  writes nothing", stub_file_exists("/config/ade.ini"), 0);
+        check("  nor takes anything away", stub_file_exists(AED_CFG), 1);
     }
 
     if (failures > 0) {

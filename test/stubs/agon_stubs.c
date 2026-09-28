@@ -909,10 +909,17 @@ uint8_t ffs_stat(FILINFO* info, const char* filename) {
     return FR_OK;
 }
 
+static char stub_dopen_path[256];
+
+const char* stub_last_dopen(void) { return stub_dopen_path; }
+
 uint8_t ffs_dopen(DIR* dir, const char* path) {
     (void) dir;
-    (void) path;
     stub_dir_at = 0;
+    stub_dopen_path[0] = 0;
+    if (path != NULL && strlen(path) < sizeof(stub_dopen_path)) {
+        strcpy(stub_dopen_path, path);
+    }
 
     return stub_dir_names == NULL ? 5 : 0;   /* 5 is FR_NO_PATH */
 }

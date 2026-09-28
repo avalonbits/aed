@@ -121,6 +121,10 @@ int main(void) {
 
     static char got[200000];
     screen scr;
+
+    /* ed_init hands the core AED's context. The modals here run without one,
+     * so it is set the same way first. */
+    app_set(&AED_APP);
     user_input ui;
 
     /* --- the picker lists fonts, with the geometry it works out itself --- */
@@ -384,9 +388,26 @@ int main(void) {
         static const char before[] = "[editor]\r\ntab = 4\r\n";
         stub_file_reset();
         stub_file_set_content(before, (int) sizeof(before) - 1);
-        cfg_update(&cfg, CFG_PATH);
+        cfg_update(&cfg, AED_APP.cfg_path);
         check("  and reaches the file",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
+
+        /* The directory in that path is the program's, from its context: the
+         * same pick under another program's comes out under its directory. */
+        static const app_context ELSEWHERE = {
+            .name = "ade", .font_dir = "/config/ade/fonts",
+        };
+        app_set(&ELSEWHERE);
+        stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
+        stub_set_keys(pickfont, 8);
+        cfg_defaults(&cfg);
+        check("picking a font for another program is worth writing",
+              ui_settings(&ui, &scr, &cfg), YES_OPT);
+        check("  and the path is under that program's directory",
+              strcmp(cfg.font, "/config/ade/fonts/unscii16.bin"), 0);
+        check("  which is the directory the picker listed",
+              strcmp(stub_last_dopen(), "/config/ade/fonts"), 0);
+        app_set(&AED_APP);
         ui_destroy(&ui);
     }
 
@@ -455,7 +476,7 @@ int main(void) {
         strcpy(cfg.font, "/config/aed/unscii16.bin");
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&cfg, CFG_PATH);
+        cfg_update(&cfg, AED_APP.cfg_path);
 
         const char* out = stub_file_bytes();
         check("the new font replaces the old one",
@@ -479,7 +500,7 @@ int main(void) {
         cfg_defaults(&quiet);
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&quiet, CFG_PATH);
+        cfg_update(&quiet, AED_APP.cfg_path);
         check("saying nothing leaves the font line alone",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
 
@@ -490,7 +511,7 @@ int main(void) {
         none.font_none = true;
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&none, CFG_PATH);
+        cfg_update(&none, AED_APP.cfg_path);
         check("  but asking for none empties it",
               strstr(stub_file_bytes(), "unscii16") == NULL, 1);
         check("  leaving the setting there, with no value",
@@ -587,7 +608,7 @@ int main(void) {
         stub_set_cell(8, 8);
         stub_file_reset();
         stub_file_add("/autoexec.txt", boot, (int) sizeof(boot) - 1);
-        stub_file_add(CFG_PATH, cfg16, (int) sizeof(cfg16) - 1);
+        stub_file_add(AED_APP.cfg_path, cfg16, (int) sizeof(cfg16) - 1);
         stub_file_add("/config/aed/unscii16.bin", font16, (int) sizeof(font16));
         stub_file_add("doc.txt", doc2, (int) sizeof(doc2) - 1);
         stub_file_set_content(doc2, (int) sizeof(doc2) - 1);
@@ -657,7 +678,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         stub_file_reset();
-        stub_file_add(CFG_PATH_OLD, old, (int) sizeof(old) - 1);
+        stub_file_add(AED_APP.cfg_old, old, (int) sizeof(old) - 1);
         stub_file_add("doc.txt", doc, (int) sizeof(doc) - 1);
         /*
          * No fallback content: the stub serves it for any name nobody
@@ -672,9 +693,9 @@ int main(void) {
         stub_file_short_write(-1);
 
         check("  the old settings file is left to try again from",
-              stub_file_exists(CFG_PATH_OLD), 1);
+              stub_file_exists(AED_APP.cfg_old), 1);
         check("    and nothing was written over it",
-              stub_file_exists(CFG_PATH), 0);
+              stub_file_exists(AED_APP.cfg_path), 0);
         /*
          * Existence alone cannot tell the two apart: a settings file written
          * short is deleted by write_file, so a fresh one attempted here would
