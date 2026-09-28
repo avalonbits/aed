@@ -52,6 +52,17 @@ def includes(path):
     except OSError:
         return []
 
+# The three directories are all on the include path, so a header is found in
+# whichever of them holds it.
+DIRS = ['src', 'src/core', 'src/ui']
+
+def find(h):
+    for d in DIRS:
+        if os.path.exists(os.path.join(d, h)):
+            return os.path.join(d, h)
+
+    return os.path.join('src', h)
+
 def reaches(start, target):
     seen, stack = set(), list(includes(start))
     while stack:
@@ -61,16 +72,21 @@ def reaches(start, target):
         seen.add(h)
         if h == target:
             return True
-        stack += includes(os.path.join('src', h))
+        stack += includes(find(h))
 
     return False
 
-names = [f[:-2] for f in sorted(os.listdir('src'))
-         if f.endswith('.c') and reaches(os.path.join('src', f), 'screen.h')]
+names = []
+for d in DIRS:
+    for f in sorted(os.listdir(d)):
+        path = os.path.join(d, f)
+        if f.endswith('.c') and reaches(path, 'screen.h'):
+            names.append(os.path.relpath(path, 'src')[:-2])
+names.sort()
 print(' '.join(names) + ' ')
 PYEOF
 )
-touch src/screen.h
+touch src/ui/screen.h
 got=$(make 2>&1 | sed -n 's/^\[compiling src\/\(.*\)\.c\]$/\1/p' | sort | tr '\n' ' ')
 check "a changed header rebuilds every source including it" "$got" "$want"
 
@@ -84,16 +100,16 @@ check "a changed header rebuilds every source including it" "$got" "$want"
 # The header goes back and the tree is rebuilt from it however this exits:
 # bin/aed.bin is tracked, and leaving it built from a header that no longer
 # exists would show up as a modified file and could be committed by accident.
-cp src/screen.h /tmp/aed_deps_hdr.$$
+cp src/ui/screen.h /tmp/aed_deps_hdr.$$
 restore() {
-    mv -f /tmp/aed_deps_hdr.$$ src/screen.h 2>/dev/null
+    mv -f /tmp/aed_deps_hdr.$$ src/ui/screen.h 2>/dev/null
     rm -f /tmp/aed_deps_clean.$$ /tmp/aed_deps_inc.$$
     make clean >/dev/null 2>&1
     make >/dev/null 2>&1
 }
 trap restore EXIT
 
-sed -i 's/^    char tab_size_;$/    char deps_probe_;\n    char tab_size_;/' src/screen.h
+sed -i 's/^    char tab_size_;$/    char deps_probe_;\n    char tab_size_;/' src/ui/screen.h
 make >/dev/null 2>&1
 cp bin/aed.bin /tmp/aed_deps_inc.$$
 make clean >/dev/null 2>&1

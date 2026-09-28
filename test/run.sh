@@ -16,19 +16,31 @@ trap 'rm -rf "$OUT"' EXIT
 
 # ASan catches out-of-bounds writes that would otherwise corrupt the heap
 # silently -- the buffer-full tests depend on it to prove the bound holds.
-CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
-        -Isrc -Itest/stubs)
+WARN=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined)
 
-# Model, View and Controller, plus the stubbed platform layer. cmd_ops.c is
-# linked so tests can drive whole commands: the two worst bugs so far lived in
-# the controller/view interaction, which nothing below that level can reach.
-# editor.c is linked too: ed_init applies the settings file, and that policy is
-# worth testing. So is ed_translate, which is where a chord MOS reports
+# Each layer sees itself, the layers under it and the platform stubs, and no
+# more: the core only itself, the UI the core too, AED all three. Compiling
+# them this way is half of what proves the split -- a core source that reached
+# for a UI header, or a UI source for one of AED's, would not compile. The
+# other half is the links below.
+CORE_CFLAGS=("${WARN[@]}" -Isrc/core -Itest/stubs)
+UI_CFLAGS=("${WARN[@]}" -Isrc/core -Isrc/ui -Itest/stubs)
+CFLAGS=("${WARN[@]}" -Isrc/core -Isrc/ui -Isrc -Itest/stubs)
+
+# The three layers, plus the stubbed platform layer. The UI is linked so tests
+# can drive whole commands: the two worst bugs so far lived in the
+# controller/view interaction, which nothing below that level can reach. AED's
+# own files are linked too: ed_init applies the settings file, and that policy
+# is worth testing. So is ed_translate, which is where a chord MOS reports
 # correctly can still be lost -- keys.c is linked for it, over a stubbed event
-# queue.
-SRCS=(src/app.c src/bootfont.c src/char_buffer.c src/doc_store.c src/line_buffer.c src/text_buffer.c src/text_buffer_find.c src/text_buffer_move.c src/text_buffer_page.c src/text_buffer_range.c src/text_buffer_io.c src/screen.c
-      src/ini.c src/theme.c src/lexer.c src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/aed_config.c src/clipboard.c src/editor.c src/aed.c src/aed_ui.c
-      src/keys.c src/undo.c test/stubs/agon_stubs.c)
+# queue. main.c is the one source left out: every test has its own main.
+CORE_SRCS=(src/core/*.c)
+UI_SRCS=(src/ui/*.c)
+AED_SRCS=()
+for s in src/*.c; do
+    [ "$s" = src/main.c ] || AED_SRCS+=("$s")
+done
+STUB_SRCS=(test/stubs/agon_stubs.c)
 
 # An optional filter: `./test/run.sh paging` runs test_paging and nothing else,
 # and skips the three checks above with it. A whole run is the default and is
@@ -68,29 +80,94 @@ fi
 # Each object is still built from source on every run, so the staleness this
 # file warns about above is still impossible: the objects live in a temporary
 # directory that goes with the run.
-OBJS=()
-for s in "${SRCS[@]}"; do
-    o="$OUT/$(basename "$s" .c).o"
-    if ! cc "${CFLAGS[@]}" -c -o "$o" "$s"; then
-        echo "FAIL  $s did not compile"
+compile() {    # compile <flags array name> <objects array name> <sources...>
+    local -n flags=$1 objs=$2
+    shift 2
+    for s in "$@"; do
+        o="$OUT/$(basename "$s" .c).o"
+        if ! cc "${flags[@]}" -c -o "$o" "$s"; then
+            echo "FAIL  $s did not compile"
 
-        exit 1
-    fi
-    OBJS+=("$o")
-done
+            exit 1
+        fi
+        objs+=("$o")
+    done
+}
+CORE_OBJS=()
+UI_OBJS=()
+AED_OBJS=()
+STUB_OBJS=()
+compile CORE_CFLAGS CORE_OBJS "${CORE_SRCS[@]}"
+compile CORE_CFLAGS STUB_OBJS "${STUB_SRCS[@]}"
+compile UI_CFLAGS UI_OBJS "${UI_SRCS[@]}"
+compile CFLAGS AED_OBJS "${AED_SRCS[@]}"
+OBJS=("${CORE_OBJS[@]}" "${UI_OBJS[@]}" "${AED_OBJS[@]}" "${STUB_OBJS[@]}")
 
+# A test is built at the lowest layer its includes allow. One that includes
+# nothing but core headers is compiled as the core is and linked against the
+# core objects and the stubs alone; one that stops at the UI, against the core
+# and the UI. A core object that needed anything from above it, or a UI object
+# that needed anything of AED's, fails that link -- which is the proof each is
+# a library of its own, and why these tests are not simply linked against
+# everything like the rest.
+within() {    # within <test> <dirs...>: every include is in one of the dirs
+    local t=$1 h d found
+    shift
+    for h in $(sed -n 's/^#include "\(.*\)"/\1/p' "$t"); do
+        found=1
+        for d in "$@"; do
+            [ -f "src/$d/$h" ] && found=0
+        done
+        [ "$found" = 0 ] || return 1
+    done
+
+    return 0
+}
+
+core_tests=0
+ui_tests=0
 for t in test/test_*.c; do
     name=$(basename "$t" .c)
     if [ -n "$FILTER" ] && [[ "$name" != *"$FILTER"* ]]; then
         continue
     fi
     echo "=== $name ==="
-    if ! cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${OBJS[@]}"; then
+    if within "$t" core; then
+        core_tests=$((core_tests + 1))
+        if ! cc "${CORE_CFLAGS[@]}" -o "$OUT/$name" "$t" \
+                "${CORE_OBJS[@]}" "${STUB_OBJS[@]}"; then
+            echo "FAIL  $name did not build against the core alone"
+            status=1
+            continue
+        fi
+    elif within "$t" core ui; then
+        ui_tests=$((ui_tests + 1))
+        if ! cc "${UI_CFLAGS[@]}" -o "$OUT/$name" "$t" \
+                "${CORE_OBJS[@]}" "${UI_OBJS[@]}" "${STUB_OBJS[@]}"; then
+            echo "FAIL  $name did not build against the core and the UI alone"
+            status=1
+            continue
+        fi
+    elif ! cc "${CFLAGS[@]}" -o "$OUT/$name" "$t" "${OBJS[@]}"; then
         echo "FAIL  $name did not compile"
         status=1
         continue
     fi
     "$OUT/$name" || status=$?
 done
+
+if [ -z "$FILTER" ]; then
+    for layer in core ui; do
+        n=$([ "$layer" = core ] && echo "$core_tests" || echo "$ui_tests")
+        what=$([ "$layer" = core ] && echo "the core alone" \
+                                   || echo "the core and the UI alone")
+        if [ "$n" -gt 0 ]; then
+            printf 'PASS  %-52s %d tests\n' "$layer tests link against $what" "$n"
+        else
+            echo "FAIL  no $layer tests: nothing proves the $layer stands alone"
+            status=1
+        fi
+    done
+fi
 
 exit $status
