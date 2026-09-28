@@ -187,7 +187,7 @@ typedef unsigned short syn_mask;
 
 typedef struct _syntax {
     char name[SYN_NAME_MAX];
-    char exts[SYN_EXTS_MAX];    // ".c .h .cc", as written
+    char exts[SYN_EXTS_MAX];    // ".c .h autoexec.txt", as written
     char wordchars[SYN_WORDCHARS_MAX];
     bool nocase;
     syn_rule rules[SYN_MAX_RULES];
@@ -208,7 +208,8 @@ void syn_clear(syntax* g);
 // grammar already loaded rather than half of a new one.
 bool syn_load(syntax* g, const char* path);
 
-// Whether this grammar claims a file name, by its extension.
+// Whether this grammar claims a file name: by its extension, or by the whole
+// name for an entry in `extensions` written without a leading dot.
 bool syn_covers(const syntax* g, const char* fname);
 
 /*
