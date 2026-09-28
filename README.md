@@ -10,7 +10,7 @@ undoes with `CTRL+Z` and redoes with `CTRL+Y`. It finds text with `CTRL+F`, open
 another file without leaving the editor, keeps real tab characters, and remembers your colours and
 tab width in a settings file.
 
-It colours assembly, C, BASIC and INI files as you type, in a theme chosen for
+It colours assembly, C, BASIC, INI and MOS obey files as you type, in a theme chosen for
 the background you are using, and keeps your indentation when you press RETURN in
 one -- see [Syntax highlighting](#syntax-highlighting).
 
@@ -285,6 +285,7 @@ What ships:
 | `syntax/bas.cfg` | `.bas` |
 | `syntax/c.cfg` | `.c` `.h` `.cc` `.cpp` `.hpp` `.hh` `.cxx` `.hxx` |
 | `syntax/ini.cfg` | `.ini` `.cfg` |
+| `syntax/obey.cfg` | `.obey`, and `autoexec.txt` by name |
 
 | theme | for backgrounds |
 |---|---|

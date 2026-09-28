@@ -620,6 +620,83 @@ int main(void) {
         check("    and then it is clean", st2, SYN_STATE_NONE);
     }
 
+    /* --- the shipped obey grammar, as a user gets it --- */
+    {
+        /*
+         * MOS command scripts: an .obey file, and autoexec.txt, which MOS runs
+         * at boot. autoexec.txt is claimed by its whole name, because claiming
+         * .txt to reach it would colour every text file on a card as a script.
+         * Read from config/ for the same reason the C grammar is: a test with
+         * its own copy passes while the shipped one is wrong.
+         */
+        static char text[4096];
+        int n = 0;
+        FILE* f = fopen("config/aed/syntax/obey.cfg", "rb");
+        if (f == NULL) {
+            fprintf(stderr, "FAIL  cannot open config/aed/syntax/obey.cfg\n");
+            failures++;
+        } else {
+            n = (int) fread(text, 1, sizeof(text), f);
+            fclose(f);
+        }
+        stub_file_reset();
+        stub_file_add("/obey.cfg", text, n);
+        syn_clear(&g);
+        check("the obey grammar loads", syn_load(&g, "/obey.cfg") ? 1 : 0, 1);
+        check("  and claims an .obey file",
+              syn_covers(&g, "/scripts/build.obey") ? 1 : 0, 1);
+        check("    whatever its case", syn_covers(&g, "/BUILD.OBEY") ? 1 : 0, 1);
+        check("  and autoexec.txt, by its whole name",
+              syn_covers(&g, "autoexec.txt") ? 1 : 0, 1);
+        check("    at the root", syn_covers(&g, "/autoexec.txt") ? 1 : 0, 1);
+        check("    in a directory", syn_covers(&g, "/a/b/autoexec.txt") ? 1 : 0, 1);
+        check("    whatever its case", syn_covers(&g, "/AUTOEXEC.TXT") ? 1 : 0, 1);
+        check("  and leaves any other .txt alone",
+              syn_covers(&g, "/notes.txt") ? 1 : 0, 0);
+        check("    and a name that only ends in it",
+              syn_covers(&g, "/myautoexec.txt") ? 1 : 0, 0);
+        check("    and one that only starts with it",
+              syn_covers(&g, "/autoexec.txt.bak") ? 1 : 0, 0);
+        check("    and a directory that has the name",
+              syn_covers(&g, "/autoexec.txt/x.c") ? 1 : 0, 0);
+        check("  MOS commands are case insensitive", g.nocase ? 1 : 0, 1);
+
+        check_lex("cat", &g, "YYY");
+        check_lex("CAT", &g, "YYY");
+        check_lex("# a comment", &g, "CCCCCCCCCCC");
+        check_lex("  # indented", &g, "TTCCCCCCCCCC");
+        check_lex("| a comment", &g, "CCCCCCCCCCC");
+        /* `|` is a comment only with a space after it. */
+        check_lex("|M", &g, "TT");
+        /* And only where a command would start: later, `#` is an argument. */
+        check_lex("echo # hi", &g, "YYYYTTTTT");
+        check_lex("echo \"hi there\"", &g, "YYYYTSSSSSSSSSS");
+        check_lex("echo <Obey$Dir>", &g, "YYYYTLLLLLLLLLL");
+        check_lex("ifthere x then run y", &g, "KKKKKKKTTTKKKKTYYYTT");
+        /* An argument, and a hexadecimal address. */
+        check_lex("load %0 &40000", &g, "YYYYTNNTNNNNNN");
+        /* `%` in front of a command skips aliases, and the command is still a
+         * command. */
+        check_lex("%cat", &g, "TYYY");
+        /* A command's name inside a file name is not a command. */
+        check_lex("aed autoexec.txt", &g, "TTTTTTTTTTTTTTTT");
+    }
+
+    /* --- a grammar names a whole file when an entry has no dot --- */
+    {
+        check("a grammar with a name and an extension",
+              load_from(&g,
+                        "[syntax]\nname = t\nextensions = .e Makefile\n"
+                        "[match]\ncomment.line = eol '#'\n") ? 1 : 0, 1);
+        check("  claims the extension", syn_covers(&g, "/x.e") ? 1 : 0, 1);
+        check("  and the name, which has no dot at all",
+              syn_covers(&g, "/src/Makefile") ? 1 : 0, 1);
+        check("  and nothing that merely ends in it",
+              syn_covers(&g, "/GNUmakefile") ? 1 : 0, 0);
+        check("  nor an extension spelled like it",
+              syn_covers(&g, "/x.Makefile") ? 1 : 0, 0);
+    }
+
     /* --- a word rule needs the language's own idea of a word --- */
     {
         /*

@@ -68,13 +68,22 @@ changed them you already have one.
 extensions = .c .h .cc .cpp .hpp
 ```
 
-Matching ignores case, so `.C` and `.ASM` are claimed too. **AED uses the first
-grammar in the directory whose list contains the extension**, so two grammars
-claiming `.inc` is a race rather than a merge — give one of them the extension
-and not the other.
+An entry written **without** a dot is a whole file name instead, matched against
+the name with its directory taken off. That is for the files a language is known
+by rather than an extension — MOS runs `autoexec.txt` as a script, and claiming
+`.txt` to reach it would colour every text file on the card as one:
 
-A file with no extension is never claimed, and neither is one whose only dot is
-in a directory name.
+```ini
+extensions = .obey autoexec.txt
+```
+
+Matching ignores case, so `.C`, `.ASM` and `AUTOEXEC.TXT` are claimed too. **AED
+uses the first grammar in the directory whose list contains the extension or the
+name**, so two grammars claiming `.inc` is a race rather than a merge — give one of
+them the extension and not the other.
+
+A file with no extension is claimed only by name, and a dot in a directory name
+is never an extension.
 
 ## 3. `[match]`, and the six verbs
 

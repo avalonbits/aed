@@ -285,25 +285,51 @@ void syn_clear(syntax* g) {
 
 // ".c .h .cc" against "main.c". The extension is whatever follows the last dot,
 // and a name without one matches nothing.
+/*
+ * Whether one entry in a grammar's `extensions` list names this file.
+ *
+ * An entry beginning with a dot is an extension, compared against everything
+ * from the file's last dot. Anything else is a whole file name, compared
+ * against the name without its directory: MOS runs autoexec.txt as a script,
+ * and claiming every .txt to reach it would colour every text file on the card
+ * as one. Both compare without case, as FAT does.
+ */
+static bool names_file(const char* entry, int n, const char* base,
+                       const char* dot) {
+    const char* against = entry[0] == '.' ? dot : base;
+    if (against == NULL) {
+        return false;
+    }
+    int alen = 0;
+    while (against[alen] != 0) {
+        alen++;
+    }
+    if (alen != n) {
+        return false;
+    }
+    for (int i = 0; i < n; i++) {
+        if (fold(entry[i]) != fold(against[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool syn_covers(const syntax* g, const char* fname) {
     if (g == NULL || !g->loaded || fname == NULL) {
         return false;
     }
+    const char* base = fname;
     const char* dot = NULL;
     for (const char* p = fname; *p != 0; p++) {
         if (*p == '.') {
             dot = p;
         }
         if (*p == '/' || *p == '\\') {
+            base = p + 1;
             dot = NULL;         // a dot in a directory is not an extension
         }
-    }
-    if (dot == NULL) {
-        return false;
-    }
-    int elen = 0;
-    while (dot[elen] != 0) {
-        elen++;
     }
     int at = 0;
     while (at < SYN_EXTS_MAX && g->exts[at] != 0) {
@@ -315,17 +341,11 @@ bool syn_covers(const syntax* g, const char* fname) {
                && g->exts[at] != ',') {
             at++;
         }
-        if (at > start && at - start == elen) {
-            bool same = true;
-            for (int i = 0; i < elen && same; i++) {
-                same = fold(g->exts[start + i]) == fold(dot[i]);
-            }
-            if (same) {
-                return true;
-            }
-        }
         if (at == start) {
             break;
+        }
+        if (names_file(g->exts + start, at - start, base, dot)) {
+            return true;
         }
     }
 
