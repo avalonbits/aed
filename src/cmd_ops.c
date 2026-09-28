@@ -241,7 +241,7 @@ static char ed_colour_cell(void* ctx, char ypos, int col) {
                           synRuns_, SYN_ROW_RUNS);
     for (int i = 0; i < n; i++) {
         if (at < synRuns_[i].end) {
-            return theme_colour(&ed->doc_.theme_, (tok_class) synRuns_[i].cls);
+            return theme_colour(&ed->theme_, (tok_class) synRuns_[i].cls);
         }
     }
 

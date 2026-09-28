@@ -241,7 +241,7 @@ void ed_pick_syntax(editor* ed) {
     ed->doc_.synKnown_ = 0;
     ed->synTop_ = 1;
     syn_clear(&ed->doc_.syn_);
-    theme_clear(&ed->doc_.theme_);
+    theme_clear(&ed->theme_);
     scr_set_theme(&ed->scr_, NULL);
     scr_base_restore(&ed->scr_);
 
@@ -266,7 +266,7 @@ void ed_pick_syntax(editor* ed) {
     if (!grammar_for(&ed->doc_.syn_, fname)) {
         return;
     }
-    if (!theme_for(&ed->doc_.theme_, scr_base_bg(&ed->scr_))) {
+    if (!theme_for(&ed->theme_, scr_base_bg(&ed->scr_))) {
         // A grammar with no theme to colour it by would divide the line into
         // tokens and paint every one of them the same, which is the work
         // without the result.
@@ -274,7 +274,7 @@ void ed_pick_syntax(editor* ed) {
 
         return;
     }
-    scr_set_theme(&ed->scr_, &ed->doc_.theme_);
+    scr_set_theme(&ed->scr_, &ed->theme_);
 
     /*
      * A theme may move the pair the document is drawn on, and moves only the
@@ -285,7 +285,7 @@ void ed_pick_syntax(editor* ed) {
      * A theme that says nothing about fg and bg leaves both alone, which is
      * what the three shipped themes do.
      */
-    scr_theme_scheme(&ed->scr_, ed->doc_.theme_.fg, ed->doc_.theme_.bg);
+    scr_theme_scheme(&ed->scr_, ed->theme_.fg, ed->theme_.bg);
 }
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {

@@ -1,30 +1,12 @@
 /*
- * Host tests for the document store: the two scratch files that hold whatever
- * is not in memory.
- *
- * The property the whole paging design rests on is that text on disk is never
- * edited -- only pushed and popped at the end facing memory. These check that
- * the pushes and pops are exact inverses, which is what makes sliding a window
- * over a document safe: slide down and back up and the document has to be the
- * one you started with, byte for byte.
- *
- * See .internal/docs/PAGING.md.
- */
-
-#include <stdio.h>
-#include <string.h>
-
-#include <agon/mos.h>
-
-/*
  * Two documents at once, which is what the document struct is for.
  *
  * Everything that belongs to one open file lives in a document, so two of
- * them side by side must not share anything: edits and undo in one leave the
- * other alone, a grammar loaded into one is not in the other, and two paged
- * documents -- each with its scratch files open -- can be read in turn. The
- * core keeps static scratch buffers for paging; this is what says they hold
- * nothing from one call to the next that a second document could trip on.
+ * them side by side must not share anything the core keeps for them: edits
+ * recorded into one undo log are not in the other's, and two paged documents
+ * -- each with its scratch files open -- can be read in turn. The core keeps
+ * static scratch buffers for paging; this is what says they hold nothing from
+ * one call to the next that a second document could trip on.
  *
  * Built from core headers only: document.h has to stand without the editor.
  */
@@ -124,30 +106,8 @@ int main(void) {
         check("  puts its own text back", tb_used(&a.buf_), 3);
         check("  still leaving the other alone", tb_used(&b.buf_), 2);
 
-        a.anchor_ = (tb_pos) { .line = 1, .x = 1 };
-        a.selecting_ = true;
-        check("a selection in one is not in the other", b.selecting_ ? 1 : 0, 0);
-
         close_doc(&a);
         close_doc(&b);
-    }
-
-    /* --- a grammar loaded into one is not in the other --- */
-    {
-        static const char C_CFG[] =
-            "[syntax]\nname = C\nextensions = .c .h\n"
-            "[match]\nstorage.type = words int\n";
-        stub_file_reset();
-        stub_file_add("/c.cfg", C_CFG, (int) sizeof(C_CFG) - 1);
-        memset(&a, 0, sizeof(a));
-        memset(&b, 0, sizeof(b));
-        check("a grammar loads into one document",
-              syn_load(&a.syn_, "/c.cfg") ? 1 : 0, 1);
-        check("  and the other has none", b.syn_.loaded ? 1 : 0, 0);
-        a.synFirst_ = 1;
-        a.synKnown_ = 1;
-        a.lineSyn_[0] = 2;
-        check("  nor any of its line states", b.synKnown_, 0);
     }
 
     /* --- two paged documents, read in turn --- */

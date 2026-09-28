@@ -38,6 +38,18 @@ typedef struct _editor {
     // The document being edited: its text, undo log, grammar and selection.
     document doc_;
 
+    /*
+     * The theme the document's grammar is coloured by. It belongs to the
+     * screen rather than the document: it is chosen by the background, so a
+     * change of background re-picks it for everything drawn there. Cleared,
+     * with the grammar, when the file has no grammar, which puts the user's
+     * own colours back.
+     *
+     * Held by value, and the editor is a static in main, so this is bss
+     * rather than heap or stack.
+     */
+    theme theme_;
+
     // A startup banner is on the text area, waiting to be wiped. It cannot
     // just be painted over: a keystroke repaints one row, which would leave the
     // rest of it sitting behind the document. So the first key clears the whole

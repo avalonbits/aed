@@ -82,7 +82,7 @@ it works around is in a calling sequence that C cannot reach.
 There is no global state. Everything hangs off one
 [`editor`](../src/editor.h#L34), which `main` owns and passes down by address;
 nothing reaches it any other way. What belongs to the open file rather than the
-screen -- its text, undo log, grammar and theme, syntax window and selection --
+screen -- its text, undo log, grammar, syntax window and selection --
 is the editor's [`document`](../src/document.h), the part of it the core knows
 about.
 

@@ -239,7 +239,7 @@ int main(void) {
         check("  and it is the C one", strcmp(ed.doc_.syn_.name, "C") == 0 ? 1 : 0, 1);
         check("  with a theme to colour it", ed.scr_.theme_ != NULL ? 1 : 0, 1);
         check("    the one for this background",
-              strcmp(ed.doc_.theme_.name, "dark") == 0 ? 1 : 0, 1);
+              strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
         check("  and C is a language that crosses lines",
               syn_crosses_lines(&ed.doc_.syn_) ? 1 : 0, 1);
         tb_destroy(&ed.doc_.buf_);
@@ -325,7 +325,7 @@ int main(void) {
             if (cases[i].theme != NULL) {
                 check(name, ed.doc_.syn_.loaded ? 1 : 0, 1);
                 check("  takes the theme nearest it",
-                      strcmp(ed.doc_.theme_.name, cases[i].theme) == 0 ? 1 : 0, 1);
+                      strcmp(ed.theme_.name, cases[i].theme) == 0 ? 1 : 0, 1);
             } else {
                 check(name, ed.doc_.syn_.loaded ? 1 : 0, 0);
                 check("  is too far from every theme to take one",
@@ -341,7 +341,7 @@ int main(void) {
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
         check("a listed background keeps the theme that lists it",
-              strcmp(ed.doc_.theme_.name, "bold") == 0 ? 1 : 0, 1);
+              strcmp(ed.theme_.name, "bold") == 0 ? 1 : 0, 1);
         tb_destroy(&ed.doc_.buf_);
     }
 
@@ -385,7 +385,7 @@ int main(void) {
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
         check("a theme that asks for its own pair",
-              strcmp(ed.doc_.theme_.name, "bold") == 0 ? 1 : 0, 1);
+              strcmp(ed.theme_.name, "bold") == 0 ? 1 : 0, 1);
         check("  moves the active foreground", ed.scr_.fg_, 11);
         check("  and leaves the base alone", scr_base_fg(&ed.scr_), 15);
         check("    and the base background too", scr_base_bg(&ed.scr_), 2);
@@ -406,10 +406,10 @@ int main(void) {
         setup(&ed, 0);
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
-        check("dark.cfg names no pair", ed.doc_.theme_.fg, -1);
+        check("dark.cfg names no pair", ed.theme_.fg, -1);
         check("  so the document keeps its own colours", ed.scr_.fg_, 15);
         check("    and still colours its tokens",
-              theme_colour(&ed.doc_.theme_, TOK_COMMENT), 8);
+              theme_colour(&ed.theme_, TOK_COMMENT), 8);
         tb_destroy(&ed.doc_.buf_);
     }
 
@@ -1107,7 +1107,7 @@ int main(void) {
         const int n = cap_read(cap, (int) sizeof(cap));
         stub_emit_colours(0);
         check("    so the cell the cursor leaves gets its own colour back",
-              has_colour(cap, n, theme_colour(&ed.doc_.theme_, TOK_TYPE)), 1);
+              has_colour(cap, n, theme_colour(&ed.theme_, TOK_TYPE)), 1);
         tb_destroy(&ed.doc_.buf_);
     }
 
@@ -1173,7 +1173,7 @@ int main(void) {
         scr_hide_cursor_ch(&e3.scr_, 'i');
         const int ni = cap_read(cap, (int) sizeof(cap));
         check("  and the cursor puts the cell's own colour back",
-              has_colour(cap, ni, theme_colour(&e3.doc_.theme_, TOK_TYPE)), 1);
+              has_colour(cap, ni, theme_colour(&e3.theme_, TOK_TYPE)), 1);
         stub_emit_colours(0);
         ed_destroy(&e3);
     }
@@ -1478,7 +1478,7 @@ int main(void) {
         setup(&ed, 0);
         asked = 0;
         scr_set_colourer(&ed.scr_, count_asks, NULL, NULL);
-        scr_set_theme(&ed.scr_, &ed.doc_.theme_);
+        scr_set_theme(&ed.scr_, &ed.theme_);
 
         scr_paint_row(&ed.scr_, 1, "abc", 3, NULL, 0);
         check("painting a row asks what colours it", asked, 1);
@@ -1518,7 +1518,7 @@ int main(void) {
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
         check("a C file on a dark background",
-              strcmp(ed.doc_.theme_.name, "dark") == 0 ? 1 : 0, 1);
+              strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
 
         ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
 
@@ -1538,7 +1538,7 @@ int main(void) {
         check("  and a background the reader moves to 2",
               scr_base_bg(&ed.scr_), 2);
         check("    takes the theme written for 2",
-              strcmp(ed.doc_.theme_.name, "bold") == 0 ? 1 : 0, 1);
+              strcmp(ed.theme_.name, "bold") == 0 ? 1 : 0, 1);
         check("      which the screen is painting with",
               ed.scr_.theme_ != NULL ? 1 : 0, 1);
         check("      and whose own pair is in force", ed.scr_.fg_, 11);
@@ -1619,7 +1619,7 @@ int main(void) {
               scr_base_fg(&ed.scr_), 0);
         check("  and leaves the background alone", scr_base_bg(&ed.scr_), 0);
         check("    so the theme is the one it was",
-              strcmp(ed.doc_.theme_.name, "dark") == 0 ? 1 : 0, 1);
+              strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
         check("      and the grammar is still loaded", ed.doc_.syn_.loaded ? 1 : 0, 1);
 
         ui_destroy(&ed.ui_);

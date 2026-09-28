@@ -27,8 +27,8 @@
 
 /*
  * One open file, and everything that belongs to it rather than to the screen
- * it is shown on: the text, its undo log, the grammar and theme it is coloured
- * with, what each line begins inside, and the selection.
+ * it is shown on: the text, its undo log, the grammar it is written in, what
+ * each line begins inside, and the selection.
  *
  * The program holds one of these per open file. Nothing here knows about the
  * VDP, the keyboard or where on screen the document is drawn; a view (the
@@ -51,15 +51,14 @@ typedef struct _document {
     undo undo_;
 
     /*
-     * The grammar the document is written in, and the theme its colours come
-     * from. Both are cleared when the file has no grammar, which
-     * paints it plainly and puts the user's own colours back.
+     * The grammar the document is written in, chosen by its name. Cleared
+     * when no grammar claims the file, which paints it plainly.
      *
-     * Held by value, and AED's document is part of a static in main, so this
-     * is bss rather than heap or stack. Each open document has its own.
+     * The theme that colours it is the screen's rather than the document's:
+     * it is chosen by the background, and every document on that screen is
+     * drawn in it. See editor.h.
      */
     syntax syn_;
-    theme theme_;
 
     /*
      * What each line begins inside.
@@ -98,7 +97,8 @@ typedef struct _document {
     // Where the selection started, and whether there is one. Held beside the
     // buffer rather than in it, because it is about intent: the text has no
     // idea any of this is happening, and a selection means nothing once the
-    // file changes.
+    // file changes. Per document on purpose, so two views of one file share
+    // a selection; a view that wants its own would carry these instead.
     tb_pos anchor_;
     bool selecting_;
 } document;
