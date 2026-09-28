@@ -15,7 +15,7 @@
 
 #include <agon/mos.h>
 
-#include "config.h"
+#include "aed_config.h"
 #include "editor.h"
 #include "cmd_ops.h"
 #include "vkey.h"
@@ -41,8 +41,8 @@ static void check(const char* name, int got, int want) {
 
 static int tab_of_raw(const char* text) {
     config cfg;
-    cfg_defaults(&cfg);
-    cfg_parse(&cfg, text, (int) strlen(text));
+    cfg_defaults(&AED_CONFIG, &cfg);
+    cfg_parse(&AED_CONFIG, &cfg, text, (int) strlen(text));
 
     return cfg.tab_size;
 }
@@ -156,24 +156,24 @@ int main(void) {
         "fg = 15\r\n"
         "bg = 2\r\n";
     config old_file;
-    cfg_defaults(&old_file);
-    cfg_parse(&old_file, legacy, (int) sizeof(legacy) - 1);
+    cfg_defaults(&AED_CONFIG, &old_file);
+    cfg_parse(&AED_CONFIG, &old_file, legacy, (int) sizeof(legacy) - 1);
     check("a pre-INI file still loads: tab", old_file.tab_size, 8);
     check("  and its foreground", old_file.fg, 15);
     check("  and its background", old_file.bg, 2);
 
     /* --- loading from a file --- */
     config cfg;
-    cfg_defaults(&cfg);
+    cfg_defaults(&AED_CONFIG, &cfg);
     stub_file_reset();   /* opens, but the file is empty */
-    check("an empty file loads nothing", cfg_load(&cfg, AED_INI) ? 1 : 0, 0);
+    check("an empty file loads nothing", cfg_load(&AED_CONFIG, &cfg, AED_INI) ? 1 : 0, 0);
     check("  and leaves the settings alone", cfg.tab_size, -1);
 
     stub_file_reset();
     static const char body[] = "[editor]\ntab=3\n";
     stub_file_set_content(body, (int) sizeof(body) - 1);
-    cfg_defaults(&cfg);
-    check("loading a real file", cfg_load(&cfg, AED_INI) ? 1 : 0, 1);
+    cfg_defaults(&AED_CONFIG, &cfg);
+    check("loading a real file", cfg_load(&AED_CONFIG, &cfg, AED_INI) ? 1 : 0, 1);
     check("  applies its settings", cfg.tab_size, 3);
 
     /* The normal case for most users: no settings file at all. It must not be
@@ -181,23 +181,23 @@ int main(void) {
      * own defaults. */
     stub_file_reset();
     stub_file_fail_open(1);
-    cfg_defaults(&cfg);
-    check("a missing file loads nothing", cfg_load(&cfg, AED_INI) ? 1 : 0, 0);
+    cfg_defaults(&AED_CONFIG, &cfg);
+    check("a missing file loads nothing", cfg_load(&AED_CONFIG, &cfg, AED_INI) ? 1 : 0, 0);
     check("  and changes nothing", cfg.tab_size, -1);
 
-    check("a NULL path is refused", cfg_load(&cfg, NULL) ? 1 : 0, 0);
+    check("a NULL path is refused", cfg_load(&AED_CONFIG, &cfg, NULL) ? 1 : 0, 0);
 
     /* --- colours --- */
     config col;
-    cfg_defaults(&col);
+    cfg_defaults(&AED_CONFIG, &col);
     static const char scheme[] =
         "[editor]\r\ntab=4\r\n[colours]\r\nfg=15\r\nbg=1\r\n";
-    cfg_parse(&col, scheme, (int) sizeof(scheme) - 1);
+    cfg_parse(&AED_CONFIG, &col, scheme, (int) sizeof(scheme) - 1);
     check("fg is read", col.fg, 15);
     check("bg is read", col.bg, 1);
     config zero;
-    cfg_defaults(&zero);
-    cfg_parse(&zero, "[colours]\nbg=0\n", 15);
+    cfg_defaults(&AED_CONFIG, &zero);
+    cfg_parse(&AED_CONFIG, &zero, "[colours]\nbg=0\n", 15);
     check("bg=0 is a real value, not 'unset'", zero.bg, 0);
 
     /* --- what first run writes --- */
@@ -206,14 +206,14 @@ int main(void) {
     out.fg = 15;
     out.bg = 0;
     static char rendered[1024];
-    const int rn = cfg_render(&out, rendered, sizeof(rendered));
+    const int rn = cfg_render(&AED_CONFIG, &out, rendered, sizeof(rendered));
     check("render produces something", rn > 0, 1);
 
     /* It must read back as exactly what went in -- that round trip is the whole
      * point of writing a default file. */
     config back;
-    cfg_defaults(&back);
-    cfg_parse(&back, rendered, rn);
+    cfg_defaults(&AED_CONFIG, &back);
+    cfg_parse(&AED_CONFIG, &back, rendered, rn);
     check("round trip: tab", back.tab_size, 4);
     check("round trip: fg", back.fg, 15);
     check("round trip: bg", back.bg, 0);
@@ -235,7 +235,7 @@ int main(void) {
         if (probe == NULL) {
             break;
         }
-        const int got = cfg_render(&out, probe, size);
+        const int got = cfg_render(&AED_CONFIG, &out, probe, size);
         if (got == 0) {
             refused++;
         } else {
@@ -252,7 +252,7 @@ int main(void) {
 
     /* --- saving --- */
     stub_file_reset();
-    check("save reports success", cfg_save(&out, AED_INI) ? 1 : 0, 1);
+    check("save reports success", cfg_save(&AED_CONFIG, &out, AED_INI) ? 1 : 0, 1);
     check("  and wrote the rendered bytes", stub_file_size(), rn);
     check("  and closed the file", stub_file_closes(), 1);
     check("  after trying to create the directory", stub_mkdirs(), 1);
@@ -261,7 +261,7 @@ int main(void) {
     stub_file_reset();
     stub_file_fail_open(1);
     check("save fails quietly when the file cannot be opened",
-          cfg_save(&out, AED_INI) ? 1 : 0, 0);
+          cfg_save(&AED_CONFIG, &out, AED_INI) ? 1 : 0, 0);
     check("  and wrote nothing", stub_file_size(), 0);
 
     /* --- a short write must not leave a truncated file behind --- */
@@ -269,11 +269,11 @@ int main(void) {
      * and never rewrite the settings that never made it to disk. */
     stub_file_reset();
     stub_file_short_write(20);
-    check("a short write reports failure", cfg_save(&out, AED_INI) ? 1 : 0, 0);
+    check("a short write reports failure", cfg_save(&AED_CONFIG, &out, AED_INI) ? 1 : 0, 0);
     check("  and the partial file is removed", stub_deletes(), 1);
 
     stub_file_reset();
-    check("a complete write keeps the file", cfg_save(&out, AED_INI) ? 1 : 0, 1);
+    check("a complete write keeps the file", cfg_save(&AED_CONFIG, &out, AED_INI) ? 1 : 0, 1);
     check("  and deletes nothing", stub_deletes(), 0);
 
     /* --- ed_init moves AED's own settings file, under AED's own names --- */
@@ -338,14 +338,14 @@ int main(void) {
     static char merged[1024];
 
     config change;
-    cfg_defaults(&change);
+    cfg_defaults(&AED_CONFIG, &change);
     change.fg = 3;
     change.bg = 4;
     change.tab_size = 8;
 
     stub_file_reset();
     stub_file_set_content(handwritten, (int) sizeof(handwritten) - 1);
-    check("update succeeds", cfg_update(&change, AED_INI) ? 1 : 0, 1);
+    check("update succeeds", cfg_update(&AED_CONFIG, &change, AED_INI) ? 1 : 0, 1);
     const int mn = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) mn);
     merged[mn] = 0;
@@ -382,13 +382,13 @@ int main(void) {
         static const char stub_cr[] =
             "[colours]\r\nbg = 9\r\nfg = 15\r";
         config trunc;
-        cfg_defaults(&trunc);
+        cfg_defaults(&AED_CONFIG, &trunc);
         trunc.fg = 3;
         trunc.bg = 9;
 
         stub_file_reset();
         stub_file_set_content(stub_cr, (int) sizeof(stub_cr) - 1);
-        check("truncated last line updates", cfg_update(&trunc, AED_INI) ? 1 : 0, 1);
+        check("truncated last line updates", cfg_update(&AED_CONFIG, &trunc, AED_INI) ? 1 : 0, 1);
         const int tn = stub_file_size();
         char out[512];
         memcpy(out, stub_file_bytes(), (size_t) tn);
@@ -403,8 +403,8 @@ int main(void) {
 
     /* And it must still parse back to what we asked for. */
     config after;
-    cfg_defaults(&after);
-    cfg_parse(&after, merged, mn);
+    cfg_defaults(&AED_CONFIG, &after);
+    cfg_parse(&AED_CONFIG, &after, merged, mn);
     check("round trip: fg", after.fg, 3);
     check("round trip: bg", after.bg, 4);
     check("round trip: tab untouched in value", after.tab_size, 8);
@@ -413,12 +413,12 @@ int main(void) {
     static const char no_colours[] = "[editor]\r\ntab = 4\r\n";
     stub_file_reset();
     stub_file_set_content(no_colours, (int) sizeof(no_colours) - 1);
-    check("update with a missing key succeeds", cfg_update(&change, AED_INI) ? 1 : 0, 1);
+    check("update with a missing key succeeds", cfg_update(&AED_CONFIG, &change, AED_INI) ? 1 : 0, 1);
     const int an = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) an);
     merged[an] = 0;
-    cfg_defaults(&after);
-    cfg_parse(&after, merged, an);
+    cfg_defaults(&AED_CONFIG, &after);
+    cfg_parse(&AED_CONFIG, &after, merged, an);
     check("the absent fg was appended", after.fg, 3);
     check("the absent bg was appended", after.bg, 4);
     /* ...under a heading of their own, because a bare name after [editor] would
@@ -449,7 +449,7 @@ int main(void) {
     }
     stub_file_reset();
     stub_file_set_content(huge, hn);
-    check("an oversized file is not merged", cfg_update(&change, AED_INI) ? 1 : 0, 0);
+    check("an oversized file is not merged", cfg_update(&AED_CONFIG, &change, AED_INI) ? 1 : 0, 0);
     check("  and is left untouched on disk", stub_file_opens_for_write(), 0);
 
     /* A file whose last line has no newline: an appended setting must start on
@@ -458,12 +458,12 @@ int main(void) {
     stub_file_reset();
     stub_file_set_content(unterminated, (int) sizeof(unterminated) - 1);
     check("update a file with no trailing newline",
-          cfg_update(&change, AED_INI) ? 1 : 0, 1);
+          cfg_update(&AED_CONFIG, &change, AED_INI) ? 1 : 0, 1);
     const int un = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) un);
     merged[un] = 0;
-    cfg_defaults(&after);
-    cfg_parse(&after, merged, un);
+    cfg_defaults(&AED_CONFIG, &after);
+    cfg_parse(&AED_CONFIG, &after, merged, un);
     check("  the last line still reads back", after.fg, 3);
     check("  and the appended one is on its own line", after.bg, 4);
 
@@ -471,7 +471,7 @@ int main(void) {
     stub_file_reset();
     stub_file_fail_open(1);
     check("update with no file to merge into still fails cleanly",
-          cfg_update(&change, AED_INI) ? 1 : 0, 0);
+          cfg_update(&AED_CONFIG, &change, AED_INI) ? 1 : 0, 0);
 
     /* A trailing comment on a line whose value *does* change must survive too.
      * The tab line above keeps its comment only because its value was already
@@ -480,7 +480,7 @@ int main(void) {
         "[colours]\r\nfg = 15  # my foreground\r\n";
     stub_file_reset();
     stub_file_set_content(commented, (int) sizeof(commented) - 1);
-    check("update a commented line", cfg_update(&change, AED_INI) ? 1 : 0, 1);
+    check("update a commented line", cfg_update(&AED_CONFIG, &change, AED_INI) ? 1 : 0, 1);
     const int cn = stub_file_size();
     memcpy(merged, stub_file_bytes(), (size_t) cn);
     merged[cn] = 0;
@@ -538,8 +538,8 @@ int main(void) {
     merged[stub_file_size()] = 0;
     check("  keeping the user's comment", strstr(merged, "# keep me") != NULL, 1);
     config picked;
-    cfg_defaults(&picked);
-    cfg_parse(&picked, merged, stub_file_size());
+    cfg_defaults(&AED_CONFIG, &picked);
+    cfg_parse(&AED_CONFIG, &picked, merged, stub_file_size());
     check("  and the saved fg matches the screen", picked.fg, scr_fg(&pe.scr_));
 
     /* Picking a colour must write *only* the colours. A tab value the editor
@@ -576,16 +576,16 @@ int main(void) {
      * commands. */
     {
         config c;
-        cfg_defaults(&c);
+        cfg_defaults(&AED_CONFIG, &c);
         check("unset unless the file says so", c.ctrl_pause, -1);
 
         static const char text[] = "[vdp]\r\nctrl_pause_frames = 0\r\n";
-        cfg_parse(&c, text, (int) sizeof(text) - 1);
+        cfg_parse(&AED_CONFIG, &c, text, (int) sizeof(text) - 1);
         check("the file can turn it off", c.ctrl_pause, 0);
 
-        cfg_defaults(&c);
+        cfg_defaults(&AED_CONFIG, &c);
         static const char other[] = "[editor]\r\nctrl_pause_frames = 5\r\n";
-        cfg_parse(&c, other, (int) sizeof(other) - 1);
+        cfg_parse(&AED_CONFIG, &c, other, (int) sizeof(other) - 1);
         check("...and only under its own heading", c.ctrl_pause, -1);
     }
 
@@ -615,9 +615,9 @@ int main(void) {
         }
         {
             config cfg;
-            cfg_defaults(&cfg);
+            cfg_defaults(&AED_CONFIG, &cfg);
             check("      and it reads back as the same settings",
-                  cfg_load(&cfg, AED_INI) ? 1 : 0, 1);
+                  cfg_load(&AED_CONFIG, &cfg, AED_INI) ? 1 : 0, 1);
             check("        tab", cfg.tab_size, 3);
             check("        fg", cfg.fg, 9);
             check("        bg", cfg.bg, 2);

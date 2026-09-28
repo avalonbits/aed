@@ -1,0 +1,6 @@
+# only a comment
+[colours]
+fg = 7
+
+[editor]
+tab = 2

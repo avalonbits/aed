@@ -21,7 +21,7 @@
 #include <stddef.h>
 
 #include "app.h"
-#include "config.h"
+#include "aed_config.h"
 #include "editor.h"
 #include <string.h>
 
@@ -1601,8 +1601,8 @@ void cmd_settings(editor* ed) {
     // Comes in holding what the settings file says, so the font row can show
     // the one in use, and goes out holding only what was changed.
     config cfg;
-    cfg_defaults(&cfg);
-    cfg_load(&cfg, app_get()->cfg_path);
+    cfg_defaults(&AED_CONFIG, &cfg);
+    cfg_load(&AED_CONFIG, &cfg, app_get()->cfg_path);
 
     // A theme is chosen for the background it was written against, so the one
     // in force may be the wrong one by the time this modal closes.
@@ -1654,7 +1654,7 @@ void cmd_settings(editor* ed) {
         // Only the changed settings are set, and cfg_update copies every other
         // line through as it found it -- comments, spacing, and anything a
         // later version understands and this one does not.
-        cfg_update(&cfg, app_get()->cfg_path);
+        cfg_update(&AED_CONFIG, &cfg, app_get()->cfg_path);
     }
 }
 

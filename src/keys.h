@@ -74,6 +74,12 @@ key_press keys_wait(void);
  * idle (when there is one) runs between polls -- the program's chance to keep
  * its own state moving while a prompt is up. ctx is handed to both.
  *
+ * idle runs while a prompt owns the screen: the cursor is on the prompt's row,
+ * and a modal may have pointed the screen at whole_ rather than the program's
+ * view. So it must not paint, and must not change the document the prompt may
+ * be about to act on. Counting, polling a device, noting that something has
+ * happened for later -- that kind of thing.
+ *
  * KEYS_MOS is the keyboard, through keys_poll, with nothing to do while
  * waiting: what AED uses. A test can script one, and a program can put
  * something of its own in the gaps.
@@ -86,7 +92,8 @@ typedef struct _key_source {
 
 extern const key_source KEYS_MOS;
 
-// Waits on `ks` for the next key, running its idle between polls.
+// Waits on `ks` for the next key, running its idle between polls. NULL is the
+// keyboard, as it is for ui_set_keys.
 key_press ks_wait(const key_source* ks);
 
 #endif  // _KEYS_H_

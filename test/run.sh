@@ -27,7 +27,7 @@ CFLAGS=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined
 # correctly can still be lost -- keys.c is linked for it, over a stubbed event
 # queue.
 SRCS=(src/app.c src/bootfont.c src/char_buffer.c src/doc_store.c src/line_buffer.c src/text_buffer.c src/text_buffer_find.c src/text_buffer_move.c src/text_buffer_page.c src/text_buffer_range.c src/text_buffer_io.c src/screen.c
-      src/ini.c src/theme.c src/lexer.c src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/clipboard.c src/editor.c
+      src/ini.c src/theme.c src/lexer.c src/conv.c src/cmd_ops.c src/user_input.c src/config.c src/aed_config.c src/clipboard.c src/editor.c
       src/keys.c src/undo.c test/stubs/agon_stubs.c)
 
 # An optional filter: `./test/run.sh paging` runs test_paging and nothing else,

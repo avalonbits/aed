@@ -26,7 +26,7 @@
 
 #include "app.h"
 #include "cmd_ops.h"
-#include "config.h"
+#include "aed_config.h"
 #include "keys.h"
 
 #define DEFAULT_CURSOR 32
@@ -306,12 +306,12 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     bool font_loaded = false;
 
     config cfg;
-    cfg_defaults(&cfg);
+    cfg_defaults(&AED_CONFIG, &cfg);
     // Before anything reads them: a card written by an older AED has the
     // settings under the old name, and this is the one run that moves them.
     const bool moved = cfg_migrate(app->cfg_old, app->cfg_path);
 
-    if (cfg_load(&cfg, app->cfg_path)) {
+    if (cfg_load(&AED_CONFIG, &cfg, app->cfg_path)) {
         if (cfg.tab_size >= 0) {
             scr_set_tab_size(scr, (char) cfg.tab_size);
         }
@@ -342,7 +342,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         // does not become the user's setting.
         cfg.fg = scr_base_fg(scr);
         cfg.bg = scr_base_bg(scr);
-        cfg_save(&cfg, app->cfg_path);
+        cfg_save(&AED_CONFIG, &cfg, app->cfg_path);
     }
     /*
      * And when the move could not finish, nothing is written at all. The old

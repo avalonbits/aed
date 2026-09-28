@@ -21,7 +21,7 @@
 
 #include <agon/mos.h>
 
-#include "config.h"
+#include "aed_config.h"
 #include "screen.h"
 
 static int failures = 0;
@@ -481,17 +481,17 @@ int main(void) {
     /* --- the settings file carries the path --- */
     {
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         check("no font by default", cfg.font[0], 0);
 
-        cfg_defaults(&cfg);
-        cfg_parse(&cfg, "[editor]\nfont = /config/aed/u8x9.bin\n", 36);
+        cfg_defaults(&AED_CONFIG, &cfg);
+        cfg_parse(&AED_CONFIG, &cfg, "[editor]\nfont = /config/aed/u8x9.bin\n", 36);
         check("the path is read", strcmp(cfg.font, "/config/aed/u8x9.bin"), 0);
 
         /* Under the wrong heading it is somebody else's setting, the same way
          * a [syntax] fg would be. */
-        cfg_defaults(&cfg);
-        cfg_parse(&cfg, "[colours]\nfont = /a.bin\n", 24);
+        cfg_defaults(&AED_CONFIG, &cfg);
+        cfg_parse(&AED_CONFIG, &cfg, "[colours]\nfont = /a.bin\n", 24);
         check("but not from the wrong section", cfg.font[0], 0);
 
         /* Half a path names a different file. Dropped, not truncated. */
@@ -502,8 +502,8 @@ int main(void) {
                 big[at++] = 'x';
             }
             big[at++] = '\n';
-            cfg_defaults(&cfg);
-            cfg_parse(&cfg, big, at);
+            cfg_defaults(&AED_CONFIG, &cfg);
+            cfg_parse(&AED_CONFIG, &cfg, big, at);
             check("a path too long to hold is dropped", cfg.font[0], 0);
         }
     }
@@ -516,9 +516,9 @@ int main(void) {
         stub_file_set_content(before, (int) strlen(before));
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cfg.fg = 9;
-        cfg_update(&cfg, CFG_DIR "/aed.ini");
+        cfg_update(&AED_CONFIG, &cfg, CFG_DIR "/aed.ini");
 
         const char* out = stub_file_bytes();
         check("the font line survives a colour change",

@@ -1,0 +1,6 @@
+[editor]
+tab = 2  # mine
+
+[colours]
+fg = 7
+bg = 2

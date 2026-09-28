@@ -66,7 +66,8 @@ need from it, and the sections below follow them:
 | [`keys.c`](../src/keys.c) | key events, from the packet MOS hands over | 6 |
 | [`undo.c`](../src/undo.c) | the record log | 7 |
 | [`clipboard.c`](../src/clipboard.c) | copy, cut, paste, and spilling to a file | 7 |
-| [`config.c`](../src/config.c) | the settings file | 8 |
+| [`config.c`](../src/config.c) | the settings engine: any program's INI settings, by schema | 8 |
+| [`aed_config.c`](../src/aed_config.c) | AED's settings, and how a fresh file reads | 8 |
 | [`ini.c`](../src/ini.c) | the INI reader the settings, grammars and themes share | 8 |
 | [`bootfont.c`](../src/bootfont.c) | which font the machine booted into | 8 |
 | [`conv.c`](../src/conv.c) | character conversions | — |
@@ -443,7 +444,11 @@ copying between files works.
 
 [`config.c`](../src/config.c) reads and writes an INI file. Sections and keys it
 does not recognise are skipped and preserved, so the file stays readable by
-older and newer versions alike.
+older and newer versions alike. Which settings there are is a schema the program
+hands it: each setting's section and name, and where its value lives in the
+program's own struct, with a function that writes a fresh file. AED's is
+[`aed_config.c`](../src/aed_config.c), so the engine names nothing of AED's
+and another program brings its own.
 
 Fonts are the awkward part. The VDP's font API arrived in Console8 VDP 2.8.0 and
 MOS cannot report the VDP version, so **uncommenting the setting is the

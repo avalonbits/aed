@@ -155,6 +155,10 @@ int main(void) {
         check("  and past a release and a modifier", keys_poll(&kp) ? 1 : 0, 1);
         check("  hands over the key behind them", kp.ch, 'q');
         check("  having taken all three", stub_keys_read(), 3);
+
+        static const stub_key w[] = { { 'w', 44, 0, 0 } };
+        stub_set_keys(w, 1);
+        check("waiting on no source waits on the keyboard", ks_wait(NULL).ch, 'w');
     }
 
     /* --- the editor's loop reads the same source --- */

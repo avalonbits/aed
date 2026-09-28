@@ -35,93 +35,61 @@
 // too little of it.
 #define CFG_MAX 2048
 
-// The settings this version knows, each identified by its INI section and name.
-// Adding one is a line here plus a case in cfg_field: parsing, writing and
-// updating all read from this table.
-//
-// Almost all of them are numbers. `font` is a path, and the writing side of
-// this file -- cfg_render, flush_section, merge -- is built entirely on
-// cfg_value returning an int. Rather than teach all of that about strings for
-// one setting AED never writes, the kind is recorded and the writers skip
-// anything that is not CFG_INT. A string setting is read from the file and left
-// exactly as the reader wrote it.
-typedef enum _setting_kind {
-    CFG_INT,
-    CFG_STR,
-} setting_kind;
-
-typedef struct _setting_id {
-    const char* section;
-    const char* name;
-    setting_kind kind;
-} setting_id;
-
-static const setting_id SETTINGS[] = {
-    { "editor",  "tab", CFG_INT },
-    { "colours", "fg" , CFG_INT },
-    { "colours", "bg" , CFG_INT },
-    { "vdp",     "ctrl_pause_frames", CFG_INT },
-    { "editor",  "font", CFG_STR },
-};
-#define N_SETTINGS ((int)(sizeof(SETTINGS) / sizeof(SETTINGS[0])))
-
-static int* cfg_field(config* cfg, int i) {
-    switch (i) {
-        case 0:  return &cfg->tab_size;
-        case 1:  return &cfg->fg;
-        case 2:  return &cfg->bg;
-        case 3:  return &cfg->ctrl_pause;
-        default: return NULL;
-    }
+// Where a setting's value lives in the program's struct. An int setting's is
+// read with value_of, a text one's with text_of; the kind in the table says
+// which applies, and the writers skip what the other kind would mean.
+static int* int_of(void* values, const cfg_setting* st) {
+    return (int*) ((char*) values + st->at);
 }
 
-// Where a string setting's text lives, or NULL if `i` is not one. Paired with
-// cfg_field the way cfg_value is: one place that knows which struct member a
-// table row refers to.
-static char* cfg_text(config* cfg, int i) {
-    switch (i) {
-        case 4:  return cfg->font;
-        default: return NULL;
+// An int setting's value, or -1 -- which the writers read as "this version has
+// nothing to say about that line" and copy it through untouched -- for a text
+// setting.
+static int value_of(const void* values, const cfg_setting* st) {
+    if (st->kind != CFG_INT) {
+        return -1;
     }
+
+    return *(const int*) ((const char*) values + st->at);
 }
 
-// Deliberately -1 for every string setting, which is what keeps them out of the
-// writers: both flush_section and merge treat a negative value as "this
-// version has nothing to say about that line", and copy it through untouched.
-// What a string setting should be written as, or NULL for "say nothing and
-// leave the line alone". An empty string is a real answer -- it is how the file
-// asks for no font -- so it is not the same as NULL.
-static const char* cfg_str(const config* cfg, int i) {
-    switch (i) {
-        case 4:
-            if (cfg->font[0] != 0) {
-                return cfg->font;
+// What a text setting should be written as, or NULL for "say nothing and leave
+// the line alone". An empty string is a real answer -- it is how the file asks
+// for nothing, a font of none -- so it is not the same as NULL.
+static const char* text_of(const void* values, const cfg_setting* st) {
+    if (st->kind != CFG_STR) {
+        return NULL;
+    }
+    const char* text = (const char*) values + st->at;
+    if (text[0] != 0) {
+        return text;
+    }
+    if (st->none >= 0 && *(const bool*) ((const char*) values + st->none)) {
+        return "";
+    }
+
+    return NULL;
+}
+
+// Whether `values` has anything to write for a setting.
+static bool has_value(const void* values, const cfg_setting* st) {
+    return st->kind == CFG_STR ? text_of(values, st) != NULL
+                               : value_of(values, st) >= 0;
+}
+
+void cfg_defaults(const cfg_schema* sc, void* values) {
+    for (int i = 0; i < sc->n; i++) {
+        const cfg_setting* st = &sc->settings[i];
+        if (st->kind == CFG_STR) {
+            ((char*) values + st->at)[0] = 0;
+            if (st->none >= 0) {
+                *(bool*) ((char*) values + st->none) = false;
             }
-
-            return cfg->font_none ? "" : NULL;
-        default: return NULL;
+            continue;
+        }
+        *int_of(values, st) = -1;
     }
 }
-
-static int cfg_value(const config* cfg, int i) {
-    switch (i) {
-        case 0:  return cfg->tab_size;
-        case 1:  return cfg->fg;
-        case 2:  return cfg->bg;
-        case 3:  return cfg->ctrl_pause;
-        default: return -1;
-    }
-}
-
-void cfg_defaults(config* cfg) {
-    cfg->tab_size = -1;
-    cfg->fg = -1;
-    cfg->bg = -1;
-    cfg->ctrl_pause = -1;
-    cfg->font[0] = 0;
-    cfg->font_none = false;
-}
-
 
 // Which known setting a line names, given the section it appears in, or -1.
 //
@@ -131,13 +99,14 @@ void cfg_defaults(config* cfg) {
 // file that is missing its heading still does what it plainly says. A name under
 // the *wrong* heading is still ignored -- that is the scoping the sections are
 // for, and it is what leaves room for a later [syntax] to have its own `fg`.
-static int setting_index(const char* section, int seclen,
+static int setting_index(const cfg_schema* sc, const char* section, int seclen,
                          const char* name, int namelen) {
-    for (int i = 0; i < N_SETTINGS; i++) {
-        if (!ini_name_is(name, namelen, SETTINGS[i].name)) {
+    for (int i = 0; i < sc->n; i++) {
+        if (!ini_name_is(name, namelen, sc->settings[i].name)) {
             continue;
         }
-        if (seclen == 0 || ini_name_is(section, seclen, SETTINGS[i].section)) {
+        if (seclen == 0
+                || ini_name_is(section, seclen, sc->settings[i].section)) {
             return i;
         }
     }
@@ -145,7 +114,7 @@ static int setting_index(const char* section, int seclen,
     return -1;
 }
 
-void cfg_parse(config* cfg, const char* text, int len) {
+void cfg_parse(const cfg_schema* sc, void* values, const char* text, int len) {
     if (text == NULL || len <= 0) {
         return;
     }
@@ -172,16 +141,17 @@ void cfg_parse(config* cfg, const char* text, int len) {
             continue;
         }
 
-        const int idx = setting_index(section, seclen, ln.name, ln.namelen);
+        const int idx = setting_index(sc, section, seclen, ln.name, ln.namelen);
         if (idx < 0) {
             continue;   // unknown section or name: a later version's, perhaps
         }
-        if (SETTINGS[idx].kind == CFG_STR) {
+        const cfg_setting* st = &sc->settings[idx];
+        if (st->kind == CFG_STR) {
             // A value too long to hold is dropped rather than truncated: half a
             // path names a different file, and opening the wrong one silently
             // is worse than not opening one at all.
-            char* dst = cfg_text(cfg, idx);
-            if (dst != NULL && ln.valuelen > 0 && ln.valuelen < CFG_FONT_MAX) {
+            char* dst = (char*) values + st->at;
+            if (ln.valuelen > 0 && ln.valuelen < st->size) {
                 memcpy(dst, ln.value, (size_t) ln.valuelen);
                 dst[ln.valuelen] = 0;
             }
@@ -189,7 +159,7 @@ void cfg_parse(config* cfg, const char* text, int len) {
         }
         int n = 0;
         if (ini_parse_number(ln.value, ln.valuelen, &n)) {
-            *cfg_field(cfg, idx) = n;
+            *int_of(values, st) = n;
         }
     }
 }
@@ -203,7 +173,7 @@ static int put_raw(char* out, int at, int max, const char* src, int n) {
     return at + n;
 }
 
-static int put_text(char* out, int at, int max, const char* text) {
+int cfg_put_text(char* out, int at, int max, const char* text) {
     return put_raw(out, at, max, text, (int) strlen(text));
 }
 
@@ -226,90 +196,67 @@ static int put_number(char* out, int at, int max, int value) {
     return at;
 }
 
-// "name = value\r\n". CRLF because that is what the editor writes into text
-// files, and this one is meant to be opened in it.
-// The same, for a setting whose value is text. An empty value is written out
+// A setting whose value is text. An empty value is written out
 // as such -- `font =` with nothing after it -- which is how the file says "no
 // font", since cfg_parse ignores a setting with no value.
 static int put_str_setting(char* out, int at, int max, const char* name,
                            const char* value) {
-    at = put_text(out, at, max, name);
-    at = put_text(out, at, max, " = ");
-    at = put_text(out, at, max, value);
+    at = cfg_put_text(out, at, max, name);
+    at = cfg_put_text(out, at, max, " = ");
+    at = cfg_put_text(out, at, max, value);
 
-    return put_text(out, at, max, "\r\n");
+    return cfg_put_text(out, at, max, "\r\n");
 }
 
-static int put_setting(char* out, int at, int max, const char* name, int value) {
-    at = put_text(out, at, max, name);
-    at = put_text(out, at, max, " = ");
+int cfg_put_setting(char* out, int at, int max, const char* name, int value) {
+    at = cfg_put_text(out, at, max, name);
+    at = cfg_put_text(out, at, max, " = ");
     at = put_number(out, at, max, value);
 
-    return put_text(out, at, max, "\r\n");
+    return cfg_put_text(out, at, max, "\r\n");
 }
 
-static const char* HEADER =
-    "# AED settings.\r\n"
-    "#\r\n"
-    "# An INI file: [section] headings, then name = value lines. Blank lines\r\n"
-    "# are ignored and '#' or ';' starts a comment. Sections and settings AED\r\n"
-    "# does not recognise are skipped, so this file stays readable by older and\r\n"
-    "# newer versions alike. Edit and restart AED to apply.\r\n";
-
-int cfg_render(const config* cfg, char* buf, int max) {
-    int at = put_text(buf, 0, max, HEADER);
-    at = put_text(buf, at, max,
-        "\r\n[editor]\r\n"
-        "# How wide a tab renders, in columns. 1 to 16.\r\n");
-    at = put_setting(buf, at, max, "tab", cfg->tab_size);
-    at = put_text(buf, at, max,
-        "\r\n# A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,\r\n"
-        "# one byte per row. Its height is the file size divided by 256, so a\r\n"
-        "# 2304-byte file is 9 rows -- an 8-row font with a blank row added, which\r\n"
-        "# separates the text lines without costing a column.\r\n"
-        "#\r\n"
-        "# Needs a VDP with the font API (Console8 2.8.0+). AED cannot check, so\r\n"
-        "# uncommenting this is what says yours has it.\r\n"
-        "#font = /config/aed/unscii8x9.bin\r\n");
-    at = put_text(buf, at, max,
-        "\r\n[colours]\r\n"
-        "# Text and background colour, as Agon colour numbers. These were\r\n"
-        "# taken from the colours your Agon was already using.\r\n");
-    at = put_setting(buf, at, max, "fg", cfg->fg);
-    at = put_setting(buf, at, max, "bg", cfg->bg);
+int cfg_render(const cfg_schema* sc, const void* values, char* buf, int max) {
+    const int at = sc->render(values, buf, max);
 
     return at < 0 ? 0 : at;
 }
 
 // Emits any settings belonging to `section` that the file did not already
 // carry, so a setting saved for the first time is not silently dropped.
-static int flush_section(const config* cfg, const char* section, int seclen,
+static int flush_section(const cfg_schema* sc, const void* values,
+                         const char* section, int seclen,
                          const bool* done, char* out, int at, int max) {
-    for (int k = 0; k < N_SETTINGS; k++) {
-        if (done[k] || !ini_name_is(section, seclen, SETTINGS[k].section)) {
+    for (int k = 0; k < sc->n; k++) {
+        if (done[k] || !ini_name_is(section, seclen, sc->settings[k].section)) {
             continue;
         }
-        if (SETTINGS[k].kind == CFG_STR) {
-            const char* text = cfg_str(cfg, k);
+        if (sc->settings[k].kind == CFG_STR) {
+            const char* text = text_of(values, &sc->settings[k]);
             if (text != NULL) {
-                at = put_str_setting(out, at, max, SETTINGS[k].name, text);
+                at = put_str_setting(out, at, max, sc->settings[k].name, text);
             }
             continue;
         }
-        if (cfg_value(cfg, k) < 0) {
+        if (value_of(values, &sc->settings[k]) < 0) {
             continue;
         }
-        at = put_setting(out, at, max, SETTINGS[k].name, cfg_value(cfg, k));
+        at = cfg_put_setting(out, at, max, sc->settings[k].name,
+                             value_of(values, &sc->settings[k]));
     }
 
     return at;
 }
 
-// Copies `in` to `out`, substituting new values for the settings `cfg` sets and
-// leaving everything else byte for byte as it was.
-static int merge(const config* cfg, const char* in, int inlen, char* out, int max) {
-    bool done[N_SETTINGS];
-    for (int k = 0; k < N_SETTINGS; k++) {
+// Copies `in` to `out`, substituting new values for the settings `values` sets
+// and leaving everything else byte for byte as it was.
+static int merge(const cfg_schema* sc, const void* values,
+                 const char* in, int inlen, char* out, int max) {
+    bool done[CFG_SETTINGS_MAX];
+    if (sc->n > CFG_SETTINGS_MAX) {
+        return -1;          // a schema too big to keep track of: write nothing
+    }
+    for (int k = 0; k < sc->n; k++) {
         done[k] = false;
     }
 
@@ -334,9 +281,9 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
         if (ln.kind == LINE_SECTION) {
             // Leaving a section: anything it should have carried goes in before
             // the next heading, not at the end of the file under someone else's.
-            at = flush_section(cfg, section, seclen, done, out, at, max);
-            for (int k = 0; k < N_SETTINGS; k++) {
-                if (ini_name_is(section, seclen, SETTINGS[k].section)) {
+            at = flush_section(sc, values, section, seclen, done, out, at, max);
+            for (int k = 0; k < sc->n; k++) {
+                if (ini_name_is(section, seclen, sc->settings[k].section)) {
                     done[k] = true;
                 }
             }
@@ -351,14 +298,14 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
 
         int idx = -1;
         if (ln.kind == LINE_SETTING) {
-            idx = setting_index(section, seclen, ln.name, ln.namelen);
+            idx = setting_index(sc, section, seclen, ln.name, ln.namelen);
         }
 
         // A string setting already in the file: replace what follows the '=',
         // keeping the name as written and any comment after it, exactly as the
         // numeric path does.
-        if (idx >= 0 && SETTINGS[idx].kind == CFG_STR) {
-            const char* text = cfg_str(cfg, idx);
+        if (idx >= 0 && sc->settings[idx].kind == CFG_STR) {
+            const char* text = text_of(values, &sc->settings[idx]);
             done[idx] = true;
             if (text != NULL) {
                 int tail = lend;
@@ -366,10 +313,10 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
                     tail--;
                 }
                 at = put_raw(out, at, max, in + lstart, (ln.eq + 1) - lstart);
-                at = put_text(out, at, max, " ");
-                at = put_text(out, at, max, text);
+                at = cfg_put_text(out, at, max, " ");
+                at = cfg_put_text(out, at, max, text);
                 if (ln.cut < lend) {
-                    at = put_text(out, at, max, "  ");
+                    at = cfg_put_text(out, at, max, "  ");
                     at = put_raw(out, at, max, in + ln.cut, tail - ln.cut);
                 }
                 at = put_raw(out, at, max, in + tail, rawend - tail);
@@ -385,7 +332,7 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
             continue;
         }
 
-        int newval = idx >= 0 ? cfg_value(cfg, idx) : -1;
+        int newval = idx >= 0 ? value_of(values, &sc->settings[idx]) : -1;
 
         // A value already equal to what we would write leaves the line alone,
         // so saving one setting never disturbs another's formatting.
@@ -417,10 +364,10 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
 
         // Keep the name exactly as written, replace the value, keep any comment.
         at = put_raw(out, at, max, in + lstart, (ln.eq + 1) - lstart);
-        at = put_text(out, at, max, " ");
+        at = cfg_put_text(out, at, max, " ");
         at = put_number(out, at, max, newval);
         if (ln.cut < lend) {
-            at = put_text(out, at, max, "  ");
+            at = cfg_put_text(out, at, max, "  ");
             at = put_raw(out, at, max, in + ln.cut, tail - ln.cut);
         }
         at = put_raw(out, at, max, in + tail, rawend - tail);
@@ -438,29 +385,28 @@ static int merge(const config* cfg, const char* in, int inlen, char* out, int ma
         if (out[at - 1] == '\r') {
             at--;
         }
-        at = put_text(out, at, max, "\r\n");
+        at = cfg_put_text(out, at, max, "\r\n");
     }
-    at = flush_section(cfg, section, seclen, done, out, at, max);
-    for (int k = 0; k < N_SETTINGS; k++) {
-        if (ini_name_is(section, seclen, SETTINGS[k].section)) {
+    at = flush_section(sc, values, section, seclen, done, out, at, max);
+    for (int k = 0; k < sc->n; k++) {
+        if (ini_name_is(section, seclen, sc->settings[k].section)) {
             done[k] = true;
         }
     }
-    for (int k = 0; k < N_SETTINGS; k++) {
-        const bool has = SETTINGS[k].kind == CFG_STR
-                         ? cfg_str(cfg, k) != NULL
-                         : cfg_value(cfg, k) >= 0;
+    for (int k = 0; k < sc->n; k++) {
+        const bool has = has_value(values, &sc->settings[k]);
         if (done[k] || !has) {
             continue;
         }
-        at = put_text(out, at, max, "\r\n[");
-        at = put_text(out, at, max, SETTINGS[k].section);
-        at = put_text(out, at, max, "]\r\n");
-        at = flush_section(cfg, SETTINGS[k].section,
-                           (int) strlen(SETTINGS[k].section), done, out, at, max);
-        for (int j = 0; j < N_SETTINGS; j++) {
-            if (ini_name_is(SETTINGS[k].section, (int) strlen(SETTINGS[k].section),
-                        SETTINGS[j].section)) {
+        at = cfg_put_text(out, at, max, "\r\n[");
+        at = cfg_put_text(out, at, max, sc->settings[k].section);
+        at = cfg_put_text(out, at, max, "]\r\n");
+        at = flush_section(sc, values, sc->settings[k].section,
+                           (int) strlen(sc->settings[k].section), done, out,
+                           at, max);
+        for (int j = 0; j < sc->n; j++) {
+            const char* sec = sc->settings[k].section;
+            if (ini_name_is(sec, (int) strlen(sec), sc->settings[j].section)) {
                 done[j] = true;
             }
         }
@@ -499,13 +445,13 @@ static bool write_file(const char* path, const char* buf, int n) {
     return true;
 }
 
-bool cfg_save(const config* cfg, const char* path) {
+bool cfg_save(const cfg_schema* sc, const void* values, const char* path) {
     if (path == NULL) {
         return false;
     }
 
     static char buf[CFG_MAX];
-    const int n = cfg_render(cfg, buf, CFG_MAX);
+    const int n = cfg_render(sc, values, buf, CFG_MAX);
     if (n <= 0) {
         return false;
     }
@@ -513,7 +459,7 @@ bool cfg_save(const config* cfg, const char* path) {
     return write_file(path, buf, n);
 }
 
-bool cfg_update(const config* cfg, const char* path) {
+bool cfg_update(const cfg_schema* sc, const void* values, const char* path) {
     if (path == NULL) {
         return false;
     }
@@ -527,7 +473,7 @@ bool cfg_update(const config* cfg, const char* path) {
         mos_fclose(rh);
     }
     if (inlen <= 0) {
-        return cfg_save(cfg, path);   // nothing to merge into
+        return cfg_save(sc, values, path);   // nothing to merge into
     }
     if (inlen >= CFG_MAX) {
         // The file is at least as long as the buffer, so it may well be longer
@@ -538,7 +484,7 @@ bool cfg_update(const config* cfg, const char* path) {
     }
 
     static char out[CFG_MAX];
-    const int n = merge(cfg, in, inlen, out, CFG_MAX);
+    const int n = merge(sc, values, in, inlen, out, CFG_MAX);
     if (n <= 0) {
         return false;
     }
@@ -609,7 +555,7 @@ bool cfg_migrate(const char* old, const char* path) {
     return true;
 }
 
-bool cfg_load(config* cfg, const char* path) {
+bool cfg_load(const cfg_schema* sc, void* values, const char* path) {
     if (path == NULL) {
         return false;
     }
@@ -625,7 +571,7 @@ bool cfg_load(config* cfg, const char* path) {
     if (n <= 0) {
         return false;
     }
-    cfg_parse(cfg, buf, n);
+    cfg_parse(sc, values, buf, n);
 
     return true;
 }

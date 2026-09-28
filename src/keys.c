@@ -116,6 +116,9 @@ static bool mos_poll(void* ctx, key_press* kp) {
 const key_source KEYS_MOS = { mos_poll, NULL, NULL };
 
 key_press ks_wait(const key_source* ks) {
+    if (ks == NULL) {
+        ks = &KEYS_MOS;
+    }
     key_press kp;
     while (!ks->poll(ks->ctx, &kp)) {
         if (ks->idle != NULL) {
