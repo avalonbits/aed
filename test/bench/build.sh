@@ -16,7 +16,9 @@ if ! command -v agondev-config >/dev/null; then
 fi
 
 rm -rf src obj && mkdir -p src
-for f in "$ROOT"/src/*.c "$ROOT"/src/*.h; do
+# Flattened: the core, the UI and AED's own files all go into one src/ here, and
+# every include names a header by itself, so they find each other there.
+for f in "$ROOT"/src/*.[ch] "$ROOT"/src/core/*.[ch] "$ROOT"/src/ui/*.[ch]; do
     [ "$(basename "$f")" = main.c ] && continue
     cp "$f" src/
 done

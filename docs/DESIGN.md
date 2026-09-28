@@ -42,49 +42,66 @@ already gives.
 
 ---
 
-The editor is twenty-three files. Each has a header holding what the other parts
-need from it, and the sections below follow them:
+The editor is three layers, each a directory, and the first two are libraries
+that another program links as AED does:
+
+* **[`src/core`](../src/core)** builds `libedcore.a`: the document -- buffers,
+  paging, undo, the clipboard, grammars and themes, the settings engine. No VDP
+  and no keyboard: nothing in it includes anything outside it.
+* **[`src/ui`](../src/ui)** builds `libedui.a`: the screen and its views, keys,
+  prompts, the editing commands and the loop, on the core.
+* **[`src/`](../src)** is AED itself: `main`, its keys, help, banner and
+  settings, linked against both.
+
+The host suite builds the core with only `src/core` on the include path and links
+the tests that use nothing else against the core alone, so a core that reached
+into the UI would fail to build there first.
+
+Each file has a header holding what the other parts need from it, and the
+sections below follow them:
 
 | file | what is in it | sections |
 |---|---|---|
 | [`main.c`](../src/main.c) | `main`, and the one number that sizes everything | 1 |
-| [`editor.c`](../src/editor.c) | the key loop, what a key means, the selection | 1, 2, 7 |
-| [`cmd_ops.c`](../src/cmd_ops.c) | one function per command, and the repaint | 2, 6 |
-| [`text_buffer.c`](../src/text_buffer.c) | the document, and the six edits that change it | 3 |
-| [`text_buffer_move.c`](../src/text_buffer_move.c) | the cursor: character, word, line, offset | 3 |
-| [`text_buffer_page.c`](../src/text_buffer_page.c) | the window: settling, and the two slides | 4 |
-| [`text_buffer_range.c`](../src/text_buffer_range.c) | positions, and the spans between them | 5 |
-| [`text_buffer_find.c`](../src/text_buffer_find.c) | searching, including the part on disk | 5 |
-| [`text_buffer_io.c`](../src/text_buffer_io.c) | reading files in and writing them back | 4, 5 |
-| [`char_buffer.c`](../src/char_buffer.c) | the gap buffer itself | 3 |
-| [`line_buffer.c`](../src/line_buffer.c) | the line index, a gap buffer of lengths | 3 |
-| [`doc_store.c`](../src/doc_store.c) | the two scratch files a paged document lives in | 4 |
-| [`screen.c`](../src/screen.c) | the VDP: geometry, colours, cursor, painting | 6 |
-| [`lexer.c`](../src/lexer.c) | a grammar, and one row of text divided into runs | 6 |
-| [`theme.c`](../src/theme.c) | a theme, and what a scope name collapses onto | 6 |
-| [`user_input.c`](../src/user_input.c) | prompts, dialogs, the help screen, settings | 2, 8 |
-| [`keys.c`](../src/keys.c) | key events, from the packet MOS hands over | 6 |
-| [`undo.c`](../src/undo.c) | the record log | 7 |
-| [`clipboard.c`](../src/clipboard.c) | copy, cut, paste, and spilling to a file | 7 |
-| [`config.c`](../src/config.c) | the settings engine: any program's INI settings, by schema | 8 |
+| [`editor.c`](../src/ui/editor.c) | the key loop, what a key means, the selection | 1, 2, 7 |
+| [`cmd_ops.c`](../src/ui/cmd_ops.c) | one function per command, and the repaint | 2, 6 |
+| [`text_buffer.c`](../src/core/text_buffer.c) | the document, and the six edits that change it | 3 |
+| [`text_buffer_move.c`](../src/core/text_buffer_move.c) | the cursor: character, word, line, offset | 3 |
+| [`text_buffer_page.c`](../src/core/text_buffer_page.c) | the window: settling, and the two slides | 4 |
+| [`text_buffer_range.c`](../src/core/text_buffer_range.c) | positions, and the spans between them | 5 |
+| [`text_buffer_find.c`](../src/core/text_buffer_find.c) | searching, including the part on disk | 5 |
+| [`text_buffer_io.c`](../src/core/text_buffer_io.c) | reading files in and writing them back | 4, 5 |
+| [`char_buffer.c`](../src/core/char_buffer.c) | the gap buffer itself | 3 |
+| [`line_buffer.c`](../src/core/line_buffer.c) | the line index, a gap buffer of lengths | 3 |
+| [`doc_store.c`](../src/core/doc_store.c) | the two scratch files a paged document lives in | 4 |
+| [`screen.c`](../src/ui/screen.c) | the VDP: geometry, colours, cursor, painting | 6 |
+| [`lexer.c`](../src/core/lexer.c) | a grammar, and one row of text divided into runs | 6 |
+| [`theme.c`](../src/core/theme.c) | a theme, and what a scope name collapses onto | 6 |
+| [`user_input.c`](../src/ui/user_input.c) | prompts, dialogs, the help screen, settings | 2, 8 |
+| [`keys.c`](../src/ui/keys.c) | key events, from the packet MOS hands over | 6 |
+| [`undo.c`](../src/core/undo.c) | the record log | 7 |
+| [`clipboard.c`](../src/core/clipboard.c) | copy, cut, paste, and spilling to a file | 7 |
+| [`config.c`](../src/core/config.c) | the settings engine: any program's INI settings, by schema | 8 |
 | [`aed_config.c`](../src/aed_config.c) | AED's settings, and how a fresh file reads | 8 |
-| [`ini.c`](../src/ini.c) | the INI reader the settings, grammars and themes share | 8 |
-| [`bootfont.c`](../src/bootfont.c) | which font the machine booted into | 8 |
-| [`conv.c`](../src/conv.c) | character conversions | — |
+| [`aed.c`](../src/aed.c) | AED's files, keys, start-up, and its help and settings commands | 1, 8 |
+| [`aed_ui.c`](../src/aed_ui.c) | AED's help screen, banner and settings modal | 2, 8 |
+| [`ini.c`](../src/core/ini.c) | the INI reader the settings, grammars and themes share | 8 |
+| [`bootfont.c`](../src/ui/bootfont.c) | which font the machine booted into | 8 |
+| [`conv.c`](../src/ui/conv.c) | character conversions | — |
 
 The six `text_buffer` files are one module. What they share with each other is
-in [`text_buffer_int.h`](../src/text_buffer_int.h), and carries a `tbi_` prefix
+in [`text_buffer_int.h`](../src/core/text_buffer_int.h), and carries a `tbi_` prefix
 so that a call site says which it is: a `tb_` name is something the rest of the
 editor may call, a `tbi_` name is one of those six talking to another.
 
-[`ftrunc.asm`](../src/ftrunc.asm) is seven lines of assembly, because the fault
+[`ftrunc.asm`](../src/core/ftrunc.asm) is seven lines of assembly, because the fault
 it works around is in a calling sequence that C cannot reach.
 
 There is no global state. Everything hangs off one
-[`editor`](../src/editor.h#L35), which `main` owns and passes down by address;
+[`editor`](../src/ui/editor.h#L35), which `main` owns and passes down by address;
 nothing reaches it any other way. What belongs to the open file rather than the
 screen -- its text, undo log, grammar, syntax window and selection --
-is the editor's [`document`](../src/document.h), the part of it the core knows
+is the editor's [`document`](../src/core/document.h), the part of it the core knows
 about.
 
 It is a `static` local rather than an ordinary one, which is a placement rather
@@ -115,14 +132,14 @@ flowchart TD
 
 [`main()`](../src/main.c#L24) ·
 [`ed_init()`](../src/aed.c#L304) ·
-[`ed_init_for()`](../src/editor.c#L264) ·
-[`ed_run()`](../src/editor.c#L560) ·
-[`ed_translate()`](../src/editor.c#L614) ·
-[`ed_handle()`](../src/editor.c#L508) ·
-[`ed_selection_for()`](../src/editor.c#L375) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L870)
+[`ed_init_for()`](../src/ui/editor.c#L264) ·
+[`ed_run()`](../src/ui/editor.c#L560) ·
+[`ed_translate()`](../src/ui/editor.c#L614) ·
+[`ed_handle()`](../src/ui/editor.c#L508) ·
+[`ed_selection_for()`](../src/ui/editor.c#L375) ·
+[`cmd_repaint_rows()`](../src/ui/cmd_ops.c#L870)
 
-`main` asks for **72 KiB** — [`TB_DOC_KB`](../src/text_buffer.h#L172) — and that
+`main` asks for **72 KiB** — [`TB_DOC_KB`](../src/core/text_buffer.h#L172) — and that
 single number sizes the document: `tb_init` splits it into 71,424 bytes of
 character buffer and 2,304 index slots, about one slot per 31 bytes. Nothing
 else in the editor picks a size.
@@ -139,10 +156,10 @@ travel before a slide, and the sweeps behind that number are in
 The split is real and worth keeping:
 
 * **`text_buffer`** is the document. It knows nothing about the screen. Every
-  position it deals in is a [`tb_pos`](../src/text_buffer.h) — a line of the
+  position it deals in is a [`tb_pos`](../src/core/text_buffer.h) — a line of the
   *document* and a column — and it repaints nothing.
 * **`screen`** is the VDP. It knows nothing about the document. It is told what
-  to paint and where, and paints into a [`view`](../src/view.h): a rectangle
+  to paint and where, and paints into a [`view`](../src/ui/view.h): a rectangle
   of the screen with its own cursor and scroll. AED has one, the text area of
   the whole screen, which the screen lays out itself.
 * **`cmd_ops.c`** is the controller, and it is where the two meet. One function
@@ -154,8 +171,8 @@ model.
 
 A key becomes a command through a keymap: a table of bindings, each a key, the
 modifiers it needs, flags the loop reads before the command runs, and the
-command. [`AED_KEYS`](../src/editor.c) is AED's, and
-[`ed_translate()`](../src/editor.c#L614) reads a key through one, so a test can
+command. [`AED_KEYS`](../src/ui/editor.c) is AED's, and
+[`ed_translate()`](../src/ui/editor.c#L614) reads a key through one, so a test can
 assert a binding. A program with keys of its own puts a table of them in front
 of AED's through the keymap's `next`, rather than copying it. **A command
 nothing can reach is not a feature; a command that is reachable and does the
@@ -163,7 +180,7 @@ wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/editor.c#L375) decides what a keystroke does to
+[`ed_selection_for()`](../src/ui/editor.c#L375) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
@@ -189,12 +206,12 @@ flowchart LR
     end
 ```
 
-[`char_buffer`](../src/char_buffer.h#L42) holds the bytes with a gap at the
+[`char_buffer`](../src/core/char_buffer.h#L42) holds the bytes with a gap at the
 cursor, so typing is a write into the gap rather than a move of everything after
 it. It also keeps free space at *both ends*, which is what makes the four ends
 below cheap: without it, taking a chunk off one end closed that whole side up
 against the buffer, and every 2 KB slide moved a quarter of a megabyte.
-[`line_buffer`](../src/line_buffer.h#L25) is the same shape holding the
+[`line_buffer`](../src/core/line_buffer.h#L25) is the same shape holding the
 *length of each line*, gap at the cursor's line, so a line number is a count of
 entries rather than a scan for line feeds.
 
@@ -202,7 +219,7 @@ Both carry the line break in the length. `line_len` subtracts it, except on the
 last line of the document, which has no break after it.
 
 **Every break in a document is the same length**, and the document says which:
-[`elen_`](../src/text_buffer.h#L69) is 2 for a file of CRLFs and 1 for a file of
+[`elen_`](../src/core/text_buffer.h#L69) is 2 for a file of CRLFs and 1 for a file of
 bare line feeds. Every piece of line arithmetic subtracts that, and `tb_newline`
 writes it. A file whose breaks are all of one kind is held exactly as it
 arrived, so saving it gives the file back byte for byte and no conversion
@@ -222,7 +239,7 @@ wider than the distance the copy has travelled.
 
 ### 3a. Line numbers
 
-A [`tb_pos`](../src/text_buffer.h) is a line of the **document**. When the whole
+A [`tb_pos`](../src/core/text_buffer.h) is a line of the **document**. When the whole
 document is in memory that is the same as a line of the buffer, and when it is
 not, two counters make up the difference:
 
@@ -244,22 +261,22 @@ flowchart LR
 ```
 
 What does not fit sits in two scratch files either side of what does.
-[`doc_store`](../src/doc_store.h#L69) owns them and offers four operations —
+[`doc_store`](../src/core/doc_store.h#L69) owns them and offers four operations —
 push and pop, at each end — plus reads for saving.
 
 **Text is never edited on disk.** It is only pushed and popped at the end facing
 memory, which is the property the whole design rests on: the store never has to
 find anything, only hand back what it was given last.
 
-The window moves in [`TB_CHUNK`](../src/text_buffer.h#L51) of 2 KB, whole lines
-only, driven by [`TB_MARGIN`](../src/text_buffer.h#L52) of 16 KB either side.
-[`tb_settle()`](../src/text_buffer_page.c#L125) notices a margin has been crossed and
-slides until it has not: [`tb_slide_down()`](../src/text_buffer_page.c#L418) sends
+The window moves in [`TB_CHUNK`](../src/core/text_buffer.h#L51) of 2 KB, whole lines
+only, driven by [`TB_MARGIN`](../src/core/text_buffer.h#L52) of 16 KB either side.
+[`tb_settle()`](../src/core/text_buffer_page.c#L125) notices a margin has been crossed and
+slides until it has not: [`tb_slide_down()`](../src/core/text_buffer_page.c#L418) sends
 the front of memory to HEAD and takes a chunk from TAIL, and
-[`tb_slide_up()`](../src/text_buffer_page.c#L582) is the exact reverse.
+[`tb_slide_up()`](../src/core/text_buffer_page.c#L582) is the exact reverse.
 
 Everything that moves the cursor settles —
-[`tb_seek`](../src/text_buffer_range.c#L64), and `tb_up` and `tb_down` too, so the
+[`tb_seek`](../src/core/text_buffer_range.c#L64), and `tb_up` and `tb_down` too, so the
 arrow keys and page up and down reach the whole document rather than the window.
 A read-only copy is the exception, for the reason section 5 gives.
 
@@ -281,7 +298,7 @@ So **the index bounds the window before the buffer does, whenever lines are
 short**, and everything about paging has to hold at that size rather than at the
 buffer's.
 
-TAIL carries [`STORE_HEADROOM`](../src/doc_store.h#L67) of dead space in front
+TAIL carries [`STORE_HEADROOM`](../src/core/doc_store.h#L67) of dead space in front
 of it so text pushed back has somewhere to go. That space is written out at
 open, because on this platform seeking past the end of a file and writing there
 lands the write at the end instead — which would put the document a headroom too
@@ -307,9 +324,9 @@ Its longest line, rather than its size: a slide moves whole lines and carries a
 chunk at most, so a line longer than `TB_CHUNK` can never be brought in. That is
 2 KB, against a 72 KiB window — a line of 5,000 characters is refused although it
 would fit in memory many times over.
-[`tb_open`](../src/text_buffer_io.c#L633) reads the front of the file and refuses
+[`tb_open`](../src/core/text_buffer_io.c#L633) reads the front of the file and refuses
 before discarding what is on screen, and
-[`tb_load`](../src/text_buffer_io.c#L472) has nothing to lose so it catches the
+[`tb_load`](../src/core/text_buffer_io.c#L472) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
 unreachable document rather than an open one.
 
@@ -334,7 +351,7 @@ goes out of scope, so the last of those has never been called on one — it is
 guarded because it fails as memory corruption rather than as a wrong answer.
 
 Everything else that has to see text outside the window **streams the document**.
-[`tbi_doc_stream()`](../src/text_buffer_io.c#L780) walks HEAD, then memory, then what
+[`tbi_doc_stream()`](../src/core/text_buffer_io.c#L780) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 
@@ -343,9 +360,9 @@ Four callers:
 | | |
 |---|---|
 | saving | the sink writes what it is given, breaks and all |
-| [`tb_find`](../src/text_buffer_find.c#L415) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
-| [`tb_range_size`](../src/text_buffer_range.c#L344) | counts the bytes in a range |
-| [`tb_range_walk`](../src/text_buffer_range.c#L373) | feeds them somewhere |
+| [`tb_find`](../src/core/text_buffer_find.c#L415) | Knuth–Morris–Pratt, one pass, answering forwards and backwards at once |
+| [`tb_range_size`](../src/core/text_buffer_range.c#L344) | counts the bytes in a range |
+| [`tb_range_walk`](../src/core/text_buffer_range.c#L373) | feeds them somewhere |
 
 The last two share one pass, which is what stops them disagreeing about what a
 range is — they once did, and a select-all copy returned 37% of a document with
@@ -365,7 +382,7 @@ The two ends of the serial link, and both are shaped by it.
 
 ### 6a. Keys
 
-[`keys_wait()`](../src/keys.c#L102) reads key *events* from the queue MOS fills
+[`keys_wait()`](../src/ui/keys.c#L102) reads key *events* from the queue MOS fills
 from the VDP's keyboard packet. `getch()` would return typed characters instead,
 and a chord like `CTRL+SHIFT+RIGHT` produces none — a program blocked in it
 sleeps through the chord entirely.
@@ -382,10 +399,10 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L870) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/ui/cmd_ops.c#L870) takes a range, and most commands
 pass a single row.
 
-[`screen`](../src/screen.h#L58) derives its geometry from the font's cell size,
+[`screen`](../src/ui/screen.h#L58) derives its geometry from the font's cell size,
 so a font of a different height changes the number of rows without anything else
 knowing. `scr_clear` moves the cursor's row to the top of the text area as a
 side effect, which has caused three separate bugs; it is more than paint.
@@ -428,7 +445,7 @@ The three pieces of state that live alongside the document.
 where the cursor was when SHIFT was first held, and any key that is not a
 movement ends it — except the ones in section 2a that own it.
 
-**Undo** is a log of [`undo_rec`](../src/undo.h#L61): an operation, a position,
+**Undo** is a log of [`undo_rec`](../src/core/undo.h#L61): an operation, a position,
 and a run of text in one shared arena. Records merge while they are adjacent, so
 a typed word is one record rather than five. Positions are absolute document
 lines, which is what lets them survive the window moving underneath them.
@@ -443,7 +460,7 @@ copying between files works.
 
 ## 8. Settings, and fonts
 
-[`config.c`](../src/config.c) reads and writes an INI file. Sections and keys it
+[`config.c`](../src/core/config.c) reads and writes an INI file. Sections and keys it
 does not recognise are skipped and preserved, so the file stays readable by
 older and newer versions alike. Which settings there are is a schema the program
 hands it: each setting's section and name, and where its value lives in the
@@ -454,7 +471,7 @@ and another program brings its own.
 Fonts are the awkward part. The VDP's font API arrived in Console8 VDP 2.8.0 and
 MOS cannot report the VDP version, so **uncommenting the setting is the
 declaration that yours has it** — on an older VDP the uploaded bitmap is read as
-commands. [`bootfont.c`](../src/bootfont.c) reads `autoexec.txt` to find which
+commands. [`bootfont.c`](../src/ui/bootfont.c) reads `autoexec.txt` to find which
 font the machine booted into, so exiting can put that one back rather than
 dropping the machine to the stock 8x8.
 
@@ -464,7 +481,7 @@ dropping the machine to the stock 8x8.
 
 | | |
 |---|---|
-| [`test/run.sh`](../test/run.sh) | the host suite: the real `src/*.c` against stub Agon headers, natively, under ASan and UBSan |
+| [`test/run.sh`](../test/run.sh) | the host suite: the real sources against stub Agon headers, natively, under ASan and UBSan -- the core's own tests against the core alone |
 | [`test/frames.sh`](../test/frames.sh) | stack frames against the `(IX+d)` limit, read from the generated assembly |
 | [`test/docs.sh`](../test/docs.sh) | that these documents still point at what they name, including the `#L` links into the sources. `--fix` repoints them |
 | [`test/fonts.sh`](../test/fonts.sh) | the shipped fonts, whose height is their file size |
@@ -506,7 +523,7 @@ Four things learned the hard way:
 * **Something on the document** goes in the `text_buffer_*.c` whose job it is,
   and anything two of them need goes in `text_buffer_int.h` with a `tbi_` name.
 * **A command** needs a function in `cmd_ops.c`, a declaration in `cmd_ops.h`, a
-  binding in [`AED_KEYS`](../src/editor.c), a row in the help table in
+  binding in [`AED_KEYS`](../src/ui/editor.c), a row in the help table in
   `user_input.c`, a line in the README, and a test that goes through the *table*
   and the loop rather than calling the function.
 * **If it moves the cursor**, it seeks. Stepping is for moving by one.

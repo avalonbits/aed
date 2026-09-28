@@ -14,7 +14,7 @@
  * Calling agondev's ffs_ftruncate hangs the machine. It hangs it on MOS 3.0.2
  * and on console8, which looked like the floor bump having bought nothing at
  * all. It is not MOS: the library's stub pops IX without pushing it, so it
- * returns to whatever was above the return address. src/ftrunc.asm has the
+ * returns to whatever was above the return address. src/core/ftrunc.asm has the
  * disassembly and the corrected binding.
  *
  * This writes a 1,000 byte file, reopens it, seeks to 500, truncates, and

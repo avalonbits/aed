@@ -60,16 +60,16 @@ flowchart LR
     T -->|slide down reads| M
 ```
 
-[`doc_store`](../src/doc_store.h#L69) owns the two scratch files and offers four
+[`doc_store`](../src/core/doc_store.h#L69) owns the two scratch files and offers four
 operations — push and pop at each end — plus a read for saving.
-[`store_init`](../src/doc_store.c#L109) creates them;
-[`store_head_push`](../src/doc_store.c#L225) and
-[`store_tail_pop`](../src/doc_store.c#L262) are the pair a downward slide uses.
+[`store_init`](../src/core/doc_store.c#L109) creates them;
+[`store_head_push`](../src/core/doc_store.c#L225) and
+[`store_tail_pop`](../src/core/doc_store.c#L262) are the pair a downward slide uses.
 
 Two files rather than one, because the two ends grow independently and a single
 file would need the middle moved every time either did.
 
-TAIL carries [`STORE_HEADROOM`](../src/doc_store.h#L67) — 64 KB of dead space in
+TAIL carries [`STORE_HEADROOM`](../src/core/doc_store.h#L67) — 64 KB of dead space in
 front of its text — so that text pushed back down has somewhere to go. That
 space is written out at open rather than seeked over: on this platform, seeking
 past the end of a file and writing there lands the write at the end instead,
@@ -103,8 +103,8 @@ So memory holds more than the cursor needs, and slides early:
             slide up                                      slide down
 ```
 
-[`TB_MARGIN`](../src/text_buffer.h#L52) is 16 KB and
-[`TB_CHUNK`](../src/text_buffer.h#L51) — how much one slide moves — is 2 KB, so
+[`TB_MARGIN`](../src/core/text_buffer.h#L52) is 16 KB and
+[`TB_CHUNK`](../src/core/text_buffer.h#L51) — how much one slide moves — is 2 KB, so
 after a slide the cursor must travel 2 KB before it can cause another. That
 hysteresis is the whole of what stops thrashing.
 
@@ -119,7 +119,7 @@ Both numbers are measured rather than chosen:
   16 KB covers one with room over. That is what makes **painting free of disk by
   construction** rather than by hope.
 
-[`tb_settle()`](../src/text_buffer_page.c#L125) is where a crossed margin is
+[`tb_settle()`](../src/core/text_buffer_page.c#L125) is where a crossed margin is
 noticed, and it slides until no margin is crossed.
 
 **Settling picks one direction and holds it for the whole call.** Each side used
@@ -137,7 +137,7 @@ the edge. The cost of that is a documented limit — section 8.
 
 ### 4a. Down
 
-[`tb_slide_down()`](../src/text_buffer_page.c#L418): the front of memory goes to
+[`tb_slide_down()`](../src/core/text_buffer_page.c#L418): the front of memory goes to
 HEAD, and a chunk comes back from TAIL.
 
 1. Measure whole lines off the front, never the line the cursor is on.
@@ -155,7 +155,7 @@ with the document's other 199,960 in the head.
 
 ### 4b. Up
 
-[`tb_slide_up()`](../src/text_buffer_page.c#L582) is the reverse, with two
+[`tb_slide_up()`](../src/core/text_buffer_page.c#L582) is the reverse, with two
 asymmetries that are not obvious and both of which were bugs first.
 
 **The trailing entry.** The index's last entry is the line that carries on past
@@ -195,7 +195,7 @@ Four invariants, each of which has been broken and each of which failed quietly.
 
 | | |
 |---|---|
-| **Memory must not grow** | or it bursts. The intake is bounded — [`refill_want`](../src/text_buffer_page.c#L405) — by what went out. |
+| **Memory must not grow** | or it bursts. The intake is bounded — [`refill_want`](../src/core/text_buffer_page.c#L405) — by what went out. |
 | **Memory must not shrink** | or the window drains below its margins over many slides. Matching the outgo *exactly* is too tight: the run that comes back ends part way through a line and that tail is rewound, so a slide that takes exactly what it gave keeps half a line less. Twenty-four rounds of three thousand lines down and back took a 256 KB window from 188,178 bytes to 127,160. So a slide refills as well as moves, up to the reserve kept for the gap. |
 | **No byte may be in two places** | or the document gains text. Everything taken is given back on every failure path, in the reverse order. |
 | **No byte may be in neither** | or it loses text. This is the one the lookbehind byte protects. |
@@ -207,7 +207,7 @@ the tests assert it by measuring the window before and after.
 
 This is the part that surprised the design.
 
-[`line_buffer`](../src/line_buffer.h#L25) holds one length per line, and
+[`line_buffer`](../src/core/line_buffer.h#L25) holds one length per line, and
 `tb_init` gives it `mem_kb × 32` slots against `mem_kb × 992` bytes of text —
 about one slot per 31 bytes. At the shipped 72 KB that is **2,304 slots and
 71,424 bytes**.
@@ -247,7 +247,7 @@ flag, `tb_destroy` included, which would otherwise hand the original's memory
 back while the cursor that owns it is still reading.
 
 **Streaming** is for everything that has to see text outside the window.
-[`tbi_doc_stream()`](../src/text_buffer_io.c#L780) walks HEAD, then memory, then
+[`tbi_doc_stream()`](../src/core/text_buffer_io.c#L780) walks HEAD, then memory, then
 what is left of TAIL, feeding a sink. It reads only, so the window and the
 cursor stay where they are. Saving, searching, and measuring or copying a range
 all go through it.
@@ -274,13 +274,13 @@ over. That follows from section 4 — a slide moves whole lines, and a chunk is
 all it moves.
 
 The check is at the front of the file, in
-[`tb_open`](../src/text_buffer_io.c#L633), because everything after it discards
+[`tb_open`](../src/core/text_buffer_io.c#L633), because everything after it discards
 what is on screen and a file that cannot be opened must leave the editor as it
 was. That catches the file that is one line from end to end, which is what a
 minified anything looks like. A long line further in gets past it, and the load
 itself is the backstop: memory left empty with text in the store is an
 unreachable document rather than an open one, and is refused.
-[`tb_load`](../src/text_buffer_io.c#L472) has nothing on screen to lose, so it
+[`tb_load`](../src/core/text_buffer_io.c#L472) has nothing on screen to lose, so it
 relies on the second of those.
 
 ## 9. How it is checked

@@ -37,9 +37,10 @@ trap 'rm -rf "$OUT"' EXIT
 # The flags the real build uses, from AgonDev's makefile.inc. -Oz matters: the
 # optimisation level decides what gets inlined, and inlining is what puts a cold
 # function's buffer in a hot function's frame.
-for f in src/*.c; do
+for f in src/*.c src/core/*.c src/ui/*.c; do
     "$CC" -mllvm -z80-gas-style -mllvm -z80-print-zero-offset -nostdinc \
-          -Iinclude -isystem "$TOOLCHAIN/include" -target ez80-none-elf \
+          -Iinclude -Isrc/core -Isrc/ui -Isrc \
+          -isystem "$TOOLCHAIN/include" -target ez80-none-elf \
           -DAGONDEV -Oz -Wa,-march=ez80+full -fno-threadsafe-statics \
           -S "$f" -o "$OUT/$(basename "$f" .c).s" 2>/dev/null \
         || { echo "FAIL  frames: could not compile $f"; exit 1; }

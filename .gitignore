@@ -5,6 +5,7 @@
 obj/
 bin/*.map
 bin/*.noname.bin
+bin/*.a
 aed-*.zip
 
 # Coverage output, written into the tree by gcov.
