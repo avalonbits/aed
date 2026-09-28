@@ -44,9 +44,16 @@ for h in src/core/*.h; do
     cp "$h" "$STAGE/$NAME/include/core/"
 done
 cp src/ui/*.h "$STAGE/$NAME/include/ui/"
+# The commit the libraries were built from -- marked -dirty when the tree had
+# changes that commit does not hold, so a package built from work in progress
+# does not claim to be something it is not.
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+if [ "$COMMIT" != unknown ] && ! git diff --quiet HEAD 2>/dev/null; then
+    COMMIT="$COMMIT-dirty"
+fi
 {
     echo "aed $VERSION"
-    echo "commit $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "commit $COMMIT"
 } > "$STAGE/$NAME/VERSION"
 
 OUT="$DEST/$NAME.tar.gz"

@@ -519,8 +519,8 @@ the background.
 AED is built from two libraries that another Agon program can use as well:
 `libedcore.a`, the document -- buffers, paging, undo, the clipboard, grammars,
 themes and settings -- and `libedui.a`, the screen, views, keys, prompts, the
-editing commands and the loop. Each release carries them, with their headers,
-as `aed-libs-<version>.tar.gz`:
+editing commands and the loop. Each release from the next one on carries them,
+with their headers, as `aed-libs-<version>.tar.gz`:
 
 ```
 lib/libedcore.a
@@ -530,9 +530,14 @@ include/ui/*.h
 VERSION               the AED version and commit they were built from
 ```
 
-With AgonDev, add the two include directories and link the UI before the core:
+With AgonDev, add the two include directories and link the UI before the core.
+The three lines go **after** the `include` of AgonDev's makefile: it sets
+`CFLAGS` and `PROJECTLIBDIR` itself, so anything above it is overwritten, and
+the headers go missing or the link fails.
 
 ```
+include $(shell agondev-config --makefile)
+
 CFLAGS += -I<dir>/include/core -I<dir>/include/ui
 PROJECTLIBDIR := <dir>/lib
 LIBS := -ledui -ledcore

@@ -64,6 +64,10 @@ PKG="$W/aed-libs-0.0.0-test"
 check "the package holds both archives" \
       "$(ls "$PKG/lib" | tr '\n' ' ')" "libedcore.a libedui.a "
 check "  and no internal header" "$(ls "$PKG/include/core" | grep -c '_int\.h')" 0
+want="$(git rev-parse HEAD)"
+git diff --quiet HEAD || want="$want-dirty"
+check "  and names the commit it was built from" \
+      "$(sed -n 's/^commit //p' "$PKG/VERSION")" "$want"
 
 # build <name> <libs> <source>: an AgonDev project using only the package.
 build() {
