@@ -29,11 +29,14 @@
  * banner and settings screens those show.
  */
 
+// Sets up an editor as AED: its files, its keys, its settings and banner.
+editor* ed_init(editor* ed, int mem_kb, const char* fname);
+
 // AED's files: its settings, and where its grammars, themes and fonts live.
-// ed_init hands this to the core with app_set.
+// Handed to the core with app_set when an editor starts as AED.
 extern const app_context AED_APP;
 
-// AED's keys, which ed_init gives the editor.
+// AED's keys, which an editor started as AED reads.
 extern const keymap AED_KEYS;
 
 // Shows the settings, lets them be changed, and writes the file when any were.

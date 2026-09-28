@@ -21,7 +21,6 @@
 #include <stddef.h>
 
 #include "app.h"
-#include "aed_config.h"
 #include "editor.h"
 #include <string.h>
 

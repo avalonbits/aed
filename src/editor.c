@@ -26,8 +26,6 @@
 
 #include "app.h"
 #include "cmd_ops.h"
-#include "aed.h"
-#include "aed_config.h"
 #include "keys.h"
 
 #define DEFAULT_CURSOR 32
@@ -263,68 +261,20 @@ void ed_pick_syntax(editor* ed) {
     scr_theme_scheme(&ed->scr_, ed->theme_.fg, ed->theme_.bg);
 }
 
-editor* ed_init(editor* ed, int mem_kb, const char* fname) {
-    // First, because everything below may ask the core where AED's files are.
-    app_set(&AED_APP);
-    const app_context* app = app_get();
+editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
+                    const ed_program* prog) {
+    // First, because everything below may ask the core where the program's
+    // files are.
+    app_set(prog->app);
 
-    screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
+    scr_init(&ed->scr_, DEFAULT_CURSOR);
 
-    // Settings are read once at startup. The setters clamp or reject out of
-    // range values, so a bad number in the file falls back rather than
-    // rejecting the file -- there is nowhere useful to report an error to.
-    //
-    // On first run there is no file. Write one holding what AED is starting
-    // with, including the colours it just measured off the Agon, so the user
-    // has something to edit instead of a format to guess at.
-    bool font_asked = false;
-    bool font_loaded = false;
-
-    config cfg;
-    cfg_defaults(&AED_CONFIG, &cfg);
-    // Before anything reads them: a card written by an older AED has the
-    // settings under the old name, and this is the one run that moves them.
-    const bool moved = cfg_migrate(app->cfg_old, app->cfg_path);
-
-    if (cfg_load(&AED_CONFIG, &cfg, app->cfg_path)) {
-        if (cfg.tab_size >= 0) {
-            scr_set_tab_size(scr, (char) cfg.tab_size);
-        }
-        // Only when the file asks for it: see scr_set_ctrl_pause_frames.
-        if (cfg.ctrl_pause >= 0) {
-            scr_set_ctrl_pause_frames(scr, cfg.ctrl_pause);
-        }
-        // Before the colours and before anything is drawn: a font changes how
-        // many rows there are, and everything below is sized in rows. Only when
-        // the file asks for it, for the same reason as the line above -- see
-        // scr_load_font. A font that will not load is not worth stopping for;
-        // the editor runs in whatever font the machine already had.
-        if (cfg.font[0] != 0) {
-            font_asked = true;
-            font_loaded = scr_load_font(scr, cfg.font);
-        }
-        // Each colour applies on its own: a file that sets only fg keeps the
-        // measured bg, the same way an unset tab keeps the default.
-        if (cfg.fg >= 0 || cfg.bg >= 0) {
-            const char fg = cfg.fg >= 0 ? (char) cfg.fg : scr_fg(scr);
-            const char bg = cfg.bg >= 0 ? (char) cfg.bg : scr_bg(scr);
-            scr_set_scheme(scr, fg, bg);
-            scr_clear(scr);
-        }
-    } else if (moved) {
-        cfg.tab_size = scr_tab_size(scr);
-        // The user's pair, so a theme in force when the settings are written
-        // does not become the user's setting.
-        cfg.fg = scr_base_fg(scr);
-        cfg.bg = scr_base_bg(scr);
-        cfg_save(&AED_CONFIG, &cfg, app->cfg_path);
+    // Before anything is sized: settings can change the font, and with it how
+    // many rows there are.
+    if (prog->settings != NULL) {
+        prog->settings(ed);
     }
-    /*
-     * And when the move could not finish, nothing is written at all. The old
-     * file still holds the reader's settings and the next run will try again;
-     * a fresh one written now would be found first from then on, and their
-     * settings would sit in a file nothing reads.
-     */
+
     ed->doc_.selecting_ = false;
     ed->doc_.anchor_.line = 1;
     ed->doc_.anchor_.x = 0;
@@ -370,40 +320,19 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         return ed_failed(ed, ED_UNDO);
     }
 
+    // Whatever the settings step has to say, now that there is somewhere to
+    // say it and before the document covers the screen.
+    if (prog->started != NULL) {
+        prog->started(ed);
+    }
+
     // The document is only drawn when there is something in it -- painting a
     // screenful of spaces over an already-cleared screen is 1800 bytes down the
     // VDP link for nothing. The cursor is drawn either way, which it was not:
     // starting AED with no file left no cursor on screen at all until the first
     // keystroke happened to repaint the row it was on.
-    // A font was asked for and did not load: the file is missing, or it is not
-    // a whole number of 256-byte rows, or this VDP has no font API. Whichever
-    // it was, saying nothing leaves the stock font on screen and no reason for
-    // it -- and the setting sits in a file edited by hand, so a typo in the
-    // path is the likeliest cause and the least guessable.
-    //
-    // It waits for a key. That is an interruption at startup, which is the
-    // point: it is a mistake in a settings file, and it will happen every time
-    // until it is fixed.
-    if (font_asked && !font_loaded) {
-        // Built by hand rather than with snprintf. This is the program's only
-        // formatted print, and asking for it links nanoprintf: 4,994 bytes,
-        // eight per cent of the binary, for one %s.
-        static const char lead[] = "font not loaded: ";
-        static char msg[CFG_FONT_MAX + sizeof(lead)];
-        const int lead_n = (int) sizeof(lead) - 1;
-        int n = (int) strlen(cfg.font);
-        if (n > (int) sizeof(msg) - lead_n - 1) {
-            n = (int) sizeof(msg) - lead_n - 1;
-        }
-        memcpy(msg, lead, (size_t) lead_n);
-        memcpy(msg + lead_n, cfg.font, (size_t) n);
-        msg[lead_n + n] = 0;
-        ui_message(&ed->ui_, &ed->scr_, msg);
-        scr_clear(&ed->scr_);
-    }
-
     ed->banner_ = false;
-    ed->keys_ = &AED_KEYS;
+    ed->keys_ = prog->keys;
     ed->leaving_ = false;
     if (tb_used(&ed->doc_.buf_) > 0) {
         cmd_show(ed);
@@ -412,8 +341,8 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         // Only when no file was named: opening an empty file is a different
         // thing from starting with nothing, and someone who named a file has
         // already said what they came to do.
-        if (fname == NULL) {
-            aed_banner(&ed->ui_, &ed->scr_);
+        if (fname == NULL && prog->banner != NULL) {
+            prog->banner(&ed->ui_, &ed->scr_);
             ed->banner_ = true;
         }
         scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_.buf_));

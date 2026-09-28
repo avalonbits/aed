@@ -58,8 +58,8 @@ typedef struct _editor {
     bool banner_;
 
     // What the keys mean -- see keymap below -- and whether a command has
-    // asked the loop to stop. ed_init sets keys_ to AED_KEYS; left NULL, no
-    // key is bound to anything and typing still types.
+    // asked the loop to stop. ed_init_for sets keys_ from the program; left
+    // NULL, no key is bound to anything and typing still types.
     const struct _keymap* keys_;
     bool leaving_;
 
@@ -70,7 +70,28 @@ typedef struct _editor {
     int findsz_;
 } editor;
 
-editor* ed_init(editor* ed, int mem_kb, const char* fname);
+/*
+ * What a program brings to an editor: where its files are, its keys, and its
+ * part of starting up.
+ *
+ * settings runs as soon as the screen exists and before anything is sized --
+ * it may load a font, which changes how many rows there are. started runs once
+ * the prompts exist and before the document is shown: anything settings found
+ * to report goes there. banner is what to show when the program starts with no
+ * file named and nothing to show. Any of the three may be NULL.
+ */
+typedef struct _ed_program {
+    const app_context* app;
+    const struct _keymap* keys;
+    void (*settings)(editor* ed);
+    void (*started)(editor* ed);
+    void (*banner)(user_input* ui, screen* scr);
+} ed_program;
+
+// Sets up an editor for `prog`, with a document of `mem_kb` holding `fname` --
+// or nothing, for NULL. Returns NULL, having said why, when it cannot.
+editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
+                    const ed_program* prog);
 
 /*
  * Chooses the grammar and theme for the document now in the buffer, by its
