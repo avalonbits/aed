@@ -41,15 +41,15 @@ static void check_str(const char* name, const char* got, int gotsz, const char* 
     }
 }
 
-static screen mkscreen(char cols) {
-    screen scr;
-    memset(&scr, 0, sizeof(scr));
-    scr.rows_ = 25; scr.cols_ = cols; scr.cursor_ = 32;
-    scr.topY_ = 1; scr.bottomY_ = 24;
-    scr.tab_size_ = SCR_DEFAULT_TAB_SIZE;
-    scr.currY_ = 3; scr.originX_ = 0;
-
-    return scr;
+/* Filled in place: a screen points at its own whole_, so a copy would
+ * point back into the original. */
+static void mkscreen(screen* scr, char cols) {
+    memset(scr, 0, sizeof(*scr));
+    scr_set_view(scr, NULL);
+    scr->rows_ = 25; scr->v_->cols_ = cols; scr->cursor_ = 32;
+    scr->v_->topY_ = 1; scr->v_->bottomY_ = 24;
+    scr->tab_size_ = SCR_DEFAULT_TAB_SIZE;
+    scr->v_->currY_ = 3; scr->v_->originX_ = 0;
 }
 
 /* Captures what a paint emits, so tab expansion can be read back. */
@@ -110,7 +110,8 @@ int main(void) {
 
         return 2;
     }
-    screen scr = mkscreen(20);
+    screen scr;
+    mkscreen(&scr, 20);
 
     char l1[] = "\tx";                       /* tab at column 0 -> 4 wide */
     cap_start();
@@ -137,12 +138,12 @@ int main(void) {
     check_str("expansion works across the gap split", buf, n, "ab  c               ");
 
     /* Scrolled right: the window starts mid-way through an expanded tab. */
-    scr.originX_ = 2;
+    scr.v_->originX_ = 2;
     cap_start();
     scr_paint_row(&scr, 3, NULL, 0, l1, 2);
     n = cap_read(buf, sizeof(buf));
     check_str("origin 2 shows the tail of the tab", buf, n, "  x                 ");
-    scr.originX_ = 0;
+    scr.v_->originX_ = 0;
 
     /* A wider tab changes the rendering, not the stored bytes. */
     scr_set_tab_size(&scr, 8);
@@ -156,7 +157,7 @@ int main(void) {
     /* An insertion must repaint from the inserted character, not from the
      * cursor: the cursor sits after it, and a tab starts several columns back.
      * Painting from the cursor left the inserted columns showing stale text. */
-    scr = mkscreen(20);
+    mkscreen(&scr, 20);
     cap_start();
     scr_putc(&scr, '\t', "\t", 1, "col0", 4);
     n = cap_read(buf, sizeof(buf));

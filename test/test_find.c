@@ -212,7 +212,7 @@ int main(void) {
         editor e;
         check("an editor to search in", ed_init(&e, 8, "v.txt") != NULL, 1);
         screen* s = &e.scr_;
-        const int middle = s->topY_ + (s->bottomY_ - s->topY_) / 2;
+        const int middle = s->v_->topY_ + (s->v_->bottomY_ - s->v_->topY_) / 2;
 
         /* A match well down the document lands halfway down the screen, so the
          * eye always looks in the same place. */
@@ -221,7 +221,7 @@ int main(void) {
         e.findsz_ = 8;
         tb_seek(&e.doc_.buf_, (tb_pos){1, 0});
         cmd_find_next(&e);
-        check("a match is centred", s->currY_, middle);
+        check("a match is centred", s->v_->currY_, middle);
         check("  on the line it was found on", tb_ypos(&e.doc_.buf_), 60);
 
         /* And it is selected, from the start of the match to its end -- the
@@ -243,7 +243,7 @@ int main(void) {
         const int first = tb_ypos(&e.doc_.buf_);
         cmd_find_next(&e);
         check("repeating finds the next one", tb_ypos(&e.doc_.buf_) > first, 1);
-        check("  still centred", s->currY_, middle);
+        check("  still centred", s->v_->currY_, middle);
 
         /* Near the top there is not enough document above to centre against,
          * so it sits as low as the lines allow rather than scrolling past the
@@ -252,9 +252,9 @@ int main(void) {
         e.findsz_ = 8;
         tb_seek(&e.doc_.buf_, (tb_pos){1, 0});
         cmd_find_next(&e);
-        check("near the top it cannot centre", s->currY_, s->topY_ + 1);
+        check("near the top it cannot centre", s->v_->currY_, s->v_->topY_ + 1);
         check("  and shows the document from line 1",
-              tb_ypos(&e.doc_.buf_) - (s->currY_ - s->topY_), 1);
+              tb_ypos(&e.doc_.buf_) - (s->v_->currY_ - s->v_->topY_), 1);
 
         /* And it looks selected, not merely is. The state above says the editor
          * thinks there is a selection; this says the match reaches the screen

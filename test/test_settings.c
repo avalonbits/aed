@@ -132,7 +132,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
         stub_emit_tabs(1);
 
@@ -150,7 +150,7 @@ int main(void) {
          * text it was opened from. Counted by tab, which is one per row
          * painted. */
         check("  and paints every row down to the prompt",
-              count_rows(got, n), ui.ypos_ - scr.topY_ + 1);
+              count_rows(got, n), ui.ypos_ - scr.v_->topY_ + 1);
         stub_emit_tabs(0);
         check("the settings list every setting", strstr(got, "tab width") != NULL, 1);
         check("  including the font", strstr(got, "font") != NULL, 1);
@@ -167,7 +167,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* Into the font row, then straight out of the picker. */
@@ -208,7 +208,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         const stub_key esc[] = { { .ch = 27, .vk = VK_ESCAPE } };
@@ -231,7 +231,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* Down to the font row, back up one, then open what is there. The row
@@ -264,7 +264,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* DOWN past the end stops on the last row rather than running off it.
@@ -297,7 +297,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* RETURN on the tab row, clear the prefill, type 8, accept, close. */
@@ -325,7 +325,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* Down to the colours, into the picker, change one, accept, close. */
@@ -359,7 +359,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* Down to the font row, into the picker, down to unscii16, take it,
@@ -416,7 +416,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
-        ui_init(&ui, 256, scr.bottomY_, scr.cols_);
+        ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 
         /* To the font row, into the picker, and take the first entry, which is
@@ -559,7 +559,7 @@ int main(void) {
         for (int i = 0; i < 80; i++) {
             cmd_down(&ed);
         }
-        const char row_before = ed.scr_.currY_;
+        const char row_before = ed.scr_.v_->currY_;
         const int line_before = tb_ypos(&ed.doc_.buf_);
         check("the cursor is well down the screen", row_before > 10, 1);
 
@@ -569,7 +569,7 @@ int main(void) {
         cmd_settings(&ed);
 
         check("  and is still on the same row afterwards",
-              ed.scr_.currY_, row_before);
+              ed.scr_.v_->currY_, row_before);
         check("  still on the same line", tb_ypos(&ed.doc_.buf_), line_before);
 
         /* A font change is different: the row count moves, so the old row may
@@ -589,8 +589,8 @@ int main(void) {
 
         check("a font change leaves 30 rows", ed.scr_.rows_, 30);
         check("  and centres the cursor's line",
-              ed.scr_.currY_,
-              (char)(ed.scr_.topY_ + (ed.scr_.bottomY_ - ed.scr_.topY_) / 2));
+              ed.scr_.v_->currY_,
+              (char)(ed.scr_.v_->topY_ + (ed.scr_.v_->bottomY_ - ed.scr_.v_->topY_) / 2));
         check("  which is still the same line", tb_ypos(&ed.doc_.buf_), line_before);
         ed_destroy(&ed);
     }

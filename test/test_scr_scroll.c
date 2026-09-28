@@ -73,29 +73,29 @@ static void check_seq(const char* name, const unsigned char* got, int gotsz,
     }
 }
 
-static screen mkscreen(void) {
-    screen scr;
-    memset(&scr, 0, sizeof(scr));
-    scr.rows_ = 25;
-    scr.cols_ = 80;
+/* Filled in place: a screen points at its own whole_, so a copy would
+ * point back into the original. */
+static void mkscreen(screen* scr) {
+    memset(scr, 0, sizeof(*scr));
+    scr_set_view(scr, NULL);
+    scr->rows_ = 25;
+    scr->v_->cols_ = 80;
     /* Bars one wider than the text, and the text starting one column in: what
      * scr_init derives. Left at zero this fixture would paint the text area
      * against the screen edge and none of the viewport bytes would match. */
-    scr.barW_ = 81;
-    scr.textX_ = 1;
-    scr.cursor_ = 32;
-    scr.topY_ = 1;
-    scr.bottomY_ = 24;
-    scr.tab_size_ = SCR_DEFAULT_TAB_SIZE;
+    scr->barW_ = 81;
+    scr->v_->textX_ = 1;
+    scr->cursor_ = 32;
+    scr->v_->topY_ = 1;
+    scr->v_->bottomY_ = 24;
+    scr->tab_size_ = SCR_DEFAULT_TAB_SIZE;
     /* What scr_init derives from the pixel dimensions for the stock 8x8 system
      * font. A hand-built fixture that leaves these zero would emit a movement
      * byte of 0, which on VDP 1.04 means no movement at all. */
-    scr.charW_ = 8;
-    scr.charH_ = 8;
-    scr.currX_ = 0;
-    scr.currY_ = 5;
-
-    return scr;
+    scr->charW_ = 8;
+    scr->charH_ = 8;
+    scr->v_->currX_ = 0;
+    scr->v_->currY_ = 5;
 }
 
 int main(void) {
@@ -106,7 +106,8 @@ int main(void) {
         return 2;
     }
 
-    screen scr = mkscreen();
+    screen scr;
+    mkscreen(&scr);
     unsigned char got[64];
     char line[] = "hello";
 
@@ -122,8 +123,8 @@ int main(void) {
         screen real;
         scr_init(&real, 32);
         check("the bars span the drawable width", real.barW_, 79);
-        check("the text area is inset on both sides", real.cols_, 78);
-        check("and starts one column in", real.textX_, 1);
+        check("the text area is inset on both sides", real.v_->cols_, 78);
+        check("and starts one column in", real.v_->textX_, 1);
 
         cap_start();
         scr_scroll_h(&real, 1);
@@ -139,7 +140,7 @@ int main(void) {
          * area is but not where it starts -- and the margin is entirely a
          * question of where it starts. */
         char row[8] = "abc";
-        scr_write_line(&real, real.topY_, row, 3);
+        scr_write_line(&real, real.v_->topY_, row, 3);
         check("a text row is painted from the margin, not column 0",
               stub_last_tab_x(), 1);
 
@@ -150,9 +151,9 @@ int main(void) {
         scr_footer_invalidate(&real);
         scr_footer(&real, "a.txt", false, 1, 1);
         check("the footer returns the cursor to the text row",
-              stub_last_tab_y(), real.currY_);
+              stub_last_tab_y(), real.v_->currY_);
         check("  at the text column, margin included",
-              stub_last_tab_x(), real.currX_ + real.textX_);
+              stub_last_tab_x(), real.v_->currX_ + real.v_->textX_);
 
         /* The cursor sits at text column 0 after a clear, which is screen
          * column 1. Reading back the raw tab is what pins the offset down. */

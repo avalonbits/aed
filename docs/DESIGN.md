@@ -140,7 +140,9 @@ The split is real and worth keeping:
   position it deals in is a [`tb_pos`](../src/text_buffer.h) — a line of the
   *document* and a column — and it repaints nothing.
 * **`screen`** is the VDP. It knows nothing about the document. It is told what
-  to paint and where.
+  to paint and where, and paints into a [`view`](../src/view.h): a rectangle
+  of the screen with its own cursor and scroll. AED has one, the text area of
+  the whole screen, which the screen lays out itself.
 * **`cmd_ops.c`** is the controller, and it is where the two meet. One function
   per command, each taking the whole `editor`.
 
@@ -378,7 +380,7 @@ expensive thing the editor can do. So it paints rows:
 [`cmd_repaint_rows()`](../src/cmd_ops.c#L871) takes a range, and most commands
 pass a single row.
 
-[`screen`](../src/screen.h#L57) derives its geometry from the font's cell size,
+[`screen`](../src/screen.h#L58) derives its geometry from the font's cell size,
 so a font of a different height changes the number of rows without anything else
 knowing. `scr_clear` moves the cursor's row to the top of the text area as a
 side effect, which has caused three separate bugs; it is more than paint.

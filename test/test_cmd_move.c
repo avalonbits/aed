@@ -51,7 +51,7 @@ static void seek(int line, int x) {
     tb_seek(&ed.doc_.buf_, p);
 }
 
-static int at_row(void) { return ed.scr_.currY_; }
+static int at_row(void) { return ed.scr_.v_->currY_; }
 
 int main(void) {
     stub_discard_output();
@@ -71,7 +71,7 @@ int main(void) {
         stub_file_set_content("", 0);
         check("an empty document", ed_init(&ed, 8, "/e.txt") != NULL, 1);
 
-        const int top = ed.scr_.topY_;
+        const int top = ed.scr_.v_->topY_;
         check("  starts on the first row", at_row(), top);
         cmd_page_down(&ed);
         check("  PAGE DOWN stays on the first row", at_row(), top);
@@ -90,7 +90,7 @@ int main(void) {
         check("a document shorter than the screen",
               ed_init(&ed, 8, "/s.txt") != NULL, 1);
 
-        const int top = ed.scr_.topY_;
+        const int top = ed.scr_.v_->topY_;
         cmd_page_down(&ed);
         check("  PAGE DOWN lands on the last line", at_line(), 2);
         check("    on the row that line is drawn on", at_row(), top + 1);

@@ -63,7 +63,7 @@ static int stream_has(const char* hay, int n, const char* needle) {
 
 /* The document line on the top text row. Not stored anywhere -- the view derives
  * it from the cursor, which is why moving the cursor's row moves the view. */
-#define TOP_LINE(e) (tb_ypos(&(e)->doc_.buf_) - ((e)->scr_.currY_ - (e)->scr_.topY_))
+#define TOP_LINE(e) (tb_ypos(&(e)->doc_.buf_) - ((e)->scr_.v_->currY_ - (e)->scr_.v_->topY_))
 
 static void check(const char* name, int got, int want) {
     if (got == want) {
@@ -153,7 +153,7 @@ static void check_paint(const char* name, const char* got, const char* want) {
 /* The document line currently at the top of the screen, worked out the way the
  * editor does: from the cursor's line and its screen row. */
 static int top_line_of(editor* ed) {
-    return tb_ypos(&ed->doc_.buf_) - (ed->scr_.currY_ - ed->scr_.topY_);
+    return tb_ypos(&ed->doc_.buf_) - (ed->scr_.v_->currY_ - ed->scr_.v_->topY_);
 }
 
 /* How many rows a repaint actually drew. Every row is padded out to the full
@@ -339,7 +339,7 @@ int main(void) {
     }
     stub_emit_colours(1);
     screen* scr = &ed.scr_;
-    const int cols = scr->cols_;
+    const int cols = scr->v_->cols_;
     /* Pinned so "reversed" is unambiguous: with the two colours equal, every
      * column would read as highlighted and the tests would pass on nothing. */
     scr_set_scheme(scr, 15, 0);
@@ -348,7 +348,7 @@ int main(void) {
     /* No selection: the row paints plainly from end to end. */
     ed.doc_.selecting_ = false;
     cap_start();
-    scr_write_line(scr, scr->topY_, "hello", 5);
+    scr_write_line(scr, scr->v_->topY_, "hello", 5);
     {
         static char want[128];
         memset(want, '-', (size_t) cols);
@@ -359,7 +359,7 @@ int main(void) {
 
     /* A span in the middle, given directly in columns. */
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, "hello world", 11, 2, 5);
+    scr_write_line_sel(scr, scr->v_->topY_, "hello world", 11, 2, 5);
     {
         static char want[128];
         memset(want, '-', (size_t) cols);
@@ -371,7 +371,7 @@ int main(void) {
     /* An empty span highlights nothing, which is what an unselected row asks
      * for -- and a backwards one must not paint the whole line. */
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, "hello world", 11, 4, 4);
+    scr_write_line_sel(scr, scr->v_->topY_, "hello world", 11, 4, 4);
     {
         static char want[128];
         memset(want, '-', (size_t) cols);
@@ -379,7 +379,7 @@ int main(void) {
         check_paint("an empty span highlights nothing", painted(scr, cols), want);
     }
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, "hello world", 11, 6, 2);
+    scr_write_line_sel(scr, scr->v_->topY_, "hello world", 11, 6, 2);
     {
         static char want[128];
         memset(want, '-', (size_t) cols);
@@ -391,7 +391,7 @@ int main(void) {
     /* Past the end of the text: the padding is highlighted too, which is how a
      * selected line break shows up as anything at all. */
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, "abc", 3, 1, 5);
+    scr_write_line_sel(scr, scr->v_->topY_, "abc", 3, 1, 5);
     {
         static char want[128];
         memset(want, '-', (size_t) cols);
@@ -407,7 +407,7 @@ int main(void) {
     check("a tab before the text is four columns wide",
           scr_column_of(scr, "\tab", 1), 4);
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, "\tab", 3,
+    scr_write_line_sel(scr, scr->v_->topY_, "\tab", 3,
                        0, scr_column_of(scr, "\tab", 3));
     {
         static char want[128];
@@ -423,8 +423,8 @@ int main(void) {
     /* And the row after a highlighted one must come back plain: the colours are
      * put back at the end of every row, not left for the next one to inherit. */
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, "abc", 3, 0, 3);
-    scr_write_line(scr, (char)(scr->topY_ + 1), "def", 3);
+    scr_write_line_sel(scr, scr->v_->topY_, "abc", 3, 0, 3);
+    scr_write_line(scr, (char)(scr->v_->topY_ + 1), "def", 3);
     {
         static char want[256];
         memset(want, '-', (size_t) cols * 2);
@@ -441,8 +441,8 @@ int main(void) {
     static char wide[256];
     memset(wide, 'w', (size_t) cols);
     cap_start();
-    scr_write_line_sel(scr, scr->topY_, wide, cols, 0, cols);
-    scr_write_line(scr, (char)(scr->topY_ + 1), "plain", 5);
+    scr_write_line_sel(scr, scr->v_->topY_, wide, cols, 0, cols);
+    scr_write_line(scr, (char)(scr->v_->topY_ + 1), "plain", 5);
     {
         static char want[256];
         memset(want, '#', (size_t) cols);
@@ -461,10 +461,10 @@ int main(void) {
     ed.doc_.selecting_ = true;
     ed.doc_.anchor_ = (tb_pos){1, 2};              /* "hello world", from the 'l' */
     tb_seek(&ed.doc_.buf_, (tb_pos){2, 4});        /* to "seco|nd line" */
-    scr->currY_ = (char)(scr->topY_ + 1);     /* the cursor's row, so row 1 is line 1 */
+    scr->v_->currY_ = (char)(scr->v_->topY_ + 1);     /* the cursor's row, so row 1 is line 1 */
 
     cap_start();
-    cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
+    cmd_repaint_rows(&ed, scr->v_->topY_, (char)(scr->v_->topY_ + 2));
     {
         static char want[512];
         memset(want, '-', (size_t) cols * 3);
@@ -489,9 +489,9 @@ int main(void) {
      * started from. */
     ed.doc_.anchor_ = (tb_pos){2, 4};
     tb_seek(&ed.doc_.buf_, (tb_pos){1, 2});
-    scr->currY_ = scr->topY_;
+    scr->v_->currY_ = scr->v_->topY_;
     cap_start();
-    cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
+    cmd_repaint_rows(&ed, scr->v_->topY_, (char)(scr->v_->topY_ + 2));
     {
         static char want[512];
         memset(want, '-', (size_t) cols * 3);
@@ -511,7 +511,7 @@ int main(void) {
      * remove the highlight rather than leave it where it was. */
     ed.doc_.selecting_ = false;
     cap_start();
-    cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
+    cmd_repaint_rows(&ed, scr->v_->topY_, (char)(scr->v_->topY_ + 2));
     {
         static char want[512];
         memset(want, '-', (size_t) cols * 3);
@@ -534,10 +534,10 @@ int main(void) {
     tabbed.doc_.selecting_ = true;
     tabbed.doc_.anchor_ = (tb_pos){1, 0};          /* the whole tab */
     tb_seek(&tabbed.doc_.buf_, (tb_pos){1, 2});    /* and one character after it */
-    tscr->currY_ = tscr->topY_;
+    tscr->v_->currY_ = tscr->v_->topY_;
 
     cap_start();
-    cmd_repaint_rows(&tabbed, tscr->topY_, tscr->topY_);
+    cmd_repaint_rows(&tabbed, tscr->v_->topY_, tscr->v_->topY_);
     {
         static char want[256];
         memset(want, '-', (size_t) cols);
@@ -558,37 +558,37 @@ int main(void) {
     ed.doc_.selecting_ = true;
     ed.doc_.anchor_ = (tb_pos){1, 0};
     tb_seek(&ed.doc_.buf_, (tb_pos){2, 3});
-    scr->currY_ = (char)(scr->topY_ + 1);
-    scr->originX_ = 0;
+    scr->v_->currY_ = (char)(scr->v_->topY_ + 1);
+    scr->v_->originX_ = 0;
 
     /* The cursor stayed on its row and nothing scrolled, so neither the rows
      * around it nor the columns either side of the move have changed. Only the
      * columns the cursor crossed are sent -- plus the one it left, which has to
      * go back to being ordinary text. */
-    scr->currX_ = 10;
+    scr->v_->currX_ = 10;
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 4,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->v_->currY_, 4,
+                         top_line_of(&ed), scr->v_->originX_);
     const int span = painted_chars();
     check("an extend within a row paints a span, not a row", span * 4 < cols, 1);
     check("...and it does paint it", span > 0, 1);
 
     /* Backwards over the same columns costs the same: the span is the two
      * positions, whichever order they came in. */
-    scr->currX_ = 4;
+    scr->v_->currX_ = 4;
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 10,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->v_->currY_, 10,
+                         top_line_of(&ed), scr->v_->originX_);
     check("shrinking one paints the same columns", painted_chars(), span);
 
     /* The cell the cursor was in has to be repainted even when it did not move
      * -- it is showing a cursor, and the character under it has to come back.
      * So the span is the columns crossed *plus one*, and a move of nothing is
      * still a column. */
-    scr->currX_ = 10;
+    scr->v_->currX_ = 10;
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 10,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->v_->currY_, 10,
+                         top_line_of(&ed), scr->v_->originX_);
     /* One character for the span, one for the cursor drawn over it. Without
      * the span the cursor is all that is sent, and the cell keeps whatever it
      * was showing underneath. */
@@ -597,46 +597,46 @@ int main(void) {
 
     /* And a longer move costs more, which is the point: the bill follows the
      * change rather than the width of the screen. */
-    scr->currX_ = 30;
+    scr->v_->currX_ = 30;
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, 4,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->v_->currY_, 4,
+                         top_line_of(&ed), scr->v_->originX_);
     check("a longer move paints more", painted_chars() > span, 1);
-    scr->currX_ = 10;
+    scr->v_->currX_ = 10;
 
     /* Changing rows without scrolling still costs both rows in full: the
      * highlight on the row being left has to be taken off all of it. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, (char)(scr->currY_ - 1), 4,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_EXTEND, (char)(scr->v_->currY_ - 1), 4,
+                         top_line_of(&ed), scr->v_->originX_);
     check("crossing rows repaints both", painted_rows(scr, cols), 2);
 
     /* A horizontal scroll moves every row at once -- originX_ is screen-wide --
      * so the rows not repainted are left showing their old columns. This is the
      * same trap as the stale rows in #60, one layer up. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, scr->currX_,
-                         top_line_of(&ed), scr->originX_ + 4);
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->v_->currY_, scr->v_->currX_,
+                         top_line_of(&ed), scr->v_->originX_ + 4);
     check("a horizontal scroll repaints the whole text area",
           painted_rows(scr, cols) > 1, 1);
 
     /* So does a vertical one. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_EXTEND, scr->currY_, scr->currX_,
-                         top_line_of(&ed) + 1, scr->originX_);
+    ed_selection_repaint(&ed, SEL_EXTEND, scr->v_->currY_, scr->v_->currX_,
+                         top_line_of(&ed) + 1, scr->v_->originX_);
     check("a vertical scroll does too",
           painted_rows(scr, cols) > 1, 1);
 
     /* And dropping a selection, since the highlight could be anywhere. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_DROP, scr->currY_, scr->currX_,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_DROP, scr->v_->currY_, scr->v_->currX_,
+                         top_line_of(&ed), scr->v_->originX_);
     check("dropping one does too", painted_rows(scr, cols) > 1, 1);
 
     /* With nothing selected there is nothing to repaint at all. */
     cap_start();
-    ed_selection_repaint(&ed, SEL_NONE, scr->currY_, scr->currX_,
-                         top_line_of(&ed), scr->originX_);
+    ed_selection_repaint(&ed, SEL_NONE, scr->v_->currY_, scr->v_->currX_,
+                         top_line_of(&ed), scr->v_->originX_);
     check("and with no selection nothing is painted",
           painted_rows(scr, cols), 0);
 
@@ -690,17 +690,17 @@ int main(void) {
      * column on the right is matched on the left. The bars still span 127.
      * What this test is really for is that the width stays positive and sane on
      * the widest mode -- it used to be -128 in a signed char. */
-    check("  reports its usable columns", widest.scr_.cols_, 126);
+    check("  reports its usable columns", widest.scr_.v_->cols_, 126);
     check("  while the bars span the full drawable width", widest.scr_.barW_, 127);
-    check("  and the text starts one column in", widest.scr_.textX_, 1);
+    check("  and the text starts one column in", widest.scr_.v_->textX_, 1);
     check("  and all its rows", widest.scr_.rows_, 96);
-    check("  with a positive width", widest.scr_.cols_ > 0, 1);
+    check("  with a positive width", widest.scr_.v_->cols_ > 0, 1);
 
     screen* wscr = &widest.scr_;
     scr_set_scheme(wscr, 15, 0);
     stub_emit_colours(1);
     cap_start();
-    scr_write_line_sel(wscr, wscr->topY_, "hello world", 11, 2, 5);
+    scr_write_line_sel(wscr, wscr->v_->topY_, "hello world", 11, 2, 5);
     {
         static char want[256];
         memset(want, '-', 126);
@@ -736,31 +736,31 @@ int main(void) {
               ed_init(&tall, 8, "many.txt") != NULL, 1);
 
         screen* ts = &tall.scr_;
-        const char mid = (char) (ts->topY_ + 10);
+        const char mid = (char) (ts->v_->topY_ + 10);
 
         /* Cursor on line 50, ten rows down the screen: the top row is line 40. */
         tb_seek(&tall.doc_.buf_, (tb_pos){50, 6});
-        ts->currY_ = mid;
+        ts->v_->currY_ = mid;
         check("the view starts on line 40", TOP_LINE(&tall), 40);
 
         /* A selection inside one line. Nothing below it even moves. */
         tall.doc_.anchor_ = (tb_pos){50, 2};
         tall.doc_.selecting_ = true;
         check("the cut happens", cmd_delete_selection(&tall) ? 1 : 0, 1);
-        check("  the cursor keeps its row", ts->currY_, mid);
+        check("  the cursor keeps its row", ts->v_->currY_, mid);
         check("  so the view has not moved", TOP_LINE(&tall), 40);
 
         /* A selection spanning three lines. Two lines collapse into the row the
          * selection started on, so the cursor rises two rows -- and the top of
          * the screen still shows the same line, because nothing above moved. */
         tb_seek(&tall.doc_.buf_, (tb_pos){52, 4});
-        ts->currY_ = (char) (mid + 2);
+        ts->v_->currY_ = (char) (mid + 2);
         check("the view is still on line 40", TOP_LINE(&tall), 40);
         tall.doc_.anchor_ = (tb_pos){50, 1};
         tall.doc_.selecting_ = true;
         check("the multi-line cut happens",
               cmd_delete_selection(&tall) ? 1 : 0, 1);
-        check("  the cursor rises by the lines that collapsed", ts->currY_, mid);
+        check("  the cursor rises by the lines that collapsed", ts->v_->currY_, mid);
         check("  and the view still has not moved", TOP_LINE(&tall), 40);
 
         ed_destroy(&tall);
@@ -783,24 +783,24 @@ int main(void) {
          * keep, so the join goes to the top row and the document is shown from
          * there rather than the view jumping somewhere unrelated. */
         tb_seek(&e2.doc_.buf_, (tb_pos){50, 3});
-        s2->currY_ = (char) (s2->topY_ + 5);
+        s2->v_->currY_ = (char) (s2->v_->topY_ + 5);
         e2.doc_.anchor_ = (tb_pos){20, 0};
         e2.doc_.selecting_ = true;
         check("a cut reaching above the window", cmd_delete_selection(&e2) ? 1 : 0, 1);
-        check("  puts the join on the top row", s2->currY_, s2->topY_);
+        check("  puts the join on the top row", s2->v_->currY_, s2->v_->topY_);
         check("  and shows the document from there", TOP_LINE(&e2), 20);
 
         /* Near the start of the document there are not enough lines above to
          * fill the rows above the cursor, so the row has to come up to match or
          * the view shows blanks above line 1. */
         tb_seek(&e2.doc_.buf_, (tb_pos){3, 2});
-        s2->currY_ = (char) (s2->topY_ + 10);
+        s2->v_->currY_ = (char) (s2->v_->topY_ + 10);
         e2.doc_.anchor_ = (tb_pos){3, 0};
         e2.doc_.selecting_ = true;
         check("a cut near the top of the document",
               cmd_delete_selection(&e2) ? 1 : 0, 1);
         check("  pulls the row up to what the document can fill",
-              s2->currY_, (char) (s2->topY_ + 2));
+              s2->v_->currY_, (char) (s2->v_->topY_ + 2));
         check("  so the top row is line 1", TOP_LINE(&e2), 1);
 
         ed_destroy(&e2);
@@ -850,9 +850,9 @@ int main(void) {
                 spaces++;
             }
         }
-        const int rows = sh.scr_.bottomY_ - sh.scr_.topY_;
+        const int rows = sh.scr_.v_->bottomY_ - sh.scr_.v_->topY_;
         check("  and pads every row past the end instead",
-              spaces > (rows - 1) * sh.scr_.cols_, 1);
+              spaces > (rows - 1) * sh.scr_.v_->cols_, 1);
 
         ed_destroy(&sh);
     }
@@ -880,7 +880,7 @@ int main(void) {
         editor one;
         check("an editor for a one-line cut", ed_init(&one, 8, "one.txt") != NULL, 1);
         tb_seek(&one.doc_.buf_, (tb_pos){50, 6});
-        one.scr_.currY_ = (char) (one.scr_.topY_ + 10);
+        one.scr_.v_->currY_ = (char) (one.scr_.v_->topY_ + 10);
         one.doc_.anchor_ = (tb_pos){50, 2};
         one.doc_.selecting_ = true;
 
@@ -892,7 +892,7 @@ int main(void) {
         check("  the row below it is not",
               stream_has(raw, n, "line 051"), 0);
         check("  and it costs about one row, not a screenful",
-              n < one.scr_.cols_ * 3, 1);
+              n < one.scr_.v_->cols_ * 3, 1);
         ed_destroy(&one);
 
         /* Across three lines: two collapse, so the rows below scroll up by two
@@ -904,7 +904,7 @@ int main(void) {
               ed_init(&three, 8, "three.txt") != NULL, 1);
         screen* t3 = &three.scr_;
         tb_seek(&three.doc_.buf_, (tb_pos){52, 4});
-        t3->currY_ = (char) (t3->topY_ + 12);
+        t3->v_->currY_ = (char) (t3->v_->topY_ + 12);
         three.doc_.anchor_ = (tb_pos){50, 1};
         three.doc_.selecting_ = true;
 
@@ -933,7 +933,7 @@ int main(void) {
         check("  while the rows that merely moved are not",
               stream_has(raw, n, "line 055"), 0);
         check("  costing a fraction of a screenful",
-              n < t3->cols_ * 6, 1);
+              n < t3->v_->cols_ * 6, 1);
         ed_destroy(&three);
 
         /* A selection reaching above the window moves the view, so every row is
@@ -946,7 +946,7 @@ int main(void) {
         check("an editor for a cut from above the window",
               ed_init(&up_ed, 8, "up.txt") != NULL, 1);
         tb_seek(&up_ed.doc_.buf_, (tb_pos){50, 3});
-        up_ed.scr_.currY_ = (char) (up_ed.scr_.topY_ + 5);
+        up_ed.scr_.v_->currY_ = (char) (up_ed.scr_.v_->topY_ + 5);
         up_ed.doc_.anchor_ = (tb_pos){20, 0};
         up_ed.doc_.selecting_ = true;
 
@@ -976,8 +976,8 @@ int main(void) {
         check("an editor scrolled along a long line",
               ed_init(&wide_ed, 8, "wide2.txt") != NULL, 1);
         tb_seek(&wide_ed.doc_.buf_, (tb_pos){50, 180});
-        wide_ed.scr_.currY_ = (char) (wide_ed.scr_.topY_ + 8);
-        wide_ed.scr_.originX_ = 150;
+        wide_ed.scr_.v_->currY_ = (char) (wide_ed.scr_.v_->topY_ + 8);
+        wide_ed.scr_.v_->originX_ = 150;
         wide_ed.doc_.anchor_ = (tb_pos){50, 4};
         wide_ed.doc_.selecting_ = true;
 
@@ -986,9 +986,9 @@ int main(void) {
               cmd_delete_selection(&wide_ed) ? 1 : 0, 1);
         n = cap_read(raw, (int) sizeof(raw));
         check("  the window scrolled back to the left",
-              wide_ed.scr_.originX_, 0);
+              wide_ed.scr_.v_->originX_, 0);
         check("  so every row is repainted, not just the one",
-              n > wide_ed.scr_.cols_ * 10, 1);
+              n > wide_ed.scr_.v_->cols_ * 10, 1);
         ed_destroy(&wide_ed);
 
         /* Rows the shortened document no longer reaches have to be blanked. The
@@ -1005,7 +1005,7 @@ int main(void) {
         check("an editor on a five-line document",
               ed_init(&shrink, 8, "five.txt") != NULL, 1);
         tb_seek(&shrink.doc_.buf_, (tb_pos){4, 2});
-        shrink.scr_.currY_ = (char) (shrink.scr_.topY_ + 3);
+        shrink.scr_.v_->currY_ = (char) (shrink.scr_.v_->topY_ + 3);
         shrink.doc_.anchor_ = (tb_pos){2, 0};
         shrink.doc_.selecting_ = true;
 
@@ -1018,7 +1018,7 @@ int main(void) {
          * blanked rows are written back to back with only a cursor tab between,
          * and a tab emits no bytes, so they land as one run twice as long. */
         check("  rows past the end of the document are blanked",
-              longest_space_run(raw, n) >= shrink.scr_.cols_ * 2, 1);
+              longest_space_run(raw, n) >= shrink.scr_.v_->cols_ * 2, 1);
         ed_destroy(&shrink);
 
         /* The same cut on a document whose last line has text on it.
@@ -1041,7 +1041,7 @@ int main(void) {
         check("an editor whose last line has text",
               ed_init(&last, 8, "noeol.txt") != NULL, 1);
         tb_seek(&last.doc_.buf_, (tb_pos){4, 2});
-        last.scr_.currY_ = (char) (last.scr_.topY_ + 3);
+        last.scr_.v_->currY_ = (char) (last.scr_.v_->topY_ + 3);
         last.doc_.anchor_ = (tb_pos){2, 0};
         last.doc_.selecting_ = true;
 
@@ -1051,7 +1051,7 @@ int main(void) {
         check("  the last line is not painted a second time",
               stream_has(raw, n, "five"), 0);
         check("  and those rows are blanked instead",
-              longest_space_run(raw, n) >= last.scr_.cols_ * 2, 1);
+              longest_space_run(raw, n) >= last.scr_.v_->cols_ * 2, 1);
         ed_destroy(&last);
 
         cap_start();
@@ -1059,7 +1059,7 @@ int main(void) {
               cmd_delete_selection(&up_ed) ? 1 : 0, 1);
         n = cap_read(raw, (int) sizeof(raw));
         check("  falls back to repainting the area",
-              n > up_ed.scr_.cols_ * 10, 1);
+              n > up_ed.scr_.v_->cols_ * 10, 1);
         ed_destroy(&up_ed);
     }
 

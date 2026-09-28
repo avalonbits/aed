@@ -268,20 +268,20 @@ static pick_key modal_move(VKey vkey, int* at, int max) {
     return PICK_IDLE;
 }
 
-void ui_help(user_input* ui, screen* scr) {
+static void help_modal(user_input* ui, screen* scr) {
     scr_footer_invalidate(scr);
 
     // The prompt goes on ui->ypos_, the row every other modal uses. Putting it
     // one row higher left that row showing whatever the last modal had drawn
     // there -- the colour picker's own prompt sat under the settings list,
     // still offering its arrow keys, long after it had been answered.
-    const char top = scr->topY_;
+    const char top = scr->v_->topY_;
     const char bottom = ui->ypos_;
     const int rows = bottom - top - 1;
     if (rows < 1) {
         return;
     }
-    const int width = scr->cols_ < 255 ? scr->cols_ : 255;
+    const int width = scr->v_->cols_ < 255 ? scr->v_->cols_ : 255;
 
     static char line[256];
 
@@ -362,7 +362,7 @@ void ui_help(user_input* ui, screen* scr) {
     }
 }
 
-void ui_banner(user_input* ui, screen* scr) {
+static void banner_modal(user_input* ui, screen* scr) {
     (void) ui;
 
     static const char* BANNER[] = {
@@ -388,15 +388,15 @@ void ui_banner(user_input* ui, screen* scr) {
 
     const int boxw = inner + 2;                 // plus the two verticals
     const int boxh = n + 4;                     // two rules, and a blank inside each
-    const int width = scr->cols_ < 255 ? scr->cols_ : 255;
-    const int rows = scr->bottomY_ - scr->topY_;
+    const int width = scr->v_->cols_ < 255 ? scr->v_->cols_ : 255;
+    const int rows = scr->v_->bottomY_ - scr->v_->topY_;
     if (boxw > width || boxh > rows) {
         return;                                 // no room to say it nicely
     }
 
     // Centred in the text area both ways.
     const int left = (width - boxw) / 2;
-    const char first = (char) (scr->topY_ + (rows - boxh) / 2);
+    const char first = (char) (scr->v_->topY_ + (rows - boxh) / 2);
 
     static char line[256];
 
@@ -539,9 +539,9 @@ static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) 
     static font_entry fonts[FONT_MAX];
     const int n = font_list(fonts, FONT_MAX);
 
-    const char top = scr->topY_;
+    const char top = scr->v_->topY_;
     const char bottom = ui->ypos_;
-    const int width = scr->cols_ < 255 ? scr->cols_ : 255;
+    const int width = scr->v_->cols_ < 255 ? scr->v_->cols_ : 255;
     const int px = getsysvar_scrheight();
     const int cols = getsysvar_scrCols();
 
@@ -722,7 +722,7 @@ static bool ask_number(user_input* ui, screen* scr, char* title, int cur,
     return true;
 }
 
-RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
+static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
     // What AED is using now, which is what the rows show until something is
     // changed. `cfg` itself is left holding only the changes: it is written
     // back with cfg_update, which copies through every setting it is not told
@@ -742,9 +742,9 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
     font_now[fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1] = 0;
     cfg_defaults(cfg);
 
-    const char top = scr->topY_;
+    const char top = scr->v_->topY_;
     const char bottom = ui->ypos_;
-    const int width = scr->cols_ < 255 ? scr->cols_ : 255;
+    const int width = scr->v_->cols_ < 255 ? scr->v_->cols_ : 255;
     static char line[256];
     int at = 0;
     bool changed = false;
@@ -831,11 +831,11 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                     // area as a side effect, and what put the document back
                     // reads that row to work out where the view was -- so it
                     // is saved across the clear here, the same as there.
-                    const char currX = scr->currX_;
-                    const char currY = scr->currY_;
+                    const char currX = scr->v_->currX_;
+                    const char currY = scr->v_->currY_;
                     scr_clear(scr);
-                    scr->currX_ = currX;
-                    scr->currY_ = currY;
+                    scr->v_->currX_ = currX;
+                    scr->v_->currY_ = currY;
                 }
                 break;
             case ROW_FONT: {
@@ -860,6 +860,36 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                 break;
         }
     }
+}
+
+/*
+ * Help, the banner and the settings are laid out on the whole screen, like the
+ * header and footer, whichever view is current: the screen is pointed at
+ * whole_ while they are up and back at the caller's view afterwards. A
+ * program showing more than one view gets them across the whole text area
+ * rather than squeezed into one pane.
+ */
+void ui_help(user_input* ui, screen* scr) {
+    view* was = scr->v_;
+    scr_set_view(scr, NULL);
+    help_modal(ui, scr);
+    scr_set_view(scr, was);
+}
+
+void ui_banner(user_input* ui, screen* scr) {
+    view* was = scr->v_;
+    scr_set_view(scr, NULL);
+    banner_modal(ui, scr);
+    scr_set_view(scr, was);
+}
+
+RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
+    view* was = scr->v_;
+    scr_set_view(scr, NULL);
+    const RESPONSE got = settings_modal(ui, scr, cfg);
+    scr_set_view(scr, was);
+
+    return got;
 }
 
 void ui_message(user_input* ui, screen* scr, char* msg) {

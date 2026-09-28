@@ -80,7 +80,7 @@
  * everything past them is what scrolling up asks for next.
  */
 static int syn_backfill(editor* ed) {
-    int back = SYN_WINDOW - 1 - (ed->scr_.bottomY_ - ed->scr_.topY_);
+    int back = SYN_WINDOW - 1 - (ed->scr_.v_->bottomY_ - ed->scr_.v_->topY_);
     /*
      * Never deeper than the walk that fills it. The backfill is whatever the
      * read-back leaves behind, and the read-back goes back SYN_LOOKBACK lines
@@ -147,11 +147,11 @@ static void resync_below(editor* ed, char y, int was) {
         return;
     }
     const char next = (char)(y + 1);
-    if (next >= scr->bottomY_
+    if (next >= scr->v_->bottomY_
             || line_state(ed, line_at_row(ed, next)) == was) {
         return;
     }
-    cmd_repaint_rows(ed, next, (char)(scr->bottomY_ - 1));
+    cmd_repaint_rows(ed, next, (char)(scr->v_->bottomY_ - 1));
 }
 
 static int top_line(screen* scr, text_buffer* tb);
@@ -214,7 +214,7 @@ static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
 static char ed_colour_cell(void* ctx, char ypos, int col) {
     editor* ed = (editor*) ctx;
     SCR(ed);
-    if (!ed->doc_.syn_.loaded || ypos < scr->topY_ || ypos >= scr->bottomY_) {
+    if (!ed->doc_.syn_.loaded || ypos < scr->v_->topY_ || ypos >= scr->v_->bottomY_) {
         return -1;
     }
 
@@ -347,7 +347,7 @@ static int top_state(editor* ed, int line, char* out, int nout) {
  * the paint holds pointers into it.
  */
 static void view_top_is(editor* ed, int top) {
-    ed->synTop_ = top;
+    ed->scr_.v_->synTop_ = top;
     const int held = ed->doc_.synFirst_ != 0 ? top - ed->doc_.synFirst_ : -1;
     if (held < 0 || held >= ed->doc_.synKnown_) {
         refill_lines(ed, top, syn_backfill(ed));
@@ -365,7 +365,7 @@ static void fill_screen(editor* ed, text_buffer* tb) {
     // explicitly now. It also used to erase the footer, whose viewport it
     // overlapped; not erasing it is one fewer full-width row per refresh.
     SCR(ed);
-    char ypos = scr->topY_;
+    char ypos = scr->v_->topY_;
     /*
      * A document line, so an int. It was a char for a while -- a warning got
      * silenced by narrowing it rather than by widening what it was compared
@@ -416,7 +416,7 @@ static void fill_screen(editor* ed, text_buffer* tb) {
      */
     view_top_is(ed, tpos);
 
-    for (; ypos < scr->bottomY_; ypos++) {
+    for (; ypos < scr->v_->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(tb);
         scr_paint_row(scr, ypos, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 
@@ -429,7 +429,7 @@ static void fill_screen(editor* ed, text_buffer* tb) {
         tpos = npos;
     }
 
-    for (; ypos < scr->bottomY_; ypos++) {
+    for (; ypos < scr->v_->bottomY_; ypos++) {
         scr_write_line(scr, ypos, NULL, 0);
     }
 }
@@ -437,20 +437,20 @@ static void fill_screen(editor* ed, text_buffer* tb) {
 
 static void refresh_screen(editor* ed, text_buffer* tb) {
     SCR(ed);
-    char currY = scr->currY_;
-    char currX = scr->currX_;
+    char currY = scr->v_->currY_;
+    char currX = scr->v_->currX_;
 
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
-    while (tb_ypos(&cp) > 1 &&  scr->currY_ > scr->topY_) {
+    while (tb_ypos(&cp) > 1 &&  scr->v_->currY_ > scr->v_->topY_) {
         tb_up(&cp);
-        scr->currY_--;
+        scr->v_->currY_--;
     }
     fill_screen(ed, &cp);
 
-    scr->currY_ = currY;
-    scr->currX_ = currX;
+    scr->v_->currY_ = currY;
+    scr->v_->currX_ = currX;
     scr_sync_cursor(scr);
 }
 
@@ -465,18 +465,18 @@ static void fill_columns(editor* ed, text_buffer* tb, char sx, int count) {
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
-    int up = scr->currY_ - scr->topY_;
+    int up = scr->v_->currY_ - scr->v_->topY_;
     while (up-- > 0 && tb_ypos(&cp) > 1) {
         tb_up(&cp);
     }
 
     int tpos = tb_ypos(&cp);
-    for (char ypos = scr->topY_; ypos < scr->bottomY_; ypos++) {
+    for (char ypos = scr->v_->topY_; ypos < scr->v_->bottomY_; ypos++) {
         const split_line ln = tb_curr_line(&cp);
         for (int i = 0; i < count; i++) {
             const char g = scr_glyph_at_split(scr, ln.prefix_, ln.psz_,
                                               ln.suffix_, ln.ssz_,
-                                              scr->originX_ + sx + i);
+                                              scr->v_->originX_ + sx + i);
             scr_put_at(scr, (char)(sx + i), ypos, g);
         }
 
@@ -507,13 +507,13 @@ static void resync_after_scroll(editor* ed, text_buffer* tb, char to_ch,
     } else {
         scr_scroll_h(scr, delta);
         if (delta > 0) {
-            fill_columns(ed, tb, (char)(scr->cols_ - delta), delta);
+            fill_columns(ed, tb, (char)(scr->v_->cols_ - delta), delta);
         } else {
             fill_columns(ed, tb, 0, -delta);
         }
         if (edited) {
             split_line ln = tb_curr_line(tb);
-            scr_paint_row(scr, scr->currY_, ln.prefix_, ln.psz_,
+            scr_paint_row(scr, scr->v_->currY_, ln.prefix_, ln.psz_,
                           ln.suffix_, ln.ssz_);
         }
     }
@@ -586,7 +586,7 @@ bool cmd_quit(editor* ed) {
 // cursor's document line and its screen row give it away, and one derived
 // number cannot drift out of step with the two it comes from.
 static int top_line(screen* scr, text_buffer* tb) {
-    return tb_ypos(tb) - (scr->currY_ - scr->topY_);
+    return tb_ypos(tb) - (scr->v_->currY_ - scr->v_->topY_);
 }
 
 void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
@@ -648,7 +648,7 @@ static void extend_lines(editor* ed, int upto) {
      * paid that once a row, which measured seven times what the whole edit
      * should cost.
      */
-    const int screenful = ed->synTop_ + (ed->scr_.bottomY_ - ed->scr_.topY_);
+    const int screenful = ed->scr_.v_->synTop_ + (ed->scr_.v_->bottomY_ - ed->scr_.v_->topY_);
     if (upto < screenful) {
         upto = screenful;
     }
@@ -865,18 +865,18 @@ static void lines_moved(editor* ed, int line, int delta) {
 
 // The document line drawn on row `ypos`.
 static int line_at_row(editor* ed, char ypos) {
-    return ed->synTop_ + (ypos - ed->scr_.topY_);
+    return ed->scr_.v_->synTop_ + (ypos - ed->scr_.v_->topY_);
 }
 
 void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     SCR(ed);
     TB(ed);
 
-    if (fromY < scr->topY_) {
-        fromY = scr->topY_;
+    if (fromY < scr->v_->topY_) {
+        fromY = scr->v_->topY_;
     }
-    if (toY >= scr->bottomY_) {
-        toY = scr->bottomY_ - 1;
+    if (toY >= scr->v_->bottomY_) {
+        toY = scr->v_->bottomY_ - 1;
     }
 
     // Where the view is now, before any row asks the colouring about it.
@@ -886,7 +886,7 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_pos start;
-    start.line = top + (fromY - scr->topY_);
+    start.line = top + (fromY - scr->v_->topY_);
     start.x = 0;
     tb_seek(&cp, start);
     if (tb_ypos(&cp) != start.line) {
@@ -918,13 +918,13 @@ void cmd_repaint_rows(editor* ed, char fromY, char toY) {
          * makes typing the second character of a comment opener recolour
          * everything below it.
          */
-        const int below = (y + 1 < scr->bottomY_)
+        const int below = (y + 1 < scr->v_->bottomY_)
                         ? line_state(ed, line_at_row(ed, (char)(y + 1))) : 0;
         scr_write_line_sel_split(scr, y, ln.prefix_, ln.psz_,
                                  ln.suffix_, ln.ssz_, from, to);
-        if (y + 1 < scr->bottomY_
+        if (y + 1 < scr->v_->bottomY_
                 && line_state(ed, line_at_row(ed, (char)(y + 1))) != below) {
-            last = (char)(scr->bottomY_ - 1);
+            last = (char)(scr->v_->bottomY_ - 1);
         }
 
         const int prev = tb_ypos(&cp);
@@ -950,14 +950,14 @@ void cmd_repaint_span(editor* ed, char y, int from_col, int to_col) {
     SCR(ed);
     TB(ed);
 
-    if (y < scr->topY_ || y >= scr->bottomY_) {
+    if (y < scr->v_->topY_ || y >= scr->v_->bottomY_) {
         return;
     }
 
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_pos start;
-    start.line = top_line(scr, tb) + (y - scr->topY_);
+    start.line = top_line(scr, tb) + (y - scr->v_->topY_);
     start.x = 0;
     tb_seek(&cp, start);
 
@@ -977,13 +977,13 @@ static void place_cursor_row(editor* ed) {
     SCR(ed);
     TB(ed);
 
-    scr->currY_ = scr->topY_;
+    scr->v_->currY_ = scr->v_->topY_;
     text_buffer cp;
     tb_copy(&cp, tb);
     tb_home(&cp);
-    while (tb_ypos(&cp) > 1 && scr->currY_ < scr->bottomY_ - 1) {
+    while (tb_ypos(&cp) > 1 && scr->v_->currY_ < scr->v_->bottomY_ - 1) {
         tb_up(&cp);
-        scr->currY_++;
+        scr->v_->currY_++;
     }
 }
 
@@ -1017,20 +1017,20 @@ static bool keep_cursor_row(editor* ed, int top_line, int cursor_line) {
     SCR(ed);
 
     bool kept = true;
-    int y = scr->currY_ - (cursor_line - top_line);
-    if (y < scr->topY_) {
+    int y = scr->v_->currY_ - (cursor_line - top_line);
+    if (y < scr->v_->topY_) {
         // The selection began above the window, so there is no row to keep.
         // Put the join on the top row and show the document from there.
-        y = scr->topY_;
+        y = scr->v_->topY_;
         kept = false;
     }
-    if (y - scr->topY_ > top_line - 1) {
+    if (y - scr->v_->topY_ > top_line - 1) {
         // Never leave more rows above the cursor than the document has lines to
         // fill them with, or the view shows blank rows above line 1.
-        y = scr->topY_ + top_line - 1;
+        y = scr->v_->topY_ + top_line - 1;
         kept = false;
     }
-    scr->currY_ = (char) y;
+    scr->v_->currY_ = (char) y;
 
     return kept;
 }
@@ -1063,10 +1063,10 @@ static bool reshow_delta(editor* ed, int delta) {
         return false;
     }
 
-    cmd_repaint_rows(ed, scr->currY_, scr->currY_);
+    cmd_repaint_rows(ed, scr->v_->currY_, scr->v_->currY_);
 
-    const char first = (char) (scr->currY_ + 1);
-    const char last = (char) (scr->bottomY_ - 1);
+    const char first = (char) (scr->v_->currY_ + 1);
+    const char last = (char) (scr->v_->bottomY_ - 1);
     const int moved = delta < 0 ? -delta : delta;
     if (moved > 0 && first <= last) {
         const int height = last - first + 1;
@@ -1095,17 +1095,17 @@ static bool reshow_delta(editor* ed, int delta) {
 static void show_line_at(editor* ed, int line, int top_before) {
     SCR(ed);
 
-    int y = scr->topY_ + (line - top_before);
-    if (y < scr->topY_ || y >= scr->bottomY_) {
+    int y = scr->v_->topY_ + (line - top_before);
+    if (y < scr->v_->topY_ || y >= scr->v_->bottomY_) {
         // The edit was off screen. Put it half way down rather than at an edge,
         // so what surrounds it is visible.
-        y = scr->topY_ + (scr->bottomY_ - scr->topY_) / 2;
+        y = scr->v_->topY_ + (scr->v_->bottomY_ - scr->v_->topY_) / 2;
     }
-    if (y - scr->topY_ > line - 1) {
+    if (y - scr->v_->topY_ > line - 1) {
         // Never leave more rows above the cursor than the document has lines.
-        y = scr->topY_ + line - 1;
+        y = scr->v_->topY_ + line - 1;
     }
-    scr->currY_ = (char) y;
+    scr->v_->currY_ = (char) y;
 }
 
 // Repaints after an undo or a redo.
@@ -1152,11 +1152,11 @@ void cmd_undo(editor* ed) {
 static void centre_line(editor* ed, int line) {
     SCR(ed);
 
-    int y = scr->topY_ + (scr->bottomY_ - scr->topY_) / 2;
-    if (y - scr->topY_ > line - 1) {
-        y = scr->topY_ + line - 1;
+    int y = scr->v_->topY_ + (scr->v_->bottomY_ - scr->v_->topY_) / 2;
+    if (y - scr->v_->topY_ > line - 1) {
+        y = scr->v_->topY_ + line - 1;
     }
-    scr->currY_ = (char) y;
+    scr->v_->currY_ = (char) y;
 }
 
 // Jumps to a match, centres it, and leaves it selected.
@@ -1186,7 +1186,7 @@ static void jump_to_match(editor* ed, tb_pos at, int len) {
     // Through cmd_repaint_rows rather than refresh_screen: only that one asks
     // row_selection which columns are covered, and without it the match would
     // be selected without looking selected.
-    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 
@@ -1229,7 +1229,7 @@ static void find_from_cursor(editor* ed, bool forward) {
         // Left exactly where it was. Someone who cannot find what they wanted
         // has no use for a view that has moved somewhere else in the trying.
         ui_message(ui, scr, "Not found");
-        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
 
         return;
@@ -1247,7 +1247,7 @@ void cmd_find(editor* ed) {
     if (res != YES_OPT || text == NULL || sz <= 0) {
         // Cancelled, or nothing typed. The document has not moved -- a modal
         // search only jumps once there is something to jump to.
-        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(&ed->doc_.buf_));
 
         return;
@@ -1259,7 +1259,7 @@ void cmd_find(editor* ed) {
     ed->find_[sz] = 0;
     ed->findsz_ = sz;
 
-    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
     find_from_cursor(ed, true);
 }
 
@@ -1332,7 +1332,7 @@ static bool may_spill(editor* ed, tb_pos a, tb_pos b) {
         return true;
     }
     const RESPONSE res = ui_dialog(ui, scr, "Scratch file exists. Overwrite?");
-    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
     scr_show_cursor_ch(scr, tb_peek(tb));
 
     return res == YES_OPT;
@@ -1357,7 +1357,7 @@ void cmd_copy(editor* ed) {
         // selection failing is not news.
         if (tb_range_size(tb, a, b) > 0) {
             ui_message(ui, scr, "Could not write the scratch file");
-            cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+            cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
             scr_show_cursor_ch(scr, tb_peek(tb));
         }
     }
@@ -1387,7 +1387,7 @@ void cmd_cut(editor* ed) {
     if (!clip_copy(&ed->clip_, tb, a, b)) {
         if (tb_range_size(tb, a, b) > 0) {
             ui_message(ui, scr, "Could not write the scratch file");
-            cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+            cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
             scr_show_cursor_ch(scr, tb_peek(tb));
         }
 
@@ -1421,7 +1421,7 @@ void cmd_paste(editor* ed) {
     if (!tb_can_insert(tb, clip_size(&ed->clip_), clip_lines(&ed->clip_),
                        free_bytes, free_lines)) {
         ui_message(ui, scr, "Not enough room to paste");
-        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
 
         return;
@@ -1433,7 +1433,7 @@ void cmd_paste(editor* ed) {
     // there is still something to keep.
     if (!clip_verify(&ed->clip_)) {
         ui_message(ui, scr, "The scratch file cannot be read");
-        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
 
         return;
@@ -1462,7 +1462,7 @@ void cmd_paste(editor* ed) {
     undo_group_end(&ed->doc_.undo_);
     if (!pasted) {
         ui_message(ui, scr, "Not enough room to paste");
-        cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+        cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
 
         return;
@@ -1494,7 +1494,7 @@ void cmd_select_all(editor* ed) {
     int psz = 0;
     char* prefix = tb_prefix(tb, &psz);
     scr_place_cursor(scr, prefix, psz);
-    cmd_repaint_rows(ed, scr->topY_, scr->bottomY_);
+    cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 
@@ -1568,16 +1568,16 @@ static void restore_after_modal(editor* ed, bool moved) {
     SCR(ed);
     TB(ed);
 
-    const char currX = scr->currX_;
-    const char currY = scr->currY_;
+    const char currX = scr->v_->currX_;
+    const char currY = scr->v_->currY_;
     const char ch = tb_peek(tb);
 
     scr_clear(scr);
-    scr->currX_ = currX;
+    scr->v_->currX_ = currX;
     if (moved) {
         centre_line(ed, tb_ypos(tb));
     } else {
-        scr->currY_ = currY;
+        scr->v_->currY_ = currY;
     }
     refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, ch);
@@ -1624,7 +1624,7 @@ void cmd_settings(editor* ed) {
         // The prompt row moved with the geometry; ui_ places everything it
         // draws from it, so a prompt left on the old bottom row would land in
         // the middle of the document.
-        ui_resize(ui, scr->bottomY_, scr->cols_);
+        ui_resize(ui, scr->v_->bottomY_, scr->v_->cols_);
 
         // Fewer rows than before can leave the cursor past the bottom. Pulling
         // it back to the last text row keeps it somewhere the screen has, and
@@ -1666,12 +1666,12 @@ void cmd_putc(editor* ed, key k) {
         return;
     }
     split_line ln = tb_curr_line(tb);
-    const int was = line_state(ed, line_at_row(ed, scr->currY_) + 1);
+    const int was = line_state(ed, line_at_row(ed, scr->v_->currY_) + 1);
     const int moved = scr_putc(scr, k.key, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
         resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
     } else {
-        resync_below(ed, scr->currY_, was);
+        resync_below(ed, scr->v_->currY_, was);
     }
 }
 
@@ -1694,13 +1694,13 @@ static void region_up(editor* ed, text_buffer* tb, char ch, int in) {
      * now, and saying so is all this has to do -- the answers rebuild
      * themselves downwards as the rows are asked about.
      */
-    const int here = line_at_row(ed, scr->currY_);
+    const int here = line_at_row(ed, scr->v_->currY_);
     set_line_state(ed, here, in);
     lines_moved(ed, here, -1);
-    scr_scroll_up_split(scr, scr->currY_, scr->bottomY_-1,
+    scr_scroll_up_split(scr, scr->v_->currY_, scr->v_->bottomY_-1,
                         ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_, ch);
 
-    int diff = scr->bottomY_ - scr->currY_ - 1;
+    int diff = scr->v_->bottomY_ - scr->v_->currY_ - 1;
     int last = 0;
     int curr = 0;
     while (diff-- > 0) {
@@ -1709,7 +1709,7 @@ static void region_up(editor* ed, text_buffer* tb, char ch, int in) {
             // The document ran out before the screen did; the rows below it
             // are blank. Nothing to say: the answers already stop where the
             // document does.
-            scr_write_line(scr, scr->bottomY_-1, NULL, 0);
+            scr_write_line(scr, scr->v_->bottomY_-1, NULL, 0);
             return;
         }
     }
@@ -1719,7 +1719,7 @@ static void region_up(editor* ed, text_buffer* tb, char ch, int in) {
      * kept their colours, so only this one has to be worked out -- and what is
      * known about the rows moves with them rather than being worked out again.
      */
-    scr_paint_row(scr, scr->bottomY_-1,
+    scr_paint_row(scr, scr->v_->bottomY_-1,
                   ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
 }
 
@@ -1740,7 +1740,7 @@ static void cmd_del_merge(editor* ed) {
     TB(ed);
     SCR(ed);
     // Before the merge, while the view still describes the document.
-    const int in = line_state(ed, line_at_row(ed, scr->currY_));
+    const int in = line_state(ed, line_at_row(ed, scr->v_->currY_));
     if (!tb_del_merge(tb)) {
         return;
     }
@@ -1774,7 +1774,7 @@ void cmd_del(editor* ed) {
          * comment that was covering the rest of the line. The whole row goes
          * instead, which is what the other edits do.
          */
-        cmd_repaint_rows(ed, scr->currY_, scr->currY_);
+        cmd_repaint_rows(ed, scr->v_->currY_, scr->v_->currY_);
         scr_show_cursor_ch(scr, tb_peek(tb));
 
         return;
@@ -1794,14 +1794,14 @@ static void cmd_bksp_merge(editor* ed) {
      * still describes the document.
      */
     const int in = line_state(ed, line_at_row(ed,
-                                  scr->currY_ > scr->topY_
-                                      ? (char)(scr->currY_ - 1)
-                                      : scr->currY_));
+                                  scr->v_->currY_ > scr->v_->topY_
+                                      ? (char)(scr->v_->currY_ - 1)
+                                      : scr->v_->currY_));
     if (!tb_bksp_merge(tb)) {
         return;
     }
-    if (scr->currY_ > scr->topY_) {
-        scr->currY_--;
+    if (scr->v_->currY_ > scr->v_->topY_) {
+        scr->v_->currY_--;
     }
     int bsz = 0;
     char* bprefix = tb_prefix(tb, &bsz);
@@ -1830,12 +1830,12 @@ void cmd_bksp(editor* ed) {
         return;
     }
     split_line ln = tb_curr_line(tb);
-    const int was = line_state(ed, line_at_row(ed, scr->currY_) + 1);
+    const int was = line_state(ed, line_at_row(ed, scr->v_->currY_) + 1);
     const int moved = scr_bksp(scr, ln.prefix_, ln.psz_, ln.suffix_, ln.ssz_);
     if (moved != 0) {
         resync_after_scroll(ed, tb, tb_peek(tb), moved, true);
     } else {
-        resync_below(ed, scr->currY_, was);
+        resync_below(ed, scr->v_->currY_, was);
     }
 }
 
@@ -1862,7 +1862,7 @@ void cmd_newl(editor* ed) {
 
     char ch = tb_peek(tb);
     split_line ln = tb_curr_line(tb);
-    const int in = line_state(ed, line_at_row(ed, scr->currY_));
+    const int in = line_state(ed, line_at_row(ed, scr->v_->currY_));
 
     /*
      * What the new line begins with: the whitespace this one begins with, as
@@ -1933,13 +1933,13 @@ void cmd_newl(editor* ed) {
      * else now -- said once, the same way a join says it, and the answers
      * rebuild downwards as the rows are asked about.
      */
-    const int here = line_at_row(ed, scr->currY_);
+    const int here = line_at_row(ed, scr->v_->currY_);
     set_line_state(ed, here, in);
     lines_moved(ed, here, 1);
-    if (scr->currY_ >= scr->bottomY_-1) {
-        ed->synTop_++;          // the view scrolls; the top row draws the next
+    if (scr->v_->currY_ >= scr->v_->bottomY_-1) {
+        ed->scr_.v_->synTop_++;          // the view scrolls; the top row draws the next
     }
-    scr_write_line(scr, scr->currY_, ln.prefix_, ln.psz_);
+    scr_write_line(scr, scr->v_->currY_, ln.prefix_, ln.psz_);
 
     // The cursor sits after the indent, so the column is worked out from it
     // rather than from the start of the line -- scr_column_of expands a tab,
@@ -1957,12 +1957,12 @@ void cmd_newl(editor* ed) {
     // whole line it now is. Handing over only the suffix would paint the text
     // at the left margin and leave the colourer lexing a line the document
     // does not have.
-    if  (scr->currY_ < scr->bottomY_-1) {
-        scr->currY_++;
-        scr_scroll_down_split(scr, scr->currY_, scr->bottomY_-1,
+    if  (scr->v_->currY_ < scr->v_->bottomY_-1) {
+        scr->v_->currY_++;
+        scr_scroll_down_split(scr, scr->v_->currY_, scr->v_->bottomY_-1,
                               indent, nindent, ln.suffix_, ln.ssz_, ch);
     } else {
-        scr_scroll_up_split(scr, scr->topY_, scr->bottomY_-1,
+        scr_scroll_up_split(scr, scr->v_->topY_, scr->v_->bottomY_-1,
                             indent, nindent, ln.suffix_, ln.ssz_, ch);
     }
 }
@@ -1972,7 +1972,7 @@ void cmd_del_line(editor* ed) {
     SCR(ed);
 
     undo_group_begin(&ed->doc_.undo_);
-    const int in = line_state(ed, line_at_row(ed, scr->currY_));
+    const int in = line_state(ed, line_at_row(ed, scr->v_->currY_));
     const bool did = tb_del_line(tb);
     undo_group_end(&ed->doc_.undo_);
     if (!did) {
@@ -2092,7 +2092,7 @@ void cmd_up(editor* ed) {
     char* row = tb_suffix(tb, &lsz);
     const char to_ch = tb_goto_offset(tb, scr_byte_at(scr, row, lsz, want_col));
 
-    if (scr->currY_ == scr->topY_) {
+    if (scr->v_->currY_ == scr->v_->topY_) {
         scr_hide_cursor_ch(scr, from_ch);
         split_line top = tb_curr_line(tb);
         (void) scr_place_cursor(scr, top.prefix_, top.psz_);
@@ -2101,8 +2101,8 @@ void cmd_up(editor* ed) {
         tb_copy(&cp, tb);
         tb_home(&cp);
         const split_line cl = tb_curr_line(&cp);
-        ed->synTop_--;          // the top row draws the line above
-        scr_scroll_down_split(scr, scr->topY_, scr->bottomY_-1,
+        ed->scr_.v_->synTop_--;          // the top row draws the line above
+        scr_scroll_down_split(scr, scr->v_->topY_, scr->v_->bottomY_-1,
                               cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
     }
@@ -2134,7 +2134,7 @@ void cmd_down(editor* ed) {
     char* row = tb_suffix(tb, &lsz);
     const char to_ch = tb_goto_offset(tb, scr_byte_at(scr, row, lsz, want_col));
 
-    if (scr->currY_ >= scr->bottomY_-1) {
+    if (scr->v_->currY_ >= scr->v_->bottomY_-1) {
         scr_hide_cursor_ch(scr, from_ch);
         split_line bot = tb_curr_line(tb);
         (void) scr_place_cursor(scr, bot.prefix_, bot.psz_);
@@ -2149,8 +2149,8 @@ void cmd_down(editor* ed) {
          * out again costs one per row, which is what holding the arrow key
          * down used to pay for every line.
          */
-        ed->synTop_++;          // the top row draws the line below
-        scr_scroll_up_split(scr, scr->topY_, scr->bottomY_-1,
+        ed->scr_.v_->synTop_++;          // the top row draws the line below
+        scr_scroll_up_split(scr, scr->v_->topY_, scr->v_->bottomY_-1,
                             cl.prefix_, cl.psz_, cl.suffix_, cl.ssz_, to_ch);
         return;
     }
@@ -2202,13 +2202,13 @@ void cmd_page_up(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    const int curr = scr->currY_ - scr->topY_;
-    const int page = scr->bottomY_ - scr->topY_+1;
+    const int curr = scr->v_->currY_ - scr->v_->topY_;
+    const int page = scr->v_->bottomY_ - scr->v_->topY_+1;
     int remaining = tb_ypos(tb)-1 - curr;
 
     if (remaining <= 0) {
         remaining = tb_ypos(tb)-1;
-        scr->currY_ = scr->topY_;
+        scr->v_->currY_ = scr->v_->topY_;
     }
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_up(tb);
@@ -2226,8 +2226,8 @@ void cmd_page_down(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    const int curr = scr->bottomY_ - scr->currY_;
-    const int page = scr->bottomY_ - scr->topY_;
+    const int curr = scr->v_->bottomY_ - scr->v_->currY_;
+    const int page = scr->v_->bottomY_ - scr->v_->topY_;
     int remaining = tb_ymax(tb) - tb_ypos(tb) - curr + 1;
 
     if (remaining <= 0) {
@@ -2238,7 +2238,7 @@ void cmd_page_down(editor* ed) {
         // where there is nothing to walk to at all, PAGE DOWN moved the cursor
         // to the foot of the screen and typing began there.
         remaining = tb_ymax(tb) - tb_ypos(tb);
-        scr->currY_ += remaining;
+        scr->v_->currY_ += remaining;
     }
     for (int i = 0; i < page && remaining > 0; i++, remaining--) {
         tb_down(tb);
@@ -2280,13 +2280,13 @@ static void jump_to_line(editor* ed, int line) {
     // always how far it was asked to: a line number past the end stops at the
     // end. Further than a screenful puts it against the edge it travelled
     // towards.
-    const int diff = ((int) scr->currY_) + (tb_ypos(tb) - ypos);
-    if (diff < (int) scr->topY_) {
-        scr->currY_ = scr->topY_;
-    } else if (diff >= (int) scr->bottomY_) {
-        scr->currY_ = scr->bottomY_ - 1;
+    const int diff = ((int) scr->v_->currY_) + (tb_ypos(tb) - ypos);
+    if (diff < (int) scr->v_->topY_) {
+        scr->v_->currY_ = scr->v_->topY_;
+    } else if (diff >= (int) scr->v_->bottomY_) {
+        scr->v_->currY_ = scr->v_->bottomY_ - 1;
     } else {
-        scr->currY_ = (char) diff;
+        scr->v_->currY_ = (char) diff;
     }
     scr_sync_cursor(scr);
 

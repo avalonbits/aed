@@ -165,14 +165,14 @@ int main(void) {
         scr_footer(&scr, "a.txt", false, 2, 1);
         const int moved = cap_len();
 
-        check("a full footer covers the row", full >= scr.cols_, 1);
+        check("a full footer covers the row", full >= scr.v_->cols_, 1);
         check("a moved cursor sends far less", moved * 2 < full, 1);
         check("...and it is not nothing", moved > 0, 1);
 
         /* The filename still forces the whole row. */
         cap_start();
         scr_footer(&scr, "bb.txt", false, 2, 1);
-        check("a new filename redraws the row", cap_len() >= scr.cols_, 1);
+        check("a new filename redraws the row", cap_len() >= scr.v_->cols_, 1);
     }
 
     /* The position field is fixed width, so a long line number must not push
@@ -219,7 +219,7 @@ int main(void) {
         /* Within one width it stays on the fast path. */
         cap_start();
         scr_footer(&scr, "a.txt", false, 1, 10001);
-        check("...but moving within it does not", cap_len() * 2 < scr.cols_, 1);
+        check("...but moving within it does not", cap_len() * 2 < scr.v_->cols_, 1);
     }
 
     /* A full-screen refresh clears the text area with the viewport running to
@@ -229,7 +229,7 @@ int main(void) {
     cap_start();
     scr_footer(&scr, "a.txt", false, 1, 1);
     check("settled before the refresh", cap_len(), 0);
-    scr_clear_textarea(&scr, scr.topY_, scr.bottomY_);
+    scr_clear_textarea(&scr, scr.v_->topY_, scr.v_->bottomY_);
     cap_start();
     scr_footer(&scr, "a.txt", false, 1, 1);
     check("a full refresh brings the footer back", cap_len() > 0, 1);
@@ -237,7 +237,7 @@ int main(void) {
     /* A clear that stops above the footer leaves it alone, and must not throw
      * the saving away. */
     scr_footer(&scr, "a.txt", false, 1, 1);
-    scr_clear_textarea(&scr, scr.topY_, (char) (scr.bottomY_ - 1));
+    scr_clear_textarea(&scr, scr.v_->topY_, (char) (scr.v_->bottomY_ - 1));
     cap_start();
     scr_footer(&scr, "a.txt", false, 1, 1);
     check("a partial clear still sends nothing", cap_len(), 0);
@@ -300,8 +300,8 @@ int main(void) {
         check("  to the last column of the screen, not of the bar",
               n >= 5 && b[3] == (unsigned char) scr.barW_, 1);
         check("  over the footer row only",
-              n >= 5 && b[2] == (unsigned char) scr.bottomY_
-                     && b[4] == (unsigned char) scr.bottomY_, 1);
+              n >= 5 && b[2] == (unsigned char) scr.v_->bottomY_
+                     && b[4] == (unsigned char) scr.v_->bottomY_, 1);
         check("  cleared to fill it", n >= 6 && b[5] == 12, 1);
         check("  and the viewport put back", n >= 7 && b[6] == 26, 1);
     }
@@ -310,7 +310,7 @@ int main(void) {
      * column 0, not inset like the text area between the bars. */
     {
         user_input ui;
-        if (ui_init(&ui, 64, scr.bottomY_, scr.cols_) != NULL) {
+        if (ui_init(&ui, 64, scr.v_->bottomY_, scr.v_->cols_) != NULL) {
             static const stub_key any[] = {{ 'x', VK_x, 0, 0 }};
             stub_set_keys(any, 1);
             cap_start();
@@ -336,7 +336,7 @@ int main(void) {
         screen odd;
         scr_init(&odd, 32);
         user_input pick;
-        if (ui_init(&pick, 64, odd.bottomY_, odd.cols_) != NULL) {
+        if (ui_init(&pick, 64, odd.v_->bottomY_, odd.v_->cols_) != NULL) {
             static const stub_key esc[] = {{ 27, VK_ESCAPE, 0, 0 }};
             stub_set_keys(esc, 1);
             cap_start();

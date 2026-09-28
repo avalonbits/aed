@@ -31,22 +31,23 @@ static void check(const char* name, int got, int want) {
     }
 }
 
-static screen mkscreen(char cols) {
-    screen scr;
-    memset(&scr, 0, sizeof(scr));
-    scr.rows_ = 25;
-    scr.cols_ = cols;
-    scr.topY_ = 1;
-    scr.bottomY_ = 24;
-    scr.tab_size_ = SCR_DEFAULT_TAB_SIZE;
-
-    return scr;
+/* Filled in place: a screen points at its own whole_, so a copy would
+ * point back into the original. */
+static void mkscreen(screen* scr, char cols) {
+    memset(scr, 0, sizeof(*scr));
+    scr_set_view(scr, NULL);
+    scr->rows_ = 25;
+    scr->v_->cols_ = cols;
+    scr->v_->topY_ = 1;
+    scr->v_->bottomY_ = 24;
+    scr->tab_size_ = SCR_DEFAULT_TAB_SIZE;
 }
 
 int main(void) {
     stub_discard_output();
 
-    screen scr = mkscreen(80);
+    screen scr;
+    mkscreen(&scr, 80);
 
     /* --- tab width is configuration, with a sane default and bounds --- */
     check("default tab size", scr_tab_size(&scr), SCR_DEFAULT_TAB_SIZE);
@@ -93,19 +94,19 @@ int main(void) {
     memset(longline, 'x', sizeof(longline));
 
     scr_place_cursor(&scr, longline, 10);
-    check("placement inside the screen", scr.currX_, 10);
+    check("placement inside the screen", scr.v_->currX_, 10);
 
     scr_place_cursor(&scr, longline, 79);
-    check("placement at the last column", scr.currX_, 79);
+    check("placement at the last column", scr.v_->currX_, 79);
 
     scr_place_cursor(&scr, longline, 200);
-    check("placement past the edge clamps", scr.currX_, 79);
+    check("placement past the edge clamps", scr.v_->currX_, 79);
 
     scr_place_cursor(&scr, longline, 500);
-    check("far past the edge still clamps", scr.currX_, 79);
+    check("far past the edge still clamps", scr.v_->currX_, 79);
 
     scr_place_cursor(&scr, NULL, 0);
-    check("start of line is column 0", scr.currX_, 0);
+    check("start of line is column 0", scr.v_->currX_, 0);
 
     /* A tab-heavy line reaches the edge sooner than its byte count suggests --
      * the case that byte-offset arithmetic gets wrong. */
@@ -113,21 +114,23 @@ int main(void) {
     memset(tabs, '\t', sizeof(tabs));
     check("16 tabs at width 4 is column 64", scr_column_of(&scr, tabs, 16), 64);
     scr_place_cursor(&scr, tabs, 30);
-    check("30 tabs clamps to the edge", scr.currX_, 79);
+    check("30 tabs clamps to the edge", scr.v_->currX_, 79);
 
     /* A one-column screen must still produce a valid column, not -1. */
-    screen narrow = mkscreen(1);
+    screen narrow;
+    mkscreen(&narrow, 1);
     scr_place_cursor(&narrow, longline, 50);
-    check("1-column screen clamps to 0", narrow.currX_, 0);
+    check("1-column screen clamps to 0", narrow.v_->currX_, 0);
 
     /* cols_ == 0 is reachable -- scr_destroy sets it, and a bad scrCols sysvar
      * read would too. cols_-1 is then -1, so the placement must floor at 0
      * rather than hand the VDP a negative column. */
-    screen zero = mkscreen(0);
+    screen zero;
+    mkscreen(&zero, 0);
     scr_place_cursor(&zero, longline, 10);
-    check("zero-width screen floors at 0", zero.currX_, 0);
+    check("zero-width screen floors at 0", zero.v_->currX_, 0);
     scr_place_cursor(&zero, NULL, 0);
-    check("zero-width screen, empty line", zero.currX_, 0);
+    check("zero-width screen, empty line", zero.v_->currX_, 0);
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
