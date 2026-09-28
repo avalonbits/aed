@@ -19,6 +19,8 @@
 #ifndef _KEYS_H_
 #define _KEYS_H_
 
+#include <stdbool.h>
+
 #include "vkey.h"
 
 // Where every keystroke in AED comes from.
@@ -55,9 +57,36 @@ void keys_open(void);
 // buffer that no longer exists.
 void keys_close(void);
 
-// Blocks until a key goes down, and returns it. Releases are dropped -- nothing
-// in AED acts on one -- as is the wait itself: this spins rather than sleeping,
-// because the obvious way to yield, waitvblank(), hangs the editor outright.
+// The next key to go down, if one has: true and the key in `kp`, or false at
+// once when there is none waiting. Releases are dropped -- nothing in AED acts
+// on one -- and so are modifiers going down on their own.
+bool keys_poll(key_press* kp);
+
+// Blocks until a key goes down, and returns it. The wait spins rather than
+// sleeping, because the obvious way to yield, waitvblank(), hangs the editor
+// outright.
 key_press keys_wait(void);
+
+/*
+ * Where a widget reads its keys from.
+ *
+ * poll answers at once: a key, or nothing yet. While a widget waits for a key,
+ * idle (when there is one) runs between polls -- the program's chance to keep
+ * its own state moving while a prompt is up. ctx is handed to both.
+ *
+ * KEYS_MOS is the keyboard, through keys_poll, with nothing to do while
+ * waiting: what AED uses. A test can script one, and a program can put
+ * something of its own in the gaps.
+ */
+typedef struct _key_source {
+    bool (*poll)(void* ctx, key_press* kp);
+    void (*idle)(void* ctx);
+    void* ctx;
+} key_source;
+
+extern const key_source KEYS_MOS;
+
+// Waits on `ks` for the next key, running its idle between polls.
+key_press ks_wait(const key_source* ks);
 
 #endif  // _KEYS_H_

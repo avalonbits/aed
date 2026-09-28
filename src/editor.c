@@ -666,7 +666,7 @@ void ed_run(editor* ed) {
         // with the last key, which is the more honest question to ask -- but
         // it does not make the footer return any sooner. The loop only gets
         // here when a key arrives, and a modifier being released is not one:
-        // keys_wait drops those. So the footer comes back on the next key
+        // keys_poll drops those. So the footer comes back on the next key
         // pressed after the chord, not on the release itself.
         //
         // Reading them is a load through the sysvars pointer, not a call into
@@ -675,7 +675,8 @@ void ed_run(editor* ed) {
             scr_footer(&ed->scr_, tb_fname(buf), tb_changed(buf),
                        tb_xpos(buf), tb_ypos(buf));
         }
-    } while (ed_handle(ed, ed_translate(ed->keys_, keys_wait())));
+    } while (ed_handle(ed, ed_translate(ed->keys_,
+                                        ks_wait(ed->ui_.keys_))));
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
 }
@@ -769,7 +770,7 @@ static const key_binding AED_BINDINGS[] = {
 #undef C
 
 const keymap AED_KEYS = {
-    AED_BINDINGS, (int) (sizeof(AED_BINDINGS) / sizeof(AED_BINDINGS[0])),
+    AED_BINDINGS, (int) (sizeof(AED_BINDINGS) / sizeof(AED_BINDINGS[0])), NULL,
 };
 
 key_command ed_translate(const keymap* km, key_press kp) {
@@ -792,17 +793,20 @@ key_command ed_translate(const keymap* km, key_press kp) {
 
         return kc;
     }
-    for (int i = 0; i < km->n; i++) {
-        const key_binding* b = &km->keys[i];
-        if (b->vkey != kp.vkey || (b->mods & MOD_CTRL) != ctrl) {
-            continue;
+    for (; km != NULL; km = km->next) {
+        for (int i = 0; i < km->n; i++) {
+            const key_binding* b = &km->keys[i];
+            if (b->vkey != kp.vkey || (b->mods & MOD_CTRL) != ctrl) {
+                continue;
+            }
+            if ((b->mods & kp.mods) != b->mods) {
+                continue;
+            }
+            kc.cmd = b->cmd;
+            kc.flags |= b->flags;
+
+            return kc;
         }
-        if ((b->mods & kp.mods) != b->mods) {
-            continue;
-        }
-        kc.cmd = b->cmd;
-        kc.flags |= b->flags;
-        break;
     }
 
     return kc;

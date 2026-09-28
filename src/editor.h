@@ -58,7 +58,8 @@ typedef struct _editor {
     bool banner_;
 
     // What the keys mean -- see keymap below -- and whether a command has
-    // asked the loop to stop.
+    // asked the loop to stop. ed_init sets keys_ to AED_KEYS; left NULL, no
+    // key is bound to anything and typing still types.
     const struct _keymap* keys_;
     bool leaving_;
 
@@ -142,6 +143,9 @@ typedef struct _key_binding {
 typedef struct _keymap {
     const key_binding* keys;
     int n;
+    // Asked when nothing here matches, so a program can put a few keys of its
+    // own in front of AED_KEYS rather than copying it. NULL ends the chain.
+    const struct _keymap* next;
 } keymap;
 
 // AED's keys, which ed_init gives the editor.
@@ -152,7 +156,8 @@ extern const keymap AED_KEYS;
 void ed_cmd_save(editor* ed);
 void ed_cmd_quit(editor* ed);
 
-// What a key means under `km`. Waits for nothing: the key is the caller's, so
+// What a key means under `km` and the maps it chains to, the first binding
+// that matches winning. Waits for nothing: the key is the caller's, so
 // a program can read keys however it likes and still hand them here. This is
 // where a chord that MOS reports perfectly well can still be lost, and nothing
 // below it would notice.

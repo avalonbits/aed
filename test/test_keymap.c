@@ -67,7 +67,10 @@ static const key_binding MINE[] = {
     { VK_F9, 0,        0,           count },
     { VK_c,  MOD_CTRL, KC_OWNS_SEL, count },
 };
-static const keymap MY_KEYS = { MINE, 2 };
+static const keymap MY_KEYS = { MINE, 2, NULL };
+
+/* The same keys in front of AED's, which is how a program adds a few. */
+static const keymap MINE_THEN_AED = { MINE, 2, &AED_KEYS };
 
 int main(void) {
     stub_discard_output();
@@ -147,6 +150,30 @@ int main(void) {
         handle(3, VK_c, MOD_CTRL);
         check("its CTRL+C runs its command", f9s, 2);
         check("  and its flag keeps the selection", ed.doc_.selecting_ ? 1 : 0, 1);
+        ed.keys_ = &AED_KEYS;
+    }
+
+    /* --- a program's keys in front of AED's --- */
+    {
+        check("its own key still runs its own command",
+              meaning(&MINE_THEN_AED, 0, VK_F9, 0).cmd == count, 1);
+        check("a key it does not bind falls through to AED's",
+              meaning(&MINE_THEN_AED, 19, VK_s, MOD_CTRL).cmd == ed_cmd_save, 1);
+        const key_command c = meaning(&MINE_THEN_AED, 3, VK_c, MOD_CTRL);
+        check("a key both bind is its own", c.cmd == count, 1);
+        check("  with its own flags", c.flags & KC_OWNS_SEL, KC_OWNS_SEL);
+        check("AED's own keys, asked directly, are unchanged",
+              meaning(&AED_KEYS, 3, VK_c, MOD_CTRL).cmd == cmd_copy, 1);
+    }
+
+    /* --- no keymap at all --- */
+    {
+        const key_command s = meaning(NULL, 's', VK_s, 0);
+        check("with no keymap, typing still types", (s.flags & KC_PUTC) ? 1 : 0, 1);
+        check("  and CTRL+S means nothing",
+              meaning(NULL, 19, VK_s, MOD_CTRL).cmd == NULL ? 1 : 0, 1);
+        ed.keys_ = NULL;
+        check("  so an editor with none keeps going", handle(19, VK_s, MOD_CTRL), 1);
         ed.keys_ = &AED_KEYS;
     }
 
