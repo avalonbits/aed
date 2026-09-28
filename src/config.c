@@ -546,22 +546,26 @@ bool cfg_update(const config* cfg, const char* path) {
     return write_file(path, out, n);
 }
 
-bool cfg_migrate(void) {
-    // Already moved. An .cfg beside it is somebody else's file now.
-    char have = mos_fopen(CFG_PATH, FA_READ);
+bool cfg_migrate(const char* old, const char* path) {
+    if (old == NULL) {
+        return true;        // nothing was ever called anything else
+    }
+
+    // Already moved. An old file beside it is somebody else's file now.
+    char have = mos_fopen(path, FA_READ);
     if (have != 0) {
         mos_fclose(have);
 
         return true;
     }
 
-    char in = mos_fopen(CFG_PATH_OLD, FA_READ);
+    char in = mos_fopen(old, FA_READ);
     if (in == 0) {
         return true;        // neither file: a first run, and nothing to move
     }
 
     mos_mkdir(CFG_DIR);
-    char out = mos_fopen(CFG_PATH, FA_WRITE | FA_CREATE_ALWAYS);
+    char out = mos_fopen(path, FA_WRITE | FA_CREATE_ALWAYS);
     if (out == 0) {
         mos_fclose(in);
 
@@ -596,11 +600,11 @@ bool cfg_migrate(void) {
         // A half-written settings file would be read as the whole of the
         // reader's settings next time. Take it away and leave the old one
         // where it is, so the next run has something to try again from.
-        mos_del(CFG_PATH);
+        mos_del(path);
 
         return false;
     }
-    mos_del(CFG_PATH_OLD);
+    mos_del(old);
 
     return true;
 }

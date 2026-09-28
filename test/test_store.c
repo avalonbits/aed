@@ -16,6 +16,7 @@
 
 #include <agon/mos.h>
 
+#include "app.h"
 #include "doc_store.h"
 
 static int failures = 0;
@@ -73,12 +74,41 @@ int main(void) {
 
     /* --- a document with no name still gets somewhere to put its scratch --- */
     {
+        /* Named after the program, which the core learns from app_set: a name
+         * other than aed's shows it is the context's and not a literal. */
+        static const app_context ADE = { .name = "ade" };
+        app_set(&ADE);
         stub_file_reset();
         check("an unnamed document still opens a store",
               store_init(&st, NULL) ? 1 : 0, 1);
-        check("  beside nothing, in the current directory",
-              stub_file_exists("aed.aedh"), 1);
+        check("  beside nothing, in the current directory, by program",
+              stub_file_exists("ade.aedh") && stub_file_exists("ade.aedt"), 1);
+        check("  and under no other name", stub_file_exists("aed.aedh"), 0);
         store_destroy(&st);
+
+        /* A program that never said who it is gets no store, rather than
+         * scratch files under a name it did not choose. */
+        app_set(NULL);
+        stub_file_reset();
+        check("with no program set, an unnamed store fails",
+              store_init(&st, NULL) ? 1 : 0, 0);
+        check("  and leaves nothing behind",
+              stub_file_exists(".aedh") || stub_file_exists(".aedt"), 0);
+        check("  though a named one still opens",
+              store_init(&st, "/doc.txt") ? 1 : 0, 1);
+        store_destroy(&st);
+
+        /* The program's name is only known at run time, so its length is
+         * checked there. */
+        static char longname[STORE_PATH_MAX];
+        memset(longname, 'n', sizeof(longname) - 1);
+        longname[sizeof(longname) - 1] = 0;
+        const app_context big = { .name = longname };
+        app_set(&big);
+        stub_file_reset();
+        check("a program name too long for a path fails",
+              store_init(&st, NULL) ? 1 : 0, 0);
+        app_set(&ADE);
     }
 
     /* --- building the tail at open --- */

@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "app.h"
 #include "cmd_ops.h"
 #include "config.h"
 #include "keys.h"
@@ -73,11 +74,31 @@ static void ed_say(const char* msg) {
 }
 
 /*
- * Grammars and themes live beside the settings file, each kind in a directory
- * of its own, so a user can add one by dropping a file on the card.
+ * Where AED keeps its files, handed to the core by ed_init.
+ *
+ * The settings file is an INI file and is named like one now. The old name is
+ * still read once: cfg_migrate copies it across and takes it away, so a card
+ * that has been through an older AED comes up with the same settings under the
+ * new name and nothing is left behind to wonder about.
+ *
+ * An .ini beside a .cfg means the move has already happened and something put
+ * the .cfg back -- an older AED run from the same card, or a backup copied by
+ * hand. The .ini wins and the .cfg is left alone rather than read or removed;
+ * it is not this program's to delete once it has stopped being its file.
+ *
+ * Grammars, themes and fonts live beside the settings file, in /config/aed,
+ * each kind of file in a directory of its own, so a user can add one by
+ * dropping a file on the card.
  */
-#define SYNTAX_DIR   CFG_DIR "/aed/syntax"
-#define THEME_DIR    CFG_DIR "/aed/themes"
+const app_context AED_APP = {
+    .name       = "aed",
+    .cfg_path   = CFG_DIR "/aed.ini",
+    .cfg_old    = CFG_DIR "/aed.cfg",
+    .syntax_dir = CFG_DIR "/aed/syntax",
+    .theme_dir  = CFG_DIR "/aed/themes",
+    .font_dir   = CFG_DIR "/aed",
+};
+
 #define SYN_PATH_MAX 64
 
 static int join_path(char* out, int max, const char* dir, const char* name) {
@@ -115,7 +136,8 @@ static bool grammar_for(syntax* g, const char* fname) {
     static FILINFO info;
     static char path[SYN_PATH_MAX];
 
-    if (ffs_dopen(&dir, SYNTAX_DIR) != 0) {
+    const char* from = app_get()->syntax_dir;
+    if (ffs_dopen(&dir, from) != 0) {
         return false;
     }
     bool got = false;
@@ -126,7 +148,7 @@ static bool grammar_for(syntax* g, const char* fname) {
         if ((info.fattrib & AM_DIR) != 0) {
             continue;
         }
-        if (join_path(path, SYN_PATH_MAX, SYNTAX_DIR, info.fname) == 0) {
+        if (join_path(path, SYN_PATH_MAX, from, info.fname) == 0) {
             continue;
         }
         if (!syn_load(g, path)) {
@@ -160,7 +182,8 @@ static bool theme_for(theme* t, int bg) {
     static char path[SYN_PATH_MAX];
     static char nearest[SYN_PATH_MAX];
 
-    if (ffs_dopen(&dir, THEME_DIR) != 0) {
+    const char* from = app_get()->theme_dir;
+    if (ffs_dopen(&dir, from) != 0) {
         return false;
     }
     bool got = false;
@@ -173,7 +196,7 @@ static bool theme_for(theme* t, int bg) {
         if ((info.fattrib & AM_DIR) != 0) {
             continue;
         }
-        if (join_path(path, SYN_PATH_MAX, THEME_DIR, info.fname) == 0) {
+        if (join_path(path, SYN_PATH_MAX, from, info.fname) == 0) {
             continue;
         }
         if (!theme_load(t, path)) {
@@ -261,6 +284,10 @@ void ed_pick_syntax(editor* ed) {
 }
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
+    // First, because everything below may ask the core where AED's files are.
+    app_set(&AED_APP);
+    const app_context* app = app_get();
+
     screen* scr = scr_init(&ed->scr_, DEFAULT_CURSOR);
 
     // Settings are read once at startup. The setters clamp or reject out of
@@ -277,9 +304,9 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     cfg_defaults(&cfg);
     // Before anything reads them: a card written by an older AED has the
     // settings under the old name, and this is the one run that moves them.
-    const bool moved = cfg_migrate();
+    const bool moved = cfg_migrate(app->cfg_old, app->cfg_path);
 
-    if (cfg_load(&cfg, CFG_PATH)) {
+    if (cfg_load(&cfg, app->cfg_path)) {
         if (cfg.tab_size >= 0) {
             scr_set_tab_size(scr, (char) cfg.tab_size);
         }
@@ -310,7 +337,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         // does not become the user's setting.
         cfg.fg = scr_base_fg(scr);
         cfg.bg = scr_base_bg(scr);
-        cfg_save(&cfg, CFG_PATH);
+        cfg_save(&cfg, app->cfg_path);
     }
     /*
      * And when the move could not finish, nothing is written at all. The old

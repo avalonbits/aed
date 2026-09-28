@@ -27,7 +27,6 @@
 #include "doc_store.h"
 #include "text_buffer.h"
 #include "line_buffer.h"
-#include "editor.h"
 
 static int failures = 0;
 
@@ -1869,7 +1868,7 @@ int main(void) {
     /* --- the size the editor actually runs at can be navigated --- */
     {
         /*
-         * AED_DOC_KB is the one number a second open document would change, so
+         * TB_DOC_KB is the one number a second open document would change, so
          * this is the property that has to still hold when it does.
          *
          * prime_spare keeps a quarter of the character buffer free, and
@@ -1886,7 +1885,7 @@ int main(void) {
          * are fixed and covered above, so the arithmetic here is the floor
          * again. 72 KiB is measured good on MOS 3.0.2 and Console8 both.
          */
-        const int kb = AED_DOC_KB;
+        const int kb = TB_DOC_KB;
 
         /*
          * The block below finds the floor by failing at it, which says the

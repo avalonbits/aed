@@ -159,6 +159,10 @@ void        stub_set_glyph_ink(int first_row);
  * ffs_dread hands them back one at a time and then reports the end. */
 void        stub_set_dir(const char* const* names, const unsigned* sizes, int n);
 
+/* The path the last ffs_dopen asked for. The directory above is served
+ * whatever the path, so this is how a test sees which one was walked. */
+const char* stub_last_dopen(void);
+
 /* Files served by name, so one test can have a settings file, a font and a
  * document at once. Names not registered fall back to stub_file_set_content. */
 void        stub_file_add(const char* name, const char* data, int len);

@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include "app.h"
 #include "clipboard.h"
 #include "cmd_ops.h"
 #include "vkey.h"
@@ -52,7 +53,7 @@ typedef struct _editor {
      *
      * Held by value, and the editor is a static in main, so this is bss rather
      * than heap or stack. One grammar at a time: a second open document would
-     * want a second, which is the same question AED_DOC_KB asks.
+     * want a second, which is the same question TB_DOC_KB asks.
      */
     syntax syn_;
     theme theme_;
@@ -108,33 +109,9 @@ typedef struct _editor {
     int findsz_;
 } editor;
 
-/*
- * How much RAM one open document gets, in kilobytes.
- *
- * tb_init splits it: a thirty-second goes to the line index, the rest to the
- * character buffer. The index entries are three bytes each on this machine, so
- * at 72 a document is 71,424 bytes of text plus 6,912 of index -- 79,164 all
- * told once its name and scratch paths are counted, against a heap of 325,298.
- * One document is under a third of what there is, and the rest is what every
- * other feature is built from.
- *
- * Which is the number to change for a second one, and the only one. It is
- * free to move now: it used to be pinned from below, because a walker read by
- * moving the gap and the gap had to stay wider than a repaint, so a smaller
- * buffer meant a bigger reserve meant a window with no room in it. Walkers
- * move by number -- .internal/docs/WALKER.md -- and the floor went with that.
- *
- * It was 256 while nothing needed the heap. What 72 costs is arrow scrolling:
- * 0.78 s against 0.34 for 3,000 lines on MOS 3.0.2, and 187 store reads for a
- * full traversal against 119. Opening is faster, because less of the file is
- * indexed at open, and seeking does not move at all. What it buys is 200 KB.
- *
- * The floor is lower than this. The host suite navigates a 480 KB document at
- * whatever this says and passes at 48, failing at 44; correctness holds on the
- * emulator down to 8. 72 leaves about half again over the arithmetic floor.
- * See .internal/docs/SIZING.md section 3.
- */
-#define AED_DOC_KB 72
+// AED's files: its settings, and where its grammars, themes and fonts live.
+// ed_init hands this to the core with app_set.
+extern const app_context AED_APP;
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
 

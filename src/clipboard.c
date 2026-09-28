@@ -18,6 +18,8 @@
 
 #include "clipboard.h"
 
+#include "app.h"
+
 #include <agon/mos.h>
 #include <stddef.h>
 #include <string.h>
@@ -89,13 +91,22 @@ static bool build_scratch_path(text_buffer* tb, char* out, int max) {
     const char* name = tb_fname(tb);
     const int nlen = (name == NULL) ? 0 : (int) strlen(name);
     const int slen = (int) sizeof(SCRATCH_SUFFIX) - 1;
-    (void) max;
 
     // An unnamed buffer has nothing to sit beside, so it gets a plain name in
-    // the current directory rather than one starting with a dot.
+    // the current directory rather than one starting with a dot: the
+    // program's, from app.h. A document's own name always fits -- the static
+    // assert above -- but the program's is only known at run time.
     if (nlen == 0) {
-        memcpy(out, "aed", 3);
-        memcpy(out + 3, SCRATCH_SUFFIX, (size_t) slen + 1);
+        const app_context* app = app_get();
+        if (app == NULL || app->name == NULL) {
+            return false;
+        }
+        const int alen = (int) strlen(app->name);
+        if (alen + slen >= max) {
+            return false;
+        }
+        memcpy(out, app->name, (size_t) alen);
+        memcpy(out + alen, SCRATCH_SUFFIX, (size_t) slen + 1);
 
         return true;
     }

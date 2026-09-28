@@ -18,6 +18,8 @@
 
 #include "doc_store.h"
 
+#include "app.h"
+
 #include <agon/mos.h>
 #include <stddef.h>
 #include <string.h>
@@ -79,13 +81,19 @@ static bool name_with(char* out, const char* base, const char* suffix) {
     const int slen = (int) strlen(suffix);
 
     // Nothing to sit beside, so a plain name in the current directory rather
-    // than one starting with a dot -- the same choice the clipboard makes.
+    // than one starting with a dot -- the same choice the clipboard makes. The
+    // name is the program's: see app.h.
     if (blen == 0) {
-        if (3 + slen >= STORE_PATH_MAX) {
+        const app_context* app = app_get();
+        if (app == NULL || app->name == NULL) {
             return false;
         }
-        memcpy(out, "aed", 3);
-        memcpy(out + 3, suffix, (size_t) slen + 1);
+        const int alen = (int) strlen(app->name);
+        if (alen + slen >= STORE_PATH_MAX) {
+            return false;
+        }
+        memcpy(out, app->name, (size_t) alen);
+        memcpy(out + alen, suffix, (size_t) slen + 1);
 
         return true;
     }

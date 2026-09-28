@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "app.h"
 #include "keys.h"
 #include "version.h"
 #include "vkey.h"
@@ -443,8 +444,7 @@ void ui_banner(user_input* ui, screen* scr) {
 
 // ---- settings ----------------------------------------------------------
 
-// Fonts live beside the settings file, in a directory of their own.
-#define FONT_DIR   CFG_DIR "/aed"
+// Fonts live beside the settings file, in the program's directory: see app.h.
 #define FONT_MAX   16
 #define GLYPHS     256
 
@@ -468,7 +468,7 @@ static int font_list(font_entry* out, int max) {
     static FILINFO info;
     int n = 0;
 
-    if (ffs_dopen(&dir, FONT_DIR) != 0) {
+    if (ffs_dopen(&dir, app_get()->font_dir) != 0) {
         return 0;
     }
     while (n < max) {
@@ -584,12 +584,13 @@ static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) 
 
                 return NO_OPT;          // chosen, and the choice is "none"
             }
-            const int dlen = (int) strlen(FONT_DIR);
+            const char* dir = app_get()->font_dir;
+            const int dlen = (int) strlen(dir);
             const int flen = (int) strlen(fonts[at - 1].name);
             if (dlen + 1 + flen >= max) {
                 return CANCEL_OPT;
             }
-            memcpy(out, FONT_DIR, (size_t) dlen);
+            memcpy(out, dir, (size_t) dlen);
             out[dlen] = '/';
             memcpy(out + dlen + 1, fonts[at - 1].name, (size_t) flen);
             out[dlen + 1 + flen] = 0;

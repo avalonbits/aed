@@ -300,8 +300,12 @@ int main(void) {
     }
 
     /* An unnamed buffer has no document to sit beside. The scratch file still
-     * needs a name, and one starting with a dot is not it. */
+     * needs a name, and one starting with a dot is not it: it takes the
+     * program's, from app_set. A name other than aed's shows it is the
+     * context's and not a literal. */
     {
+        static const app_context ADE = { .name = "ade" };
+        app_set(&ADE);
         stub_file_reset();
         stub_file_fail_open(1);          /* no file: an empty, unnamed buffer */
         text_buffer anon;
@@ -317,8 +321,35 @@ int main(void) {
         stub_file_reset();
         check("copying from it spills",
               clip_copy(&an, &anon, at(1, 0), at(1, 40)) ? 1 : 0, 1);
-        check("  under a name of its own", strcmp(clip_path(&an), "aed.scratch"), 0);
+        check("  under the program's name", strcmp(clip_path(&an), "ade.scratch"), 0);
+        check("  which is where the text went", stub_file_exists("ade.scratch"), 1);
         clip_destroy(&an);
+
+        /* A program that never said who it is cannot spill: the copy fails
+         * rather than writing a file under a name nobody chose. */
+        app_set(NULL);
+        clipboard none;
+        clip_init(&none, 8);
+        stub_file_reset();
+        check("with no program set, a spill from it fails",
+              clip_copy(&none, &anon, at(1, 0), at(1, 40)) ? 1 : 0, 0);
+        check("  and writes nothing", stub_file_exists(".scratch"), 0);
+        clip_destroy(&none);
+
+        /* The program's name is only known at run time, so whether it fits
+         * the path is checked there. */
+        static char longname[sizeof(((clipboard*) 0)->path_)];
+        memset(longname, 'n', sizeof(longname) - 1);
+        longname[sizeof(longname) - 1] = 0;
+        const app_context big = { .name = longname };
+        app_set(&big);
+        clipboard toolong;
+        clip_init(&toolong, 8);
+        stub_file_reset();
+        check("a program name too long for a path cannot spill",
+              clip_copy(&toolong, &anon, at(1, 0), at(1, 40)) ? 1 : 0, 0);
+        clip_destroy(&toolong);
+        app_set(&ADE);
         tb_destroy(&anon);
     }
 
