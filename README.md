@@ -42,6 +42,7 @@ your Agon.
 * [Large files, and waiting for them](#large-files-and-waiting-for-them)
 * [Find](#find)
 * [Undo and redo](#undo-and-redo)
+* [Building on AED's libraries](#building-on-aeds-libraries)
 
 Beyond this file: [writing a grammar](docs/SYNTAX.md), [writing a
 theme](docs/THEMES.md), and [how AED works](docs/DESIGN.md) for the design.
@@ -513,3 +514,30 @@ If no file was specified on startup, it will prompt for a file name to save the 
 `RETURN` changes it; `ESC` closes. Choosing the colours row shows the picker at the
 bottom of the screen, where `UP/DOWN` selects the foreground colour and `LEFT/RIGHT`
 the background.
+
+# Building on AED's libraries
+AED is built from two libraries that another Agon program can use as well:
+`libedcore.a`, the document -- buffers, paging, undo, the clipboard, grammars,
+themes and settings -- and `libedui.a`, the screen, views, keys, prompts, the
+editing commands and the loop. Each release carries them, with their headers,
+as `aed-libs-<version>.tar.gz`:
+
+```
+lib/libedcore.a
+lib/libedui.a
+include/core/*.h
+include/ui/*.h
+VERSION               the AED version and commit they were built from
+```
+
+With AgonDev, add the two include directories and link the UI before the core:
+
+```
+CFLAGS += -I<dir>/include/core -I<dir>/include/ui
+PROJECTLIBDIR := <dir>/lib
+LIBS := -ledui -ledcore
+```
+
+A program starts an editor with `ed_init_for`, handing it its own files, keys and
+start-up in an `ed_program` -- see `editor.h`. From a checkout, `make libs` builds
+the two libraries and `./mklibs.sh` packages them.

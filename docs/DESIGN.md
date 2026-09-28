@@ -53,9 +53,13 @@ that another program links as AED does:
 * **[`src/`](../src)** is AED itself: `main`, its keys, help, banner and
   settings, linked against both.
 
-The host suite builds the core with only `src/core` on the include path and links
-the tests that use nothing else against the core alone, so a core that reached
-into the UI would fail to build there first.
+The host suite builds each layer with only the layers under it on the include
+path, and links the tests that use nothing more against those layers alone, so a
+core that reached into the UI, or a UI that reached into AED, fails to build
+there first. [`mklibs.sh`](../mklibs.sh) packages the two libraries and their
+headers, and each release carries the package; [`test/libs.sh`](../test/libs.sh)
+builds programs against it, and reads AED's link map to check the binary is
+really linked from the archives.
 
 Each file has a header holding what the other parts need from it, and the
 sections below follow them:

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds the release zip: unzip it at the root of an SD card and everything
-# lands where AED expects it.
+# lands where AED expects it. Also builds aed-libs-<version>.tar.gz, AED's two
+# libraries and their headers, with mklibs.sh.
 #
 #   bin/aed.bin              MOS searches /bin, so `aed` works as a command
 #   config/aed/unscii8.bin   the three fonts, where the README's example
@@ -75,11 +76,15 @@ rm -f "$OUT"
 echo "$OUT"
 unzip -l "$OUT" | sed -n '4,$p' | head -n -2
 
+# The libraries, for a program built on AED's core and UI rather than on AED.
+LIBS=$(./mklibs.sh "$VERSION")
+
 # The release page carries the loose files too, so somebody who already has the
 # fonts can take just the binary -- which is what most upgrades are. The zip is
 # still the one to point people at.
 echo
 echo "attach all of these to the release:"
-for f in "$OUT" bin/aed.bin fonts/unscii8.bin fonts/unscii8x10.bin fonts/unscii16.bin; do
+for f in "$OUT" bin/aed.bin fonts/unscii8.bin fonts/unscii8x10.bin fonts/unscii16.bin \
+         "$LIBS"; do
     echo "  $f"
 done

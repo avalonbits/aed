@@ -50,6 +50,23 @@ FILTER=${1:-}
 status=0
 
 if [ -z "$FILTER" ]; then
+# One name per file across the three layers. Each is on everyone's include
+# path, so two headers of the same name would be found in whichever directory
+# comes first; and frames.sh and the bench key their output by file name, so
+# two sources of the same name would overwrite one another there.
+dups=$(for f in src/*.[ch] src/core/*.[ch] src/ui/*.[ch]; do basename "$f"; done \
+       | sort | uniq -d | tr '\n' ' ')
+if [ -z "$dups" ]; then
+    printf 'PASS  %-52s %s\n' "every source and header has a name of its own" "yes"
+else
+    printf 'FAIL  %-52s %s\n' "the same name in more than one layer" "$dups"
+    status=1
+fi
+
+# The libraries: that AED is linked from them, that `make lib` builds them, and
+# that the package mklibs.sh makes is enough to build another program with.
+./test/libs.sh || status=$?
+
 # The build itself, which nothing below can check: these tests compile every
 # source together on every run, so a stale object file is invisible to them.
 # Skipped when the AgonDev toolchain is not on PATH.
@@ -84,7 +101,9 @@ compile() {    # compile <flags array name> <objects array name> <sources...>
     local -n flags=$1 objs=$2
     shift 2
     for s in "$@"; do
-        o="$OUT/$(basename "$s" .c).o"
+        # Named by path, so a core/x.c and a ui/x.c would not overwrite
+        # each other's object here even if the check below let one through.
+        o="$OUT/$(echo "${s%.c}" | tr / _).o"
         if ! cc "${flags[@]}" -c -o "$o" "$s"; then
             echo "FAIL  $s did not compile"
 
