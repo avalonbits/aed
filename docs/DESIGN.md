@@ -140,7 +140,9 @@ The split is real and worth keeping:
   position it deals in is a [`tb_pos`](../src/text_buffer.h) — a line of the
   *document* and a column — and it repaints nothing.
 * **`screen`** is the VDP. It knows nothing about the document. It is told what
-  to paint and where.
+  to paint and where, and paints into a [`view`](../src/view.h): a rectangle
+  of the screen with its own cursor and scroll. AED has one, the text area of
+  the whole screen, which the screen lays out itself.
 * **`cmd_ops.c`** is the controller, and it is where the two meet. One function
   per command, each taking the whole `editor`.
 

@@ -236,7 +236,7 @@ screen**, held as a window.
     int  synFirst_;                // the first line an answer is held for
     int  synKnown_;                // how many consecutive lines from it
 
-    // in the editor (editor.h): it belongs to the view
+    // in the view (view.h): which line it draws at the top is its own
     int  synTop_;                  // the document line drawn at the top row
 ```
 
