@@ -127,7 +127,7 @@ type    = 14
 ```
 
 A colour that reads well on black is unreadable on white, so **the background in
-force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L230) chooses the
+force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L235) chooses the
 grammar by the document's extension and then the first theme that covers the
 background, and it runs at startup, on open, and when the settings modal leaves
 a different background behind.
@@ -231,9 +231,12 @@ What survives is small: **what each line begins inside, for the lines on
 screen**, held as a window.
 
 ```c
-    char lineSyn_[SCR_MAX_ROWS];   // what line synFirst_ + i begins inside
+    // in the document (document.h): it belongs to the file
+    char lineSyn_[SYN_WINDOW];     // what line synFirst_ + i begins inside
     int  synFirst_;                // the first line an answer is held for
     int  synKnown_;                // how many consecutive lines from it
+
+    // in the editor (editor.h): it belongs to the view
     int  synTop_;                  // the document line drawn at the top row
 ```
 

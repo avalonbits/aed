@@ -86,7 +86,7 @@ static void setup(editor* ed, int bg) {
     ed->scr_.baseBg_ = (char) bg;
     ed->scr_.fg_ = 15;
     ed->scr_.bg_ = (char) bg;
-    if (!tb_init(&ed->buf_, 4, NULL)) {
+    if (!tb_init(&ed->doc_.buf_, 4, NULL)) {
         fprintf(stderr, "tb_init failed\n");
     }
     // ed_init does this for a real editor. Without it the screen has nobody to
@@ -97,7 +97,7 @@ static void setup(editor* ed, int bg) {
 /* Gives the buffer a name and a document, the way opening a file does. */
 static void named_text(editor* ed, const char* fname, const char* text) {
     stub_file_add(fname, text, (int) strlen(text));
-    tb_load(&ed->buf_, fname);
+    tb_load(&ed->doc_.buf_, fname);
 }
 
 static void named(editor* ed, const char* fname) {
@@ -235,14 +235,14 @@ int main(void) {
         setup(&ed, 0);
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
-        check("a .c file finds a grammar", ed.syn_.loaded ? 1 : 0, 1);
-        check("  and it is the C one", strcmp(ed.syn_.name, "C") == 0 ? 1 : 0, 1);
+        check("a .c file finds a grammar", ed.doc_.syn_.loaded ? 1 : 0, 1);
+        check("  and it is the C one", strcmp(ed.doc_.syn_.name, "C") == 0 ? 1 : 0, 1);
         check("  with a theme to colour it", ed.scr_.theme_ != NULL ? 1 : 0, 1);
         check("    the one for this background",
               strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
         check("  and C is a language that crosses lines",
-              syn_crosses_lines(&ed.syn_) ? 1 : 0, 1);
-        tb_destroy(&ed.buf_);
+              syn_crosses_lines(&ed.doc_.syn_) ? 1 : 0, 1);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- grammars and themes come from the program's directories --- */
@@ -268,17 +268,17 @@ int main(void) {
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
         check("a grammar is found where the program keeps them",
-              ed.syn_.loaded ? 1 : 0, 1);
+              ed.doc_.syn_.loaded ? 1 : 0, 1);
         check("  and a theme beside it", ed.scr_.theme_ != NULL ? 1 : 0, 1);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
 
         app_set(&AED_APP);
         setup(&ed, 0);
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
         check("  and not where another program keeps its own",
-              ed.syn_.loaded ? 1 : 0, 0);
-        tb_destroy(&ed.buf_);
+              ed.doc_.syn_.loaded ? 1 : 0, 0);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- an assembly file gets the other one --- */
@@ -288,10 +288,10 @@ int main(void) {
         named(&ed, "/boot.asm");
         ed_pick_syntax(&ed);
         check("an .asm file finds its own grammar",
-              strcmp(ed.syn_.name, "asm") == 0 ? 1 : 0, 1);
+              strcmp(ed.doc_.syn_.name, "asm") == 0 ? 1 : 0, 1);
         check("  and assembly crosses no lines",
-              syn_crosses_lines(&ed.syn_) ? 1 : 0, 0);
-        tb_destroy(&ed.buf_);
+              syn_crosses_lines(&ed.doc_.syn_) ? 1 : 0, 0);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a background no theme lists takes the nearest in brightness --- */
@@ -323,15 +323,15 @@ int main(void) {
             snprintf(name, sizeof(name), "background %d in a 64 colour mode",
                      cases[i].bg);
             if (cases[i].theme != NULL) {
-                check(name, ed.syn_.loaded ? 1 : 0, 1);
+                check(name, ed.doc_.syn_.loaded ? 1 : 0, 1);
                 check("  takes the theme nearest it",
                       strcmp(ed.theme_.name, cases[i].theme) == 0 ? 1 : 0, 1);
             } else {
-                check(name, ed.syn_.loaded ? 1 : 0, 0);
+                check(name, ed.doc_.syn_.loaded ? 1 : 0, 0);
                 check("  is too far from every theme to take one",
                       ed.scr_.theme_ == NULL ? 1 : 0, 1);
             }
-            tb_destroy(&ed.buf_);
+            tb_destroy(&ed.doc_.buf_);
         }
 
         /* A background a theme lists keeps that theme, even when another is
@@ -342,7 +342,7 @@ int main(void) {
         ed_pick_syntax(&ed);
         check("a listed background keeps the theme that lists it",
               strcmp(ed.theme_.name, "bold") == 0 ? 1 : 0, 1);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a file no grammar claims is painted plainly --- */
@@ -351,10 +351,10 @@ int main(void) {
         setup(&ed, 0);
         named(&ed, "/notes.txt");
         ed_pick_syntax(&ed);
-        check("a .txt file finds no grammar", ed.syn_.loaded ? 1 : 0, 0);
+        check("a .txt file finds no grammar", ed.doc_.syn_.loaded ? 1 : 0, 0);
         check("  so the screen is given no theme",
               ed.scr_.theme_ == NULL ? 1 : 0, 1);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a grammar with no theme for this background colours nothing --- */
@@ -367,9 +367,9 @@ int main(void) {
         setup(&ed, 7);          /* no theme here covers 7 */
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
-        check("a background no theme covers", ed.syn_.loaded ? 1 : 0, 0);
+        check("a background no theme covers", ed.doc_.syn_.loaded ? 1 : 0, 0);
         check("  leaves the screen unthemed", ed.scr_.theme_ == NULL ? 1 : 0, 1);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the pair a theme moves is the active one --- */
@@ -389,7 +389,7 @@ int main(void) {
         check("  moves the active foreground", ed.scr_.fg_, 11);
         check("  and leaves the base alone", scr_base_fg(&ed.scr_), 15);
         check("    and the base background too", scr_base_bg(&ed.scr_), 2);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
 
         setup(&ed, 2);
         ed.scr_.fg_ = 11;       /* as the theme left it */
@@ -397,7 +397,7 @@ int main(void) {
         ed_pick_syntax(&ed);
         check("opening a file with no grammar restores the user's own",
               ed.scr_.fg_, 15);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a theme that says nothing about the pair moves nothing --- */
@@ -410,7 +410,7 @@ int main(void) {
         check("  so the document keeps its own colours", ed.scr_.fg_, 15);
         check("    and still colours its tokens",
               theme_colour(&ed.theme_, TOK_COMMENT), 8);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- what a painted row actually puts on the wire --- */
@@ -432,7 +432,7 @@ int main(void) {
         stub_emit_colours(1);
         named_text(&ed, "/main.c", "int x; /* hi\r\nplain\r\n");
         ed_pick_syntax(&ed);
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
 
         cap_start();
@@ -512,7 +512,7 @@ int main(void) {
         check("    and is not coloured as a type",
               has_colour(cap, n, 14), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a full repaint works out what its top row is inside --- */
@@ -532,10 +532,10 @@ int main(void) {
         stub_emit_colours(1);
         named_text(&ed, "/main.c", "/* open\r\nstill\r\nmore\r\n");
         ed_pick_syntax(&ed);
-        tb_home(&ed.buf_);
-        tb_down(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
+        tb_down(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;             /* the cursor row is the top row */
-        check("the view is on the second line", tb_ypos(&ed.buf_), 2);
+        check("the view is on the second line", tb_ypos(&ed.doc_.buf_), 2);
 
         cap_start();
         cmd_show(&ed);
@@ -543,7 +543,7 @@ int main(void) {
         check("  a full repaint colours its top row as comment",
               has_colour(cap, n, 8), 1);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- editing and scrolling keep the colouring --- */
@@ -573,10 +573,10 @@ int main(void) {
             k += sprintf(doc + k, "int a%d;\r\n", i);
         }
         stub_file_add("/edit.c", doc, k);
-        tb_load(&ed.buf_, "/edit.c");
+        tb_load(&ed.doc_.buf_, "/edit.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;           /* a short screen, so the edge is near */
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
 
         cap_start();
@@ -584,7 +584,7 @@ int main(void) {
         int n = cap_read(cap, (int) sizeof(cap));
         check("opening colours the document", has_colour(cap, n, 14), 1);
 
-        tb_end(&ed.buf_);
+        tb_end(&ed.doc_.buf_);
         const key ch = { 'x', VK_X };
         cap_start();
         cmd_putc(&ed, ch);
@@ -603,7 +603,7 @@ int main(void) {
 
 
 
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         cap_start();
         cmd_del(&ed);
         n = cap_read(cap, (int) sizeof(cap));
@@ -633,7 +633,7 @@ int main(void) {
               has_colour(cap, n, 14), 1);
 
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- opening a comment recolours what is below it --- */
@@ -657,14 +657,14 @@ int main(void) {
             k2 += sprintf(doc2 + k2, "int b%d;\r\n", i);
         }
         stub_file_add("/open.c", doc2, k2);
-        tb_load(&ed.buf_, "/open.c");
+        tb_load(&ed.doc_.buf_, "/open.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
-        tb_end(&ed.buf_);
+        tb_end(&ed.doc_.buf_);
         const key slash = { '/', VK_SLASH };
         const key star = { '*', VK_8 };
         cmd_putc(&ed, slash);
@@ -682,7 +682,7 @@ int main(void) {
         check("  a row below it is comment", has_colour(cap, n3, 8), 1);
         check("    and is no longer a type", has_colour(cap, n3, 14), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a tab does not push the colouring off the token --- */
@@ -707,9 +707,9 @@ int main(void) {
         stub_emit_colours(1);
         static const char TABBED[] = "\tint x;\r\nint y;\r\n";
         stub_file_add("/tab.c", TABBED, (int) sizeof(TABBED) - 1);
-        tb_load(&ed.buf_, "/tab.c");
+        tb_load(&ed.doc_.buf_, "/tab.c");
         ed_pick_syntax(&ed);
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
 
         cap_start();
@@ -725,7 +725,7 @@ int main(void) {
         check("  and an unindented one at column 0",
               column_of_colour(cap, n5, 14), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the cursor puts back the colour it stood on --- */
@@ -748,7 +748,7 @@ int main(void) {
         setup(&ed, 0);
         named(&ed, "/cursor.c");        /* "int x;" */
         ed_pick_syntax(&ed);
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);                  /* which is what fills the model in */
 
@@ -769,13 +769,13 @@ int main(void) {
         check("  and stepping off plain text does not",
               has_colour(cap, nc, 14), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
 
         files();
         setup(&ed, 0);
         named(&ed, "/cursor.txt");
         ed_pick_syntax(&ed);
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
         stub_emit_colours(1);
@@ -785,7 +785,7 @@ int main(void) {
         check("  a document with no grammar asks for no colour",
               has_colour(cap, nc, 14), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- return in front of a line --- */
@@ -806,15 +806,15 @@ int main(void) {
         stub_emit_colours(1);
         static const char NL[] = "int a;\r\nint b;\r\nint c;\r\n";
         stub_file_add("/nl.c", NL, (int) sizeof(NL) - 1);
-        tb_load(&ed.buf_, "/nl.c");
+        tb_load(&ed.doc_.buf_, "/nl.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
         check("the cursor is at the start of a line with a token on it",
-              tb_xpos(&ed.buf_), 1);
+              tb_xpos(&ed.doc_.buf_), 1);
         cap_start();
         cmd_newl(&ed);
         const int n6 = cap_read(cap, (int) sizeof(cap));
@@ -833,11 +833,11 @@ int main(void) {
          * nothing to consult.
          */
         check("  what was known above the split is still held",
-              ed.synFirst_, 1);
+              ed.doc_.synFirst_, 1);
         check("    and none of it was thrown away",
-              ed.synKnown_ > 0 ? 1 : 0, 1);
+              ed.doc_.synKnown_ > 0 ? 1 : 0, 1);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- inserting a line moves every row below it --- */
@@ -859,10 +859,10 @@ int main(void) {
         stub_emit_colours(1);
         static const char SHIFT[] = "/* open\r\n*/ int a;\r\nint b;\r\n";
         stub_file_add("/shift.c", SHIFT, (int) sizeof(SHIFT) - 1);
-        tb_load(&ed.buf_, "/shift.c");
+        tb_load(&ed.doc_.buf_, "/shift.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);                  /* which is what fills the answers in */
 
@@ -873,7 +873,7 @@ int main(void) {
               column_of_colour(cap, n7, 8), 0);
 
         /* A line in front of everything, which moves all three rows down. */
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_newl(&ed);
 
@@ -889,7 +889,7 @@ int main(void) {
         check("  and it still is once a line is inserted above it",
               column_of_colour(cap, n7, 8), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- joining two lines moves every row below them --- */
@@ -909,18 +909,18 @@ int main(void) {
         static const char JOIN[] =
             "int a;\r\n/* open\r\nstill\r\n*/ int b;\r\nint c;\r\n";
         stub_file_add("/join.c", JOIN, (int) sizeof(JOIN) - 1);
-        tb_load(&ed.buf_, "/join.c");
+        tb_load(&ed.doc_.buf_, "/join.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 7;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
-        const int top_was = tb_ypos(&ed.buf_) - (ed.scr_.currY_ - ed.scr_.topY_);
+        const int top_was = tb_ypos(&ed.doc_.buf_) - (ed.scr_.currY_ - ed.scr_.topY_);
         cmd_end(&ed);                   /* end of line 1 */
         cmd_del(&ed);                   /* which joins it to line 2 */
         check("joining leaves the view's top line where it was",
-              tb_ypos(&ed.buf_) - (ed.scr_.currY_ - ed.scr_.topY_), top_was);
+              tb_ypos(&ed.doc_.buf_) - (ed.scr_.currY_ - ed.scr_.topY_), top_was);
 
         cap_start();
         cmd_repaint_rows(&ed, 2, 2);
@@ -928,7 +928,7 @@ int main(void) {
         check("  and the row that moved up is coloured for where it now is",
               column_of_colour(cap, n8, 8), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the row a scroll brings in from below --- */
@@ -954,10 +954,10 @@ int main(void) {
         static const char SCROLL[] =
             "int z;\r\nint a;\r\n/* y\r\n*/ int c;\r\nint d;\r\n";
         stub_file_add("/scroll.c", SCROLL, (int) sizeof(SCROLL) - 1);
-        tb_load(&ed.buf_, "/scroll.c");
+        tb_load(&ed.doc_.buf_, "/scroll.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 5;           /* four rows: lines 1 to 4 */
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
@@ -970,10 +970,10 @@ int main(void) {
         check("  and the painted screen left its answers behind",
               ed.synTop_, 1);
         cmd_down(&ed);                  /* line 5 scrolls into view */
-        check("  the view has moved down one", tb_ypos(&ed.buf_), 5);
+        check("  the view has moved down one", tb_ypos(&ed.doc_.buf_), 5);
         check("    and the top row draws the line below", ed.synTop_, 2);
         check("      while the answers themselves did not move",
-              ed.synFirst_, 1);
+              ed.doc_.synFirst_, 1);
 
         /*
          * The row that came in from below, first. Its state is the one nothing
@@ -1003,7 +1003,7 @@ int main(void) {
         check("    a row that moved up begins where its line does",
               column_of_colour(cap, ns, 8), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- joining two lines can open something neither of them did --- */
@@ -1030,10 +1030,10 @@ int main(void) {
         static const char MERGE[] = "int a; /\r\n* still\r\nint b;\r\nint c;\r\n"
             "int d;\r\nint e;\r\nint f;\r\nint g;\r\n";
         stub_file_add("/merge.c", MERGE, (int) sizeof(MERGE) - 1);
-        tb_load(&ed.buf_, "/merge.c");
+        tb_load(&ed.doc_.buf_, "/merge.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 5;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
         check("the screen left its answers behind", ed.synTop_, 1);
@@ -1047,8 +1047,8 @@ int main(void) {
         /* Join the first two, with the cursor at the end of the first. */
         cmd_end(&ed);
         cmd_del(&ed);
-        check("  joining takes a line out", tb_ymax(&ed.buf_), 8);
-        check("    and the answers survived it", ed.synFirst_ != 0 ? 1 : 0, 1);
+        check("  joining takes a line out", tb_ymax(&ed.doc_.buf_), 8);
+        check("    and the answers survived it", ed.doc_.synFirst_ != 0 ? 1 : 0, 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 2, 2);
@@ -1056,7 +1056,7 @@ int main(void) {
         check("    and the row under it is inside the comment now",
               column_of_colour(cap, nm, 8), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the cursor after a find --- */
@@ -1083,8 +1083,8 @@ int main(void) {
         }
         files();
         setup(&ed, 0);
-        tb_destroy(&ed.buf_);
-        tb_init(&ed.buf_, 32, NULL);
+        tb_destroy(&ed.doc_.buf_);
+        tb_init(&ed.doc_.buf_, 32, NULL);
         named_text(&ed, "/find.c", doc);
         ed_pick_syntax(&ed);
         cmd_show(&ed);
@@ -1092,13 +1092,13 @@ int main(void) {
         memcpy(ed.find_, "needle_here", 11);
         ed.findsz_ = 11;
         cmd_find_next(&ed);
-        check("a find lands on the line", tb_ypos(&ed.buf_), 120);
+        check("a find lands on the line", tb_ypos(&ed.doc_.buf_), 120);
         check("  and the colouring knows which line each row shows",
               ed.synTop_,
-              tb_ypos(&ed.buf_) - (ed.scr_.currY_ - ed.scr_.topY_));
+              tb_ypos(&ed.doc_.buf_) - (ed.scr_.currY_ - ed.scr_.topY_));
 
         /* The cursor to the `i` of `int`, and off it again. */
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currX_ = 0;
         ed.scr_.originX_ = 0;
         stub_emit_colours(1);
@@ -1108,7 +1108,7 @@ int main(void) {
         stub_emit_colours(0);
         check("    so the cell the cursor leaves gets its own colour back",
               has_colour(cap, n, theme_colour(&ed.theme_, TOK_TYPE)), 1);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a mode with too few colours to highlight in --- */
@@ -1136,7 +1136,7 @@ int main(void) {
                      depths[i]);
             check(name, ed_init(&ed_d, 8, "/depth.c") != NULL, 1);
             check(want[i] ? "  is highlighted" : "  is left plain",
-                  ed_d.syn_.loaded ? 1 : 0, want[i]);
+                  ed_d.doc_.syn_.loaded ? 1 : 0, want[i]);
             check(want[i] ? "    with a theme to colour by"
                           : "    and the screen has no theme",
                   ed_d.scr_.theme_ != NULL ? 1 : 0, want[i]);
@@ -1167,7 +1167,7 @@ int main(void) {
         stub_file_add("/inc.c", INC, (int) sizeof(INC) - 1);
         static editor e3;
         check("an editor opens the file", ed_init(&e3, 8, "/inc.c") != NULL, 1);
-        check("  with a grammar", e3.syn_.loaded ? 1 : 0, 1);
+        check("  with a grammar", e3.doc_.syn_.loaded ? 1 : 0, 1);
         stub_emit_colours(1);
         cap_start();
         scr_hide_cursor_ch(&e3.scr_, 'i');
@@ -1196,10 +1196,10 @@ int main(void) {
         static const char BK[] =
             "int main(void) {\r\nxy\r\nint b;\r\nint c;\r\nint d;\r\n";
         stub_file_add("/bk.c", BK, (int) sizeof(BK) - 1);
-        tb_load(&ed.buf_, "/bk.c");
+        tb_load(&ed.doc_.buf_, "/bk.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
@@ -1210,7 +1210,7 @@ int main(void) {
         for (int i = 0; i < 3; i++) {
             cmd_bksp(&ed);
         }
-        check("backspacing lands on the line above", tb_ypos(&ed.buf_), 1);
+        check("backspacing lands on the line above", tb_ypos(&ed.doc_.buf_), 1);
 
         cap_start();
         cmd_repaint_rows(&ed, 1, 1);
@@ -1218,7 +1218,7 @@ int main(void) {
         check("  and its first character is still a type",
               column_of_colour(cap, nb, 14), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- an edit renumbers the answers below it --- */
@@ -1243,10 +1243,10 @@ int main(void) {
         static const char RN[] =
             "int a;\r\n/* x\r\nstill\r\n*/ int b;\r\nint c;\r\nint d;\r\n";
         stub_file_add("/rn.c", RN, (int) sizeof(RN) - 1);
-        tb_load(&ed.buf_, "/rn.c");
+        tb_load(&ed.doc_.buf_, "/rn.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 7;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
@@ -1257,10 +1257,10 @@ int main(void) {
               column_of_colour(cap, nr, 8), 0);
 
         /* A line in at the very top, which moves everything down one. */
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_newl(&ed);
-        check("  the document gained a line", tb_ymax(&ed.buf_), 8);
+        check("  the document gained a line", tb_ymax(&ed.doc_.buf_), 8);
 
         cap_start();
         cmd_repaint_rows(&ed, 5, 5);
@@ -1273,7 +1273,7 @@ int main(void) {
          * the blank line it made. */
         cmd_up(&ed);
         cmd_del(&ed);
-        check("  the document lost it again", tb_ymax(&ed.buf_), 7);
+        check("  the document lost it again", tb_ymax(&ed.doc_.buf_), 7);
 
         /*
          * The line under it first, which is outside the comment while its
@@ -1296,7 +1296,7 @@ int main(void) {
         check("    and the comment's last line is back where it started",
               column_of_colour(cap, nr, 8), 0);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- typing beside a string, then taking it back out --- */
@@ -1312,11 +1312,11 @@ int main(void) {
         stub_emit_colours(1);
         static const char PR[] = "printf(\"hi\");\r\nint b;\r\nint c;\r\n";
         stub_file_add("/pr.c", PR, (int) sizeof(PR) - 1);
-        tb_load(&ed.buf_, "/pr.c");
+        tb_load(&ed.doc_.buf_, "/pr.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;
         ed.scr_.cols_ = 40;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
@@ -1324,7 +1324,7 @@ int main(void) {
         for (int i = 0; i < 7; i++) {
             cmd_right(&ed);
         }
-        check("the cursor is after the bracket", tb_xpos(&ed.buf_), 8);
+        check("the cursor is after the bracket", tb_xpos(&ed.doc_.buf_), 8);
 
         const key kx = { 'x', VK_X };
         cap_start();
@@ -1349,7 +1349,7 @@ int main(void) {
         check("    with the string still a string",
               colour_at_char(cap, np, 'h'), 10);
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the screen knows what colour it left set --- */
@@ -1378,11 +1378,11 @@ int main(void) {
         static const char INV[] =
             "printf(\"hi\");\r\nint b;\r\n/* c\r\nstill\r\n*/ int d;\r\nint e;\r\n";
         stub_file_add("/inv.c", INV, (int) sizeof(INV) - 1);
-        tb_load(&ed.buf_, "/inv.c");
+        tb_load(&ed.doc_.buf_, "/inv.c");
         ed_pick_syntax(&ed);
         ed.scr_.bottomY_ = 6;
         ed.scr_.cols_ = 40;
-        tb_home(&ed.buf_);
+        tb_home(&ed.doc_.buf_);
         ed.scr_.currY_ = 1;
         cmd_show(&ed);
 
@@ -1455,7 +1455,7 @@ int main(void) {
               colour_at_char(cap, n, 'b'), 15);
 
         stub_emit_colours(0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the screen asks, rather than being told --- */
@@ -1497,7 +1497,7 @@ int main(void) {
         scr_paint_row(&ed.scr_, 1, "abc", 3, NULL, 0);
         check("  with nobody to ask it paints plainly",
               ed.scr_.runs_ == NULL ? 1 : 0, 1);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- changing the background changes the theme with it --- */
@@ -1546,7 +1546,7 @@ int main(void) {
               scr_base_fg(&ed.scr_), 15);
 
         ui_destroy(&ed.ui_);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- and to a background no theme covers, which colours nothing --- */
@@ -1560,7 +1560,7 @@ int main(void) {
         setup(&ed, 0);
         named(&ed, "/main.c");
         ed_pick_syntax(&ed);
-        check("a grammar and theme in force", ed.syn_.loaded ? 1 : 0, 1);
+        check("a grammar and theme in force", ed.doc_.syn_.loaded ? 1 : 0, 1);
 
         ui_init(&ed.ui_, 256, ed.scr_.bottomY_, ed.scr_.cols_);
 
@@ -1585,11 +1585,11 @@ int main(void) {
               scr_base_bg(&ed.scr_), 7);
         check("    leaves the screen unthemed",
               ed.scr_.theme_ == NULL ? 1 : 0, 1);
-        check("    and drops the grammar with it", ed.syn_.loaded ? 1 : 0, 0);
+        check("    and drops the grammar with it", ed.doc_.syn_.loaded ? 1 : 0, 0);
         check("    so the reader's own pair is what paints", ed.scr_.bg_, 7);
 
         ui_destroy(&ed.ui_);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the foreground alone leaves the theme where it was --- */
@@ -1620,10 +1620,10 @@ int main(void) {
         check("  and leaves the background alone", scr_base_bg(&ed.scr_), 0);
         check("    so the theme is the one it was",
               strcmp(ed.theme_.name, "dark") == 0 ? 1 : 0, 1);
-        check("      and the grammar is still loaded", ed.syn_.loaded ? 1 : 0, 1);
+        check("      and the grammar is still loaded", ed.doc_.syn_.loaded ? 1 : 0, 1);
 
         ui_destroy(&ed.ui_);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a new line inherits the indent, for a document with a grammar --- */
@@ -1641,7 +1641,7 @@ int main(void) {
 
         /* What is on the new line, before the cursor. After a RETURN that is
          * exactly the indent, because nothing else has been typed. */
-        #define NEW_INDENT(e) (tb_curr_line(&(e)->buf_).psz_)
+        #define NEW_INDENT(e) (tb_curr_line(&(e)->doc_.buf_).psz_)
 
         files();
         setup(&ed, 0);
@@ -1649,22 +1649,22 @@ int main(void) {
          * editor. Without it cmd_undo is a no-op and an undo check passes
          * against anything -- which is how the first version of the check
          * below passed while undoing nothing. */
-        undo_init(&ed.undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS);
-        tb_set_undo(&ed.buf_, &ed.undo_);
+        undo_init(&ed.doc_.undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS);
+        tb_set_undo(&ed.doc_.buf_, &ed.doc_.undo_);
         named_text(&ed, "/main.c", "    int x;\r\nplain\r\n");
         ed_pick_syntax(&ed);
         cmd_show(&ed);
-        check("a C file gets a grammar", ed.syn_.loaded ? 1 : 0, 1);
+        check("a C file gets a grammar", ed.doc_.syn_.loaded ? 1 : 0, 1);
 
         /* To the end of the first line, which is where RETURN is pressed. */
         cmd_home(&ed);
         cmd_end(&ed);
         cmd_newl(&ed);
-        check("  RETURN at the end of an indented line", tb_ypos(&ed.buf_), 2);
+        check("  RETURN at the end of an indented line", tb_ypos(&ed.doc_.buf_), 2);
         check("    starts the new line under the text", NEW_INDENT(&ed), 4);
         check("      and the cursor sits there", ed.scr_.currX_, 4);
         {
-            const split_line ln = tb_curr_line(&ed.buf_);
+            const split_line ln = tb_curr_line(&ed.doc_.buf_);
             check("      as spaces, which is what the line had",
                   ln.prefix_[0] == ' ' && ln.prefix_[3] == ' ' ? 1 : 0, 1);
         }
@@ -1685,11 +1685,11 @@ int main(void) {
         cmd_undo(&ed);
         check("    one undo takes the indent", NEW_INDENT(&ed), 0);
         check("      leaving the line a plain RETURN would have",
-              tb_ymax(&ed.buf_), 4);
+              tb_ymax(&ed.doc_.buf_), 4);
         cmd_undo(&ed);
-        check("    and the second takes the break", tb_ymax(&ed.buf_), 3);
-        undo_destroy(&ed.undo_);
-        tb_destroy(&ed.buf_);
+        check("    and the second takes the break", tb_ymax(&ed.doc_.buf_), 3);
+        undo_destroy(&ed.doc_.undo_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- a tab indent stays tabs --- */
@@ -1706,11 +1706,11 @@ int main(void) {
         cmd_end(&ed);
         cmd_newl(&ed);
         {
-            const split_line ln = tb_curr_line(&ed.buf_);
+            const split_line ln = tb_curr_line(&ed.doc_.buf_);
             check("a tab indent is inherited as one byte", ln.psz_, 1);
             check("  and it is a tab", ln.prefix_[0] == '\t' ? 1 : 0, 1);
         }
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- only as far as the cursor --- */
@@ -1731,7 +1731,7 @@ int main(void) {
         cmd_newl(&ed);
         check("splitting inside the indent takes only what is behind the cursor",
               NEW_INDENT(&ed), 2);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
 
         /* And at the very start there is nothing behind it, so the new line
          * begins where the old one did rather than gaining an indent the
@@ -1744,7 +1744,7 @@ int main(void) {
         cmd_newl(&ed);
         check("  and RETURN at the start of a line adds none",
               NEW_INDENT(&ed), 0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- an indent deeper than the bound is taken as far as the bound --- */
@@ -1776,7 +1776,7 @@ int main(void) {
         cmd_newl(&ed);
         check("an indent past the bound is taken as far as the bound",
               NEW_INDENT(&ed), 64);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- and a document with no grammar gets none of it --- */
@@ -1786,14 +1786,14 @@ int main(void) {
         named_text(&ed, "/notes.txt", "    a list item\r\n");
         ed_pick_syntax(&ed);
         cmd_show(&ed);
-        check("a .txt file finds no grammar", ed.syn_.loaded ? 1 : 0, 0);
+        check("a .txt file finds no grammar", ed.doc_.syn_.loaded ? 1 : 0, 0);
         cmd_home(&ed);
         cmd_end(&ed);
         cmd_newl(&ed);
         check("  so RETURN leaves the new line at the margin",
               NEW_INDENT(&ed), 0);
         check("    and the cursor with it", ed.scr_.currX_, 0);
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     /* --- the answers window slides rather than starting again --- */
@@ -1835,23 +1835,23 @@ int main(void) {
          * thing measures paging rather than the answers. The file that
          * prompted this is 16 KB in a 72 KiB buffer and is not paged at all.
          */
-        tb_destroy(&ed.buf_);
-        tb_init(&ed.buf_, 32, NULL);
+        tb_destroy(&ed.doc_.buf_);
+        tb_init(&ed.doc_.buf_, 32, NULL);
         named_text(&ed, "/main.c", many);
         ed_pick_syntax(&ed);
         cmd_show(&ed);
         check("a long C file, held whole",
-              tb_ymax(&ed.buf_) > SYN_WINDOW ? 1 : 0, 1);
-        check("  and not paged", ed.buf_.paged_ ? 1 : 0, 0);
+              tb_ymax(&ed.doc_.buf_) > SYN_WINDOW ? 1 : 0, 1);
+        check("  and not paged", ed.doc_.buf_.paged_ ? 1 : 0, 0);
 
         /* Down past the end of the window, which is where it used to stall. */
         for (int i = 0; i < SYN_WINDOW + 40; i++) {
             cmd_down(&ed);
         }
         check("  scrolled well past a windowful", ed.synTop_ > SYN_WINDOW, 1);
-        check("    the window slid with it", ed.synFirst_ > 1, 1);
+        check("    the window slid with it", ed.doc_.synFirst_ > 1, 1);
         check("      and kept its answers rather than starting again",
-              ed.synKnown_ >= SYN_WINDOW / 2, 1);
+              ed.doc_.synKnown_ >= SYN_WINDOW / 2, 1);
 
         /*
          * And back up, far enough to leave the window behind -- which is the
@@ -1873,7 +1873,7 @@ int main(void) {
          * when every row starts again.
          */
         check("    leaves a windowful of answers rather than a screenful",
-              ed.synKnown_ >= SYN_WINDOW / 2, 1);
+              ed.doc_.synKnown_ >= SYN_WINDOW / 2, 1);
 
         /*
          * A page down reuses the answers rather than working them out again.
@@ -1890,11 +1890,11 @@ int main(void) {
          * landed.
          */
         {
-            const int was_first = ed.synFirst_;
+            const int was_first = ed.doc_.synFirst_;
             cmd_page_down(&ed);
-            check("  a page down reuses the answers", ed.synFirst_, was_first);
+            check("  a page down reuses the answers", ed.doc_.synFirst_, was_first);
             check("    and they still reach where it landed",
-                  ed.synTop_ - ed.synFirst_ < ed.synKnown_, 1);
+                  ed.synTop_ - ed.doc_.synFirst_ < ed.doc_.synKnown_, 1);
         }
 
         /*
@@ -1933,13 +1933,13 @@ int main(void) {
             int refills = 0;
             int kept = 1;
             for (int i = 0; i < 6; i++) {
-                const int was = ed.synFirst_;
+                const int was = ed.doc_.synFirst_;
                 cmd_page_up(&ed);
-                if (ed.synFirst_ == was) {
+                if (ed.doc_.synFirst_ == was) {
                     continue;               // answered from the window
                 }
                 refills++;
-                if (ed.synTop_ > 1 && ed.synTop_ - ed.synFirst_ < screenful) {
+                if (ed.synTop_ > 1 && ed.synTop_ - ed.doc_.synFirst_ < screenful) {
                     kept = 0;               // read back and kept the screen
                 }
             }
@@ -1985,14 +1985,14 @@ int main(void) {
                 editor* e = which == 0 ? &paged : &walked;
                 files();
                 setup(e, 0);
-                tb_destroy(&e->buf_);
-                tb_init(&e->buf_, 32, NULL);
+                tb_destroy(&e->doc_.buf_);
+                tb_init(&e->doc_.buf_, 32, NULL);
                 named_text(e, "/spans.c", spans);
                 ed_pick_syntax(e);
                 cmd_show(e);
             }
             check("a C file whose comments run over many lines",
-                  paged.syn_.loaded ? 1 : 0, 1);
+                  paged.doc_.syn_.loaded ? 1 : 0, 1);
 
             /*
              * To the top and then to the end, so the refill at the end finds
@@ -2017,14 +2017,14 @@ int main(void) {
 
             int agree = 1;
             int compared = 0;
-            for (int l = paged.synFirst_;
-                 l < paged.synFirst_ + paged.synKnown_; l++) {
-                const int b = l - walked.synFirst_;
-                if (b < 0 || b >= walked.synKnown_) {
+            for (int l = paged.doc_.synFirst_;
+                 l < paged.doc_.synFirst_ + paged.doc_.synKnown_; l++) {
+                const int b = l - walked.doc_.synFirst_;
+                if (b < 0 || b >= walked.doc_.synKnown_) {
                     continue;
                 }
                 compared++;
-                if (paged.lineSyn_[l - paged.synFirst_] != walked.lineSyn_[b]) {
+                if (paged.doc_.lineSyn_[l - paged.doc_.synFirst_] != walked.doc_.lineSyn_[b]) {
                     agree = 0;
                 }
             }
@@ -2032,11 +2032,11 @@ int main(void) {
                   compared > 8 ? 1 : 0, 1);
             check("    and every answer they share agrees", agree, 1);
 
-            tb_destroy(&paged.buf_);
-            tb_destroy(&walked.buf_);
+            tb_destroy(&paged.doc_.buf_);
+            tb_destroy(&walked.doc_.buf_);
         }
 
-        tb_destroy(&ed.buf_);
+        tb_destroy(&ed.doc_.buf_);
     }
 
     if (failures > 0) {

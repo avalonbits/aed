@@ -23,6 +23,7 @@
 
 #include "app.h"
 #include "clipboard.h"
+#include "document.h"
 #include "cmd_ops.h"
 #include "vkey.h"
 #include "screen.h"
@@ -32,77 +33,38 @@
 
 typedef struct _editor {
     screen scr_;
-    text_buffer buf_;
     user_input ui_;
 
-    // Where the selection started. Held here rather than in the buffer because
-    // it is about intent, not about the document: the model has no idea any of
-    // this is happening, and a selection means nothing once the file changes.
-    tb_pos anchor_;
+    // The document being edited: its text, undo log, grammar and selection.
+    document doc_;
+
+    /*
+     * The theme the document's grammar is coloured by. It belongs to the
+     * screen rather than the document: it is chosen by the background, so a
+     * change of background re-picks it for everything drawn there. Cleared,
+     * with the grammar, when the file has no grammar, which puts the user's
+     * own colours back.
+     *
+     * Held by value, and the editor is a static in main, so this is bss
+     * rather than heap or stack.
+     */
+    theme theme_;
+
     // A startup banner is on the text area, waiting to be wiped. It cannot
     // just be painted over: a keystroke repaints one row, which would leave the
     // rest of it sitting behind the document. So the first key clears the whole
     // text area before anything else happens.
     bool banner_;
-    bool selecting_;
 
     /*
-     * The grammar the document on screen is written in, and the theme its
-     * colours come from. Both are cleared when the file has no grammar, which
-     * paints it plainly and puts the user's own colours back.
-     *
-     * Held by value, and the editor is a static in main, so this is bss rather
-     * than heap or stack. One grammar at a time: a second open document would
-     * want a second, which is the same question TB_DOC_KB asks.
+     * Which document line row topY_ draws. Painting is asked about rows, and
+     * this is what turns a row into a line for the document's syntax window
+     * -- see document.h. It belongs to the view rather than the document: the
+     * same document shown twice would be drawn from two different lines.
      */
-    syntax syn_;
-    theme theme_;
-
-    /*
-     * What each line on screen begins inside, and which line is drawn where.
-     *
-     * Keyed by document line rather than by screen row, and that is the whole
-     * of it. A line begins inside what it begins inside; which row it happens
-     * to be drawn on has nothing to do with that. Keyed by row, scrolling threw
-     * every answer away although the document had not changed, and the code
-     * that chased rows around had cases it could not express and gave up in --
-     * after which the cursor had nothing to consult and rubbed the colouring
-     * out of each cell it crossed.
-     *
-     * `synFirst_` is the first line an answer is held for and `synKnown_` how
-     * many consecutive lines from it. So the answers are a window that grows
-     * downwards when a line below it is asked about and is refilled when one
-     * above it is. Zero is a starting point rather than a failure: there is no
-     * state this can be left in that means give up.
-     *
-     * Only a grammar that crosses lines needs any of it, and only C does so
-     * far. Without it, painting one row means lexing every row above to find
-     * out what it is inside -- 28 rows on a half-screen cursor, which measured
-     * 45 milliseconds a keystroke on an Agon.
-     *
-     * `synTop_` is the one thing here about the view: which line row topY_
-     * draws. Painting is asked about rows, and this is what turns a row into a
-     * line.
-     *
-     * How wide it is follows from what fills it. The one expensive thing here
-     * is the read-back a view does when it lands somewhere it has no answer
-     * for, and that walk settles SYN_LOOKBACK lines whether or not there is
-     * anywhere to put them. A window narrower than the walk throws the rest
-     * away and reads them again on the next page up; a window wider than the
-     * walk holds space nothing can fill. So: the walk, and a screen below it
-     * for the rows the view is about to paint.
-     */
-#define SYN_WINDOW (SYN_LOOKBACK + SCR_MAX_ROWS)
-
-    char lineSyn_[SYN_WINDOW];
-    int synFirst_;
-    int synKnown_;
     int synTop_;
 
     clipboard clip_;
-    // Session state, like the clipboard: it does not outlive the editor and
-    // opening another file clears it.
-    undo undo_;
     // What was last searched for, so CTRL+N and CTRL+P have something to
     // repeat. Session state, like the clipboard.
     char find_[64];

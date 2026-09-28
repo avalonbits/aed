@@ -63,7 +63,7 @@ static int stream_has(const char* hay, int n, const char* needle) {
 
 /* The document line on the top text row. Not stored anywhere -- the view derives
  * it from the cursor, which is why moving the cursor's row moves the view. */
-#define TOP_LINE(e) (tb_ypos(&(e)->buf_) - ((e)->scr_.currY_ - (e)->scr_.topY_))
+#define TOP_LINE(e) (tb_ypos(&(e)->doc_.buf_) - ((e)->scr_.currY_ - (e)->scr_.topY_))
 
 static void check(const char* name, int got, int want) {
     if (got == want) {
@@ -153,7 +153,7 @@ static void check_paint(const char* name, const char* got, const char* want) {
 /* The document line currently at the top of the screen, worked out the way the
  * editor does: from the cursor's line and its screen row. */
 static int top_line_of(editor* ed) {
-    return tb_ypos(&ed->buf_) - (ed->scr_.currY_ - ed->scr_.topY_);
+    return tb_ypos(&ed->doc_.buf_) - (ed->scr_.currY_ - ed->scr_.topY_);
 }
 
 /* How many rows a repaint actually drew. Every row is padded out to the full
@@ -253,27 +253,27 @@ int main(void) {
     stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
     editor ed;
     check("the editor starts", ed_init(&ed, 8, "doc.txt") != NULL, 1);
-    check("  with nothing selected", ed.selecting_ ? 1 : 0, 0);
+    check("  with nothing selected", ed.doc_.selecting_ ? 1 : 0, 0);
 
     /* An unshifted motion is just a motion. */
     check("plain RIGHT selects nothing",
           ed_selection_for(&ed, press(VK_RIGHT, 0)), SEL_NONE);
-    check("  and still nothing is selected", ed.selecting_ ? 1 : 0, 0);
+    check("  and still nothing is selected", ed.doc_.selecting_ ? 1 : 0, 0);
 
     /* Shift with one starts it, anchored where the cursor is now. */
-    tb_seek(&ed.buf_, (tb_pos){2, 3});
+    tb_seek(&ed.doc_.buf_, (tb_pos){2, 3});
     check("SHIFT+RIGHT starts a selection",
           ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT)), SEL_EXTEND);
-    check("  and it is selecting", ed.selecting_ ? 1 : 0, 1);
-    check("  anchored on the line the cursor was on", ed.anchor_.line, 2);
-    check("  at the byte it was on", ed.anchor_.x, 3);
+    check("  and it is selecting", ed.doc_.selecting_ ? 1 : 0, 1);
+    check("  anchored on the line the cursor was on", ed.doc_.anchor_.line, 2);
+    check("  at the byte it was on", ed.doc_.anchor_.x, 3);
 
     /* Extending must not move the anchor -- that is the whole point of one. */
-    tb_seek(&ed.buf_, (tb_pos){2, 7});
+    tb_seek(&ed.doc_.buf_, (tb_pos){2, 7});
     check("SHIFT+RIGHT again extends",
           ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT)), SEL_EXTEND);
-    check("  the anchor has not moved", ed.anchor_.x, 3);
-    check("  nor its line", ed.anchor_.line, 2);
+    check("  the anchor has not moved", ed.doc_.anchor_.x, 3);
+    check("  nor its line", ed.doc_.anchor_.line, 2);
 
     /* Every other motion key extends it too, including with CTRL held. */
     check("SHIFT+DOWN extends",
@@ -284,13 +284,13 @@ int main(void) {
           ed_selection_for(&ed, press(VK_PAGEDOWN, MOD_SHFT)), SEL_EXTEND);
     check("CTRL+SHIFT+RIGHT extends",
           ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT | MOD_CTRL)), SEL_EXTEND);
-    check("  and the anchor survived all of it", ed.anchor_.x, 3);
+    check("  and the anchor survived all of it", ed.doc_.anchor_.x, 3);
 
     /* Anything else ends it. There is no key for leaving select mode because
      * there is no mode to leave: that is what keeps it from getting stuck. */
     check("an unshifted motion ends it",
           ed_selection_for(&ed, press(VK_LEFT, 0)), SEL_DROP);
-    check("  and nothing is selected", ed.selecting_ ? 1 : 0, 0);
+    check("  and nothing is selected", ed.doc_.selecting_ ? 1 : 0, 0);
     check("  ending it again is a no-op",
           ed_selection_for(&ed, press(VK_LEFT, 0)), SEL_NONE);
 
@@ -298,17 +298,17 @@ int main(void) {
      * That event must pass straight through: treating it as an ordinary key
      * would end the selection it is in the middle of making. */
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
-    check("  a selection is under way", ed.selecting_ ? 1 : 0, 1);
-    const int held_anchor = ed.anchor_.x;
+    check("  a selection is under way", ed.doc_.selecting_ ? 1 : 0, 1);
+    const int held_anchor = ed.doc_.anchor_.x;
     check("the shift key itself changes nothing",
           ed_selection_for(&ed, press(VK_LSHIFT, 0)), SEL_NONE);
-    check("  and the selection is still under way", ed.selecting_ ? 1 : 0, 1);
+    check("  and the selection is still under way", ed.doc_.selecting_ ? 1 : 0, 1);
     check("nor does releasing and pressing control",
           ed_selection_for(&ed, press(VK_LCTRL, 0)), SEL_NONE);
-    check("  still selecting", ed.selecting_ ? 1 : 0, 1);
+    check("  still selecting", ed.doc_.selecting_ ? 1 : 0, 1);
     check("  and the next shifted motion still extends it",
           ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT)), SEL_EXTEND);
-    check("  with the anchor where it started", ed.anchor_.x, held_anchor);
+    check("  with the anchor where it started", ed.doc_.anchor_.x, held_anchor);
 
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
     check("shift on a key that is not a motion ends it",
@@ -319,7 +319,7 @@ int main(void) {
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
     check("RETURN replaces the selection rather than ending it",
           ed_selection_for(&ed, press(VK_RETURN, 0)), SEL_REPLACE);
-    ed.selecting_ = false;
+    ed.doc_.selecting_ = false;
 
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
     check("so does a key with no modifier that only moves",
@@ -328,7 +328,7 @@ int main(void) {
     ed_selection_for(&ed, press(VK_RIGHT, MOD_SHFT));
     check("so does ESCAPE",
           ed_selection_for(&ed, press(VK_ESCAPE, 0)), SEL_DROP);
-    check("  leaving nothing selected", ed.selecting_ ? 1 : 0, 0);
+    check("  leaving nothing selected", ed.doc_.selecting_ ? 1 : 0, 0);
 
     /* --- the highlight --- */
     cap = freopen("/tmp/aed_sel_capture", "w+", stdout);
@@ -346,7 +346,7 @@ int main(void) {
     check("the two colours differ", scr_fg(scr) != scr_bg(scr), 1);
 
     /* No selection: the row paints plainly from end to end. */
-    ed.selecting_ = false;
+    ed.doc_.selecting_ = false;
     cap_start();
     scr_write_line(scr, scr->topY_, "hello", 5);
     {
@@ -458,9 +458,9 @@ int main(void) {
      * controller working out which bytes of which line each row shows. That is
      * where a tab stops being one byte and starts being several columns. */
     scr_set_tab_size(scr, 4);
-    ed.selecting_ = true;
-    ed.anchor_ = (tb_pos){1, 2};              /* "hello world", from the 'l' */
-    tb_seek(&ed.buf_, (tb_pos){2, 4});        /* to "seco|nd line" */
+    ed.doc_.selecting_ = true;
+    ed.doc_.anchor_ = (tb_pos){1, 2};              /* "hello world", from the 'l' */
+    tb_seek(&ed.doc_.buf_, (tb_pos){2, 4});        /* to "seco|nd line" */
     scr->currY_ = (char)(scr->topY_ + 1);     /* the cursor's row, so row 1 is line 1 */
 
     cap_start();
@@ -487,8 +487,8 @@ int main(void) {
     /* Selecting upwards puts the cursor before the anchor. It is the same span
      * and must paint identically -- the user does not care which end they
      * started from. */
-    ed.anchor_ = (tb_pos){2, 4};
-    tb_seek(&ed.buf_, (tb_pos){1, 2});
+    ed.doc_.anchor_ = (tb_pos){2, 4};
+    tb_seek(&ed.doc_.buf_, (tb_pos){1, 2});
     scr->currY_ = scr->topY_;
     cap_start();
     cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
@@ -509,7 +509,7 @@ int main(void) {
     /* And with no selection under way the same rows come back plain. This is
      * the repaint that runs when a selection is dropped, so it has to actually
      * remove the highlight rather than leave it where it was. */
-    ed.selecting_ = false;
+    ed.doc_.selecting_ = false;
     cap_start();
     cmd_repaint_rows(&ed, scr->topY_, (char)(scr->topY_ + 2));
     {
@@ -519,7 +519,7 @@ int main(void) {
         check_paint("dropping the selection repaints it away",
                     painted(scr, cols * 3), want);
     }
-    ed.selecting_ = true;
+    ed.doc_.selecting_ = true;
 
     /* The same, with a tab in the line: the highlight has to stop at the right
      * column, not the right byte. */
@@ -531,9 +531,9 @@ int main(void) {
     screen* tscr = &tabbed.scr_;
     scr_set_scheme(tscr, 15, 0);
     scr_set_tab_size(tscr, 4);
-    tabbed.selecting_ = true;
-    tabbed.anchor_ = (tb_pos){1, 0};          /* the whole tab */
-    tb_seek(&tabbed.buf_, (tb_pos){1, 2});    /* and one character after it */
+    tabbed.doc_.selecting_ = true;
+    tabbed.doc_.anchor_ = (tb_pos){1, 0};          /* the whole tab */
+    tb_seek(&tabbed.doc_.buf_, (tb_pos){1, 2});    /* and one character after it */
     tscr->currY_ = tscr->topY_;
 
     cap_start();
@@ -555,9 +555,9 @@ int main(void) {
     /* Repainting only the rows the cursor moved between is what keeps a
      * keystroke cheap, but it is only right while the rest of the screen still
      * shows what it showed before. Three things break that. */
-    ed.selecting_ = true;
-    ed.anchor_ = (tb_pos){1, 0};
-    tb_seek(&ed.buf_, (tb_pos){2, 3});
+    ed.doc_.selecting_ = true;
+    ed.doc_.anchor_ = (tb_pos){1, 0};
+    tb_seek(&ed.doc_.buf_, (tb_pos){2, 3});
     scr->currY_ = (char)(scr->topY_ + 1);
     scr->originX_ = 0;
 
@@ -652,7 +652,7 @@ int main(void) {
     check("an editor to open from", ed_init(&op, 8, "doc.txt") != NULL, 1);
     check("with a selection under way",
           ed_selection_for(&op, press(VK_RIGHT, MOD_SHFT)), SEL_EXTEND);
-    check("  which is live", op.selecting_ ? 1 : 0, 1);
+    check("  which is live", op.doc_.selecting_ ? 1 : 0, 1);
 
     stub_key keys[32];
     int n = 0;
@@ -669,8 +669,8 @@ int main(void) {
     stub_file_set_content(OTHER, (int) sizeof(OTHER) - 1);
     stub_set_keys(keys, n);
     cmd_open(&op);
-    check("opening a file dropped the selection", op.selecting_ ? 1 : 0, 0);
-    check("  and the file did open", strcmp(tb_fname(&op.buf_), "other.txt"), 0);
+    check("opening a file dropped the selection", op.doc_.selecting_ ? 1 : 0, 0);
+    check("  and the file did open", strcmp(tb_fname(&op.doc_.buf_), "other.txt"), 0);
     stub_set_keys(NULL, 0);
     ed_destroy(&op);
 
@@ -739,13 +739,13 @@ int main(void) {
         const char mid = (char) (ts->topY_ + 10);
 
         /* Cursor on line 50, ten rows down the screen: the top row is line 40. */
-        tb_seek(&tall.buf_, (tb_pos){50, 6});
+        tb_seek(&tall.doc_.buf_, (tb_pos){50, 6});
         ts->currY_ = mid;
         check("the view starts on line 40", TOP_LINE(&tall), 40);
 
         /* A selection inside one line. Nothing below it even moves. */
-        tall.anchor_ = (tb_pos){50, 2};
-        tall.selecting_ = true;
+        tall.doc_.anchor_ = (tb_pos){50, 2};
+        tall.doc_.selecting_ = true;
         check("the cut happens", cmd_delete_selection(&tall) ? 1 : 0, 1);
         check("  the cursor keeps its row", ts->currY_, mid);
         check("  so the view has not moved", TOP_LINE(&tall), 40);
@@ -753,11 +753,11 @@ int main(void) {
         /* A selection spanning three lines. Two lines collapse into the row the
          * selection started on, so the cursor rises two rows -- and the top of
          * the screen still shows the same line, because nothing above moved. */
-        tb_seek(&tall.buf_, (tb_pos){52, 4});
+        tb_seek(&tall.doc_.buf_, (tb_pos){52, 4});
         ts->currY_ = (char) (mid + 2);
         check("the view is still on line 40", TOP_LINE(&tall), 40);
-        tall.anchor_ = (tb_pos){50, 1};
-        tall.selecting_ = true;
+        tall.doc_.anchor_ = (tb_pos){50, 1};
+        tall.doc_.selecting_ = true;
         check("the multi-line cut happens",
               cmd_delete_selection(&tall) ? 1 : 0, 1);
         check("  the cursor rises by the lines that collapsed", ts->currY_, mid);
@@ -782,10 +782,10 @@ int main(void) {
         /* The selection starts above the window: there is no row on screen to
          * keep, so the join goes to the top row and the document is shown from
          * there rather than the view jumping somewhere unrelated. */
-        tb_seek(&e2.buf_, (tb_pos){50, 3});
+        tb_seek(&e2.doc_.buf_, (tb_pos){50, 3});
         s2->currY_ = (char) (s2->topY_ + 5);
-        e2.anchor_ = (tb_pos){20, 0};
-        e2.selecting_ = true;
+        e2.doc_.anchor_ = (tb_pos){20, 0};
+        e2.doc_.selecting_ = true;
         check("a cut reaching above the window", cmd_delete_selection(&e2) ? 1 : 0, 1);
         check("  puts the join on the top row", s2->currY_, s2->topY_);
         check("  and shows the document from there", TOP_LINE(&e2), 20);
@@ -793,10 +793,10 @@ int main(void) {
         /* Near the start of the document there are not enough lines above to
          * fill the rows above the cursor, so the row has to come up to match or
          * the view shows blanks above line 1. */
-        tb_seek(&e2.buf_, (tb_pos){3, 2});
+        tb_seek(&e2.doc_.buf_, (tb_pos){3, 2});
         s2->currY_ = (char) (s2->topY_ + 10);
-        e2.anchor_ = (tb_pos){3, 0};
-        e2.selecting_ = true;
+        e2.doc_.anchor_ = (tb_pos){3, 0};
+        e2.doc_.selecting_ = true;
         check("a cut near the top of the document",
               cmd_delete_selection(&e2) ? 1 : 0, 1);
         check("  pulls the row up to what the document can fill",
@@ -823,9 +823,9 @@ int main(void) {
         check("an editor on a short document", ed_init(&sh, 8, "short.txt") != NULL, 1);
 
         /* Cut lines 2 and 3 away, leaving one line and a screenful of nothing. */
-        tb_seek(&sh.buf_, (tb_pos){3, 3});
-        sh.anchor_ = (tb_pos){1, 3};
-        sh.selecting_ = true;
+        tb_seek(&sh.doc_.buf_, (tb_pos){3, 3});
+        sh.doc_.anchor_ = (tb_pos){1, 3};
+        sh.doc_.selecting_ = true;
 
         cap_start();
         check("the cut happens", cmd_delete_selection(&sh) ? 1 : 0, 1);
@@ -879,10 +879,10 @@ int main(void) {
         stub_file_set_content(many, mn);
         editor one;
         check("an editor for a one-line cut", ed_init(&one, 8, "one.txt") != NULL, 1);
-        tb_seek(&one.buf_, (tb_pos){50, 6});
+        tb_seek(&one.doc_.buf_, (tb_pos){50, 6});
         one.scr_.currY_ = (char) (one.scr_.topY_ + 10);
-        one.anchor_ = (tb_pos){50, 2};
-        one.selecting_ = true;
+        one.doc_.anchor_ = (tb_pos){50, 2};
+        one.doc_.selecting_ = true;
 
         cap_start();
         check("the one-line cut happens", cmd_delete_selection(&one) ? 1 : 0, 1);
@@ -903,10 +903,10 @@ int main(void) {
         check("an editor for a three-line cut",
               ed_init(&three, 8, "three.txt") != NULL, 1);
         screen* t3 = &three.scr_;
-        tb_seek(&three.buf_, (tb_pos){52, 4});
+        tb_seek(&three.doc_.buf_, (tb_pos){52, 4});
         t3->currY_ = (char) (t3->topY_ + 12);
-        three.anchor_ = (tb_pos){50, 1};
-        three.selecting_ = true;
+        three.doc_.anchor_ = (tb_pos){50, 1};
+        three.doc_.selecting_ = true;
 
         cap_start();
         check("the three-line cut happens",
@@ -945,10 +945,10 @@ int main(void) {
         editor up_ed;
         check("an editor for a cut from above the window",
               ed_init(&up_ed, 8, "up.txt") != NULL, 1);
-        tb_seek(&up_ed.buf_, (tb_pos){50, 3});
+        tb_seek(&up_ed.doc_.buf_, (tb_pos){50, 3});
         up_ed.scr_.currY_ = (char) (up_ed.scr_.topY_ + 5);
-        up_ed.anchor_ = (tb_pos){20, 0};
-        up_ed.selecting_ = true;
+        up_ed.doc_.anchor_ = (tb_pos){20, 0};
+        up_ed.doc_.selecting_ = true;
 
         /* A cut that scrolls the view sideways cannot be done incrementally
          * either: the horizontal origin is screen-wide, so every other row is
@@ -975,11 +975,11 @@ int main(void) {
         editor wide_ed;
         check("an editor scrolled along a long line",
               ed_init(&wide_ed, 8, "wide2.txt") != NULL, 1);
-        tb_seek(&wide_ed.buf_, (tb_pos){50, 180});
+        tb_seek(&wide_ed.doc_.buf_, (tb_pos){50, 180});
         wide_ed.scr_.currY_ = (char) (wide_ed.scr_.topY_ + 8);
         wide_ed.scr_.originX_ = 150;
-        wide_ed.anchor_ = (tb_pos){50, 4};
-        wide_ed.selecting_ = true;
+        wide_ed.doc_.anchor_ = (tb_pos){50, 4};
+        wide_ed.doc_.selecting_ = true;
 
         cap_start();
         check("the cut back to the start of the line happens",
@@ -1004,10 +1004,10 @@ int main(void) {
         editor shrink;
         check("an editor on a five-line document",
               ed_init(&shrink, 8, "five.txt") != NULL, 1);
-        tb_seek(&shrink.buf_, (tb_pos){4, 2});
+        tb_seek(&shrink.doc_.buf_, (tb_pos){4, 2});
         shrink.scr_.currY_ = (char) (shrink.scr_.topY_ + 3);
-        shrink.anchor_ = (tb_pos){2, 0};
-        shrink.selecting_ = true;
+        shrink.doc_.anchor_ = (tb_pos){2, 0};
+        shrink.doc_.selecting_ = true;
 
         cap_start();
         check("the shrinking cut happens",
@@ -1040,10 +1040,10 @@ int main(void) {
         editor last;
         check("an editor whose last line has text",
               ed_init(&last, 8, "noeol.txt") != NULL, 1);
-        tb_seek(&last.buf_, (tb_pos){4, 2});
+        tb_seek(&last.doc_.buf_, (tb_pos){4, 2});
         last.scr_.currY_ = (char) (last.scr_.topY_ + 3);
-        last.anchor_ = (tb_pos){2, 0};
-        last.selecting_ = true;
+        last.doc_.anchor_ = (tb_pos){2, 0};
+        last.doc_.selecting_ = true;
 
         cap_start();
         check("the cut on it happens", cmd_delete_selection(&last) ? 1 : 0, 1);
