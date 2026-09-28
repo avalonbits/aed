@@ -96,7 +96,7 @@ void cmd_select_all(editor* ed);
 
 // Puts the document back after a modal has drawn over it. `moved` says the
 // geometry changed underneath -- a font -- so the cursor may be off the end.
-void restore_after_modal(editor* ed, bool moved);
+void cmd_restore_after_modal(editor* ed, bool moved);
 
 void cmd_putc(editor* ed, key k);
 void cmd_del(editor* ed);

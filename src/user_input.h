@@ -61,6 +61,7 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg);
 // through the main loop, so a message that did not wait would be gone before it
 // could be read.
 void ui_message(user_input* ui, screen* scr, char* msg);
+
 // What a key means to a list the reader is moving through, with the motion
 // already applied to `at`. Both pickers had their own copy of this, one written
 // as a chain of ifs and one as a switch, agreeing on every key.
@@ -70,14 +71,25 @@ typedef enum _pick_key {
     PICK_LEAVE          // ESC
 } pick_key;
 
-// The pieces AED's own modals are built from, shared so that a program's
-// menus and lists are drawn the same way.
-void modal_fill(screen* scr, char y, char bottom, const char* prompt, int psz);
-char modal_title(screen* scr, char top, int width, const char* title);
-pick_key modal_move(VKey vkey, int* at, int max);
-int put_at(char* out, int at, int width, const char* s);
-int pad_to(char* out, int at, int width, int col);
-int put_num(char* out, int at, int width, int v);
+/*
+ * The pieces a modal is built from, shared so that a program's menus and lists
+ * are drawn the way AED's help and settings are: a title and a blank row at
+ * the top, the program's rows, blank rows down to a prompt on the prompt row,
+ * and the keys that move through a list. The ui_put_* helpers build a row's
+ * text in a buffer `width` wide, returning where they stopped.
+ *
+ * A modal laid out on the whole screen -- the screen pointed at whole_, as
+ * AED's help and settings do -- paints over every view on it, not only the
+ * current one. A program showing more than one view has to repaint them all
+ * when such a modal closes.
+ */
+void ui_modal_fill(screen* scr, char y, char bottom, const char* prompt,
+                   int psz);
+char ui_modal_title(screen* scr, char top, int width, const char* title);
+pick_key ui_modal_move(VKey vkey, int* at, int max);
+int ui_put_at(char* out, int at, int width, const char* s);
+int ui_pad_to(char* out, int at, int width, int col);
+int ui_put_num(char* out, int at, int width, int v);
 RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max);
 
 RESPONSE ui_text(

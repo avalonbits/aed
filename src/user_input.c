@@ -119,13 +119,13 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
 
 static const char col_select[39] = "Use UP/DOWN LEFT/RIGHT to select FG/BG";
 
-// Defined below with the rest of the line formatting; modal_title needs it and
+// Defined below with the rest of the line formatting; ui_modal_title needs it and
 // the modals that use both come after it.
-int put_at(char* out, int at, int width, const char* s);
+int ui_put_at(char* out, int at, int width, const char* s);
 
 // The bottom of every modal: blank rows down to the prompt row, then the prompt.
 // Three modals drew this, each with its own copy of the loop.
-void modal_fill(screen* scr, char y, char bottom,
+void ui_modal_fill(screen* scr, char y, char bottom,
                        const char* prompt, int psz) {
     while (y < bottom) {
         scr_write_line(scr, y++, NULL, 0);
@@ -135,18 +135,18 @@ void modal_fill(screen* scr, char y, char bottom,
 
 // The top: a title, then a blank row. Returns the row the caller's own content
 // starts on.
-char modal_title(screen* scr, char top, int width, const char* title) {
+char ui_modal_title(screen* scr, char top, int width, const char* title) {
     static char line[256];
 
     char y = top;
-    const int k = put_at(line, 0, width, title);
+    const int k = ui_put_at(line, 0, width, title);
     scr_write_line(scr, y++, line, k);
     scr_write_line(scr, y++, NULL, 0);
 
     return y;
 }
 
-pick_key modal_move(VKey vkey, int* at, int max) {
+pick_key ui_modal_move(VKey vkey, int* at, int max) {
     switch (vkey) {
         case VK_ESCAPE:
             return PICK_LEAVE;
@@ -232,7 +232,7 @@ static int font_list(font_entry* out, int max) {
 }
 
 // Writes `s` into `out` at `at`, stopping at `width`. Returns the new position.
-int put_at(char* out, int at, int width, const char* s) {
+int ui_put_at(char* out, int at, int width, const char* s) {
     for (const char* p = s; *p != 0 && at < width; p++) {
         out[at++] = *p;
     }
@@ -240,7 +240,7 @@ int put_at(char* out, int at, int width, const char* s) {
     return at;
 }
 
-int pad_to(char* out, int at, int width, int col) {
+int ui_pad_to(char* out, int at, int width, int col) {
     while (at < col && at < width) {
         out[at++] = ' ';
     }
@@ -248,7 +248,7 @@ int pad_to(char* out, int at, int width, int col) {
     return at;
 }
 
-int put_num(char* out, int at, int width, int v) {
+int ui_put_num(char* out, int at, int width, int v) {
     char digits[8];
     int d = 0;
     if (v == 0) {
@@ -281,32 +281,32 @@ RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) {
     int at = 0;                     // 0 is "none", 1..n are the fonts
 
     for (;;) {
-        char y = modal_title(scr, top, width, "  FONTS");
+        char y = ui_modal_title(scr, top, width, "  FONTS");
         int k = 0;
 
         for (int i = 0; i <= n && y < bottom; i++) {
-            k = put_at(line, 0, width, i == at ? "  > " : "    ");
+            k = ui_put_at(line, 0, width, i == at ? "  > " : "    ");
             if (i == 0) {
-                k = put_at(line, k, width, "(none -- the font the machine starts in)");
+                k = ui_put_at(line, k, width, "(none -- the font the machine starts in)");
             } else {
                 const font_entry* f = &fonts[i - 1];
-                k = put_at(line, k, width, f->name);
-                k = pad_to(line, k, width, 28);
-                k = put_num(line, k, width, 8);
-                k = put_at(line, k, width, "x");
-                k = put_num(line, k, width, f->rows);
-                k = pad_to(line, k, width, 38);
-                k = put_num(line, k, width, cols);
-                k = put_at(line, k, width, "x");
-                k = put_num(line, k, width, f->rows > 0 ? px / f->rows : 0);
+                k = ui_put_at(line, k, width, f->name);
+                k = ui_pad_to(line, k, width, 28);
+                k = ui_put_num(line, k, width, 8);
+                k = ui_put_at(line, k, width, "x");
+                k = ui_put_num(line, k, width, f->rows);
+                k = ui_pad_to(line, k, width, 38);
+                k = ui_put_num(line, k, width, cols);
+                k = ui_put_at(line, k, width, "x");
+                k = ui_put_num(line, k, width, f->rows > 0 ? px / f->rows : 0);
             }
             scr_write_line(scr, y++, line, k);
         }
-        modal_fill(scr, y, bottom,
+        ui_modal_fill(scr, y, bottom,
                    "  UP/DOWN to choose, RETURN to take it, ESC to leave it alone", 60);
 
         const key_press kp = ks_wait(ui->keys_);
-        const pick_key act = modal_move(kp.vkey, &at, n);
+        const pick_key act = ui_modal_move(kp.vkey, &at, n);
         if (act == PICK_LEAVE) {
             return CANCEL_OPT;
         }

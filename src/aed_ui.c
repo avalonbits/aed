@@ -179,7 +179,7 @@ static void help_modal(user_input* ui, screen* scr) {
             prompt = "  UP for the previous page, any other key to close";
             psz = 49;
         }
-        modal_fill(scr, y, bottom, prompt, psz);
+        ui_modal_fill(scr, y, bottom, prompt, psz);
 
         const key_press kp = ks_wait(ui->keys_);
         const bool fwd = kp.vkey == VK_SPACE || kp.vkey == VK_PAGEDOWN
@@ -311,7 +311,7 @@ typedef enum _setting_row {
 static bool ask_number(user_input* ui, screen* scr, char* title, int cur,
                        int lo, int hi, int* out) {
     char prefill[8];
-    int p = put_num(prefill, 0, (int) sizeof(prefill) - 1, cur < 0 ? 0 : cur);
+    int p = ui_put_num(prefill, 0, (int) sizeof(prefill) - 1, cur < 0 ? 0 : cur);
     prefill[p] = 0;
 
     char* buf = NULL;
@@ -378,29 +378,29 @@ static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
                            ? ""
                            : (cfg->font[0] != 0 ? cfg->font : font_now);
 
-        char y = modal_title(scr, top, width, "  SETTINGS");
+        char y = ui_modal_title(scr, top, width, "  SETTINGS");
         int k = 0;
 
         for (int i = 0; i < ROW_COUNT && y < bottom; i++) {
-            k = put_at(line, 0, width, i == at ? "  > " : "    ");
+            k = ui_put_at(line, 0, width, i == at ? "  > " : "    ");
             switch (i) {
                 case ROW_TAB:
-                    k = put_at(line, k, width, "tab width");
-                    k = pad_to(line, k, width, 24);
-                    k = put_num(line, k, width, tab);
+                    k = ui_put_at(line, k, width, "tab width");
+                    k = ui_pad_to(line, k, width, 24);
+                    k = ui_put_num(line, k, width, tab);
                     break;
                 case ROW_COLOURS:
-                    k = put_at(line, k, width, "colours");
-                    k = pad_to(line, k, width, 24);
-                    k = put_at(line, k, width, "text ");
-                    k = put_num(line, k, width, fg);
-                    k = put_at(line, k, width, " on ");
-                    k = put_num(line, k, width, bg);
+                    k = ui_put_at(line, k, width, "colours");
+                    k = ui_pad_to(line, k, width, 24);
+                    k = ui_put_at(line, k, width, "text ");
+                    k = ui_put_num(line, k, width, fg);
+                    k = ui_put_at(line, k, width, " on ");
+                    k = ui_put_num(line, k, width, bg);
                     break;
                 case ROW_FONT:
-                    k = put_at(line, k, width, "font");
-                    k = pad_to(line, k, width, 24);
-                    k = put_at(line, k, width,
+                    k = ui_put_at(line, k, width, "font");
+                    k = ui_pad_to(line, k, width, 24);
+                    k = ui_put_at(line, k, width,
                                font[0] != 0 ? font : "(the machine's own)");
                     break;
                 default:
@@ -408,11 +408,11 @@ static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
             }
             scr_write_line(scr, y++, line, k);
         }
-        modal_fill(scr, y, bottom,
+        ui_modal_fill(scr, y, bottom,
                    "  UP/DOWN to choose, RETURN to change, ESC to close", 51);
 
         const key_press kp = ks_wait(ui->keys_);
-        const pick_key act = modal_move(kp.vkey, &at, ROW_COUNT - 1);
+        const pick_key act = ui_modal_move(kp.vkey, &at, ROW_COUNT - 1);
         if (act == PICK_LEAVE) {
             return changed ? YES_OPT : CANCEL_OPT;
         }
@@ -485,21 +485,21 @@ static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
  * program showing more than one view gets them across the whole text area
  * rather than squeezed into one pane.
  */
-void ui_help(user_input* ui, screen* scr) {
+void aed_help(user_input* ui, screen* scr) {
     view* was = scr->v_;
     scr_set_view(scr, NULL);
     help_modal(ui, scr);
     scr_set_view(scr, was);
 }
 
-void ui_banner(user_input* ui, screen* scr) {
+void aed_banner(user_input* ui, screen* scr) {
     view* was = scr->v_;
     scr_set_view(scr, NULL);
     banner_modal(ui, scr);
     scr_set_view(scr, was);
 }
 
-RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
+RESPONSE aed_settings(user_input* ui, screen* scr, config* cfg) {
     view* was = scr->v_;
     scr_set_view(scr, NULL);
     const RESPONSE got = settings_modal(ui, scr, cfg);

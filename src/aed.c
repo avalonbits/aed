@@ -51,18 +51,18 @@ const app_context AED_APP = {
     .font_dir   = CFG_DIR "/aed",
 };
 
-void cmd_help(editor* ed) {
+void aed_cmd_help(editor* ed) {
     SCR(ed);
     UI(ed);
 
-    ui_help(ui, scr);
+    aed_help(ui, scr);
 
     // The help wrote over the document, and the view cannot put it back on its
     // own -- it has no access to the buffer.
-    restore_after_modal(ed, false);
+    cmd_restore_after_modal(ed, false);
 }
 
-void cmd_settings(editor* ed) {
+void aed_cmd_settings(editor* ed) {
     SCR(ed);
     UI(ed);
 
@@ -76,7 +76,7 @@ void cmd_settings(editor* ed) {
     // in force may be the wrong one by the time this modal closes.
     const char was_bg = scr_base_bg(scr);
 
-    const RESPONSE ret = ui_settings(ui, scr, &cfg);
+    const RESPONSE ret = aed_settings(ui, scr, &cfg);
 
     // A font changes the cell size, and with it the number of rows and where
     // the footer sits. Everything below is laid out from those, so the font
@@ -110,13 +110,13 @@ void cmd_settings(editor* ed) {
      * Before the screen goes back, so the repaint below draws in whatever the
      * new background calls for. ed_pick_syntax winds the model back to the top
      * of the document and refresh_screen sets it from the view, which is the
-     * order restore_after_modal already relies on.
+     * order cmd_restore_after_modal already relies on.
      */
     if (scr_base_bg(scr) != was_bg) {
         ed_pick_syntax(ed);
     }
 
-    restore_after_modal(ed, moved);
+    cmd_restore_after_modal(ed, moved);
 
     if (ret == YES_OPT) {
         // Only the changed settings are set, and cfg_update copies every other
@@ -151,8 +151,8 @@ static const key_binding AED_BINDINGS[] = {
     LETTER(VK_s, VK_S, C, 0, ed_cmd_save),
     LETTER(VK_c, VK_C, C, OWN, cmd_copy),
     LETTER(VK_g, VK_G, C, 0, cmd_goto),
-    LETTER(VK_h, VK_H, C, 0, cmd_help),
-    LETTER(VK_e, VK_E, C, 0, cmd_settings),
+    LETTER(VK_h, VK_H, C, 0, aed_cmd_help),
+    LETTER(VK_e, VK_E, C, 0, aed_cmd_settings),
     LETTER(VK_o, VK_O, C, 0, cmd_open),
     LETTER(VK_a, VK_A, C, OWN, cmd_select_all),
     LETTER(VK_x, VK_X, C, OWN, cmd_cut),

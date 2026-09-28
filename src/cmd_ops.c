@@ -1564,7 +1564,7 @@ void cmd_open(editor* ed) {
 // meaningless then -- there may not be that many rows any more -- so the
 // cursor's line is centred instead, or put as far down as the document allows
 // when there is not enough above it to centre against.
-void restore_after_modal(editor* ed, bool moved) {
+void cmd_restore_after_modal(editor* ed, bool moved) {
     SCR(ed);
     TB(ed);
 

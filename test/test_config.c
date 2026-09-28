@@ -531,7 +531,7 @@ int main(void) {
     stub_file_reset();
     stub_file_set_content(before_pick, (int) sizeof(before_pick) - 1);
     stub_set_keys(pick, 5);
-    cmd_settings(&pe);
+    aed_cmd_settings(&pe);
     check("the picker changed the foreground",
           scr_fg(&pe.scr_) != fg_before, 1);
     check("  and wrote the file", stub_file_size() > 0, 1);
@@ -550,7 +550,7 @@ int main(void) {
     stub_file_reset();
     stub_file_set_content(odd_tab, (int) sizeof(odd_tab) - 1);
     stub_set_keys(pick, 5);
-    cmd_settings(&pe);
+    aed_cmd_settings(&pe);
     memcpy(merged, stub_file_bytes(), (size_t) stub_file_size());
     merged[stub_file_size()] = 0;
     check("the picker leaves an out-of-range tab exactly as written",
@@ -560,7 +560,7 @@ int main(void) {
     stub_file_reset();
     stub_file_set_content(no_tab, (int) sizeof(no_tab) - 1);
     stub_set_keys(pick, 5);
-    cmd_settings(&pe);
+    aed_cmd_settings(&pe);
     memcpy(merged, stub_file_bytes(), (size_t) stub_file_size());
     merged[stub_file_size()] = 0;
     check("  and does not invent a tab setting that was never there",

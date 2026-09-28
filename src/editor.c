@@ -413,7 +413,7 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
         // thing from starting with nothing, and someone who named a file has
         // already said what they came to do.
         if (fname == NULL) {
-            ui_banner(&ed->ui_, &ed->scr_);
+            aed_banner(&ed->ui_, &ed->scr_);
             ed->banner_ = true;
         }
         scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_.buf_));

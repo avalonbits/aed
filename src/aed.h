@@ -37,24 +37,24 @@ extern const app_context AED_APP;
 extern const keymap AED_KEYS;
 
 // Shows the settings, lets them be changed, and writes the file when any were.
-void cmd_settings(editor* ed);
+void aed_cmd_settings(editor* ed);
 
 // Shows the command list, then puts the document back.
-void cmd_help(editor* ed);
+void aed_cmd_help(editor* ed);
 
 // Draws the command list over the text area and waits. Pages when the list is
 // longer than the area, which it is on a 16-row font. Any key that is not a
 // paging key closes it.
 //
 // It only draws: putting the document back is the caller's job, because the
-// view cannot -- it has no access to the document. cmd_help does it the same
-// way cmd_settings does.
-void ui_help(user_input* ui, screen* scr);
+// view cannot -- it has no access to the document. aed_cmd_help does it the
+// same way aed_cmd_settings does.
+void aed_help(user_input* ui, screen* scr);
 
 // The startup banner, centred in the text area, for a session started with no
 // file. Says what this is and where the commands are, and is wiped by the first
 // keystroke rather than lingering behind the text.
-void ui_banner(user_input* ui, screen* scr);
+void aed_banner(user_input* ui, screen* scr);
 
 // The settings, editable. Draws over the text area; the caller puts the
 // document back, as it does after the help. Returns YES_OPT when something was
@@ -63,7 +63,6 @@ void ui_banner(user_input* ui, screen* scr);
 // `cfg` comes in holding what AED is currently using and goes out holding the
 // changes -- and only the changes: everything else stays unset, so writing it
 // back with cfg_update cannot invent a setting the reader never asked for.
-RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg);
-
+RESPONSE aed_settings(user_input* ui, screen* scr, config* cfg);
 
 #endif  // _AED_H_
