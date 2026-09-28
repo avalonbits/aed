@@ -560,7 +560,7 @@ int main(void) {
             cmd_down(&ed);
         }
         const char row_before = ed.scr_.currY_;
-        const int line_before = tb_ypos(&ed.buf_);
+        const int line_before = tb_ypos(&ed.doc_.buf_);
         check("the cursor is well down the screen", row_before > 10, 1);
 
         /* Open the settings and close them again, changing nothing. */
@@ -570,7 +570,7 @@ int main(void) {
 
         check("  and is still on the same row afterwards",
               ed.scr_.currY_, row_before);
-        check("  still on the same line", tb_ypos(&ed.buf_), line_before);
+        check("  still on the same line", tb_ypos(&ed.doc_.buf_), line_before);
 
         /* A font change is different: the row count moves, so the old row may
          * not exist any more. The cursor's line is centred instead. */
@@ -591,7 +591,7 @@ int main(void) {
         check("  and centres the cursor's line",
               ed.scr_.currY_,
               (char)(ed.scr_.topY_ + (ed.scr_.bottomY_ - ed.scr_.topY_) / 2));
-        check("  which is still the same line", tb_ypos(&ed.buf_), line_before);
+        check("  which is still the same line", tb_ypos(&ed.doc_.buf_), line_before);
         ed_destroy(&ed);
     }
 

@@ -217,30 +217,30 @@ int main(void) {
               ed_init(&ed, 8, "/k.txt") != NULL, 1);
 
         tb_pos end_of_two = { 2, 3 };
-        tb_seek(&ed.buf_, end_of_two);
+        tb_seek(&ed.doc_.buf_, end_of_two);
         cmd_del(&ed);               /* DELETE at the end of line 2 */
-        check("  DELETE at the end of a line", agrees(&ed.buf_), 1);
+        check("  DELETE at the end of a line", agrees(&ed.doc_.buf_), 1);
         check("    joins the next one on whole",
-              saved_is(&ed.buf_, "one\ntwothree\n"), 1);
+              saved_is(&ed.doc_.buf_, "one\ntwothree\n"), 1);
 
         tb_pos start_of_two = { 2, 0 };
-        tb_seek(&ed.buf_, start_of_two);
+        tb_seek(&ed.doc_.buf_, start_of_two);
         cmd_bksp(&ed);              /* BACKSPACE at the start of line 2 */
-        check("  BACKSPACE at the start of one", agrees(&ed.buf_), 1);
+        check("  BACKSPACE at the start of one", agrees(&ed.doc_.buf_), 1);
         check("    joins it to the line above whole",
-              saved_is(&ed.buf_, "onetwothree\n"), 1);
+              saved_is(&ed.doc_.buf_, "onetwothree\n"), 1);
 
         /* CTRL+D down the whole document, including the last line. */
         int guard = 0;
-        while (guard++ < 20 && tb_ymax(&ed.buf_) > 1) {
+        while (guard++ < 20 && tb_ymax(&ed.doc_.buf_) > 1) {
             cmd_del_line(&ed);
-            if (!agrees(&ed.buf_)) {
+            if (!agrees(&ed.doc_.buf_)) {
                 break;
             }
         }
         cmd_del_line(&ed);
         check("  and CTRL+D takes every line without hanging", guard < 20, 1);
-        check("    leaving the index agreeing", agrees(&ed.buf_), 1);
+        check("    leaving the index agreeing", agrees(&ed.doc_.buf_), 1);
         ed_destroy(&ed);
     }
 

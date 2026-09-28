@@ -36,8 +36,8 @@ static void check(const char* name, int got, int want) {
 static editor ed;
 
 /* line, column -- the pair every one of these tests is about. */
-static int at_line(void) { return tb_ypos(&ed.buf_); }
-static int at_col(void)  { return ed.buf_.x_; }
+static int at_line(void) { return tb_ypos(&ed.doc_.buf_); }
+static int at_col(void)  { return ed.doc_.buf_.x_; }
 
 static int load(const char* doc) {
     stub_file_reset();
@@ -48,7 +48,7 @@ static int load(const char* doc) {
 
 static void seek(int line, int x) {
     tb_pos p = { line, x };
-    tb_seek(&ed.buf_, p);
+    tb_seek(&ed.doc_.buf_, p);
 }
 
 static int at_row(void) { return ed.scr_.currY_; }
@@ -144,7 +144,7 @@ int main(void) {
         check("    landing at the start of it", at_col(), 0);
 
         /* the last line has nothing below it */
-        const int last = tb_ymax(&ed.buf_);
+        const int last = tb_ymax(&ed.doc_.buf_);
         seek(last, 0);
         const int before = at_line();
         cmd_right(&ed);

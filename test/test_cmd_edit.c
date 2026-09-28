@@ -61,8 +61,8 @@ static void expected_window(editor* ed, char* out, int max) {
     char line[512];
     int n = 0;
     int psz = 0, ssz = 0;
-    char* pre = tb_prefix(&ed->buf_, &psz);
-    char* suf = tb_suffix(&ed->buf_, &ssz);
+    char* pre = tb_prefix(&ed->doc_.buf_, &psz);
+    char* suf = tb_suffix(&ed->doc_.buf_, &ssz);
     for (int i = 0; i < psz && n < (int) sizeof(line); i++) {
         line[n++] = pre[i];
     }
@@ -102,7 +102,7 @@ static void setup(editor* ed) {
     ed->scr_.currX_ = 0;
     ed->scr_.originX_ = 0;
 
-    if (!tb_init(&ed->buf_, 4, NULL)) {
+    if (!tb_init(&ed->doc_.buf_, 4, NULL)) {
         fprintf(stderr, "tb_init failed\n");
         return;
     }
@@ -124,11 +124,11 @@ int main(void) {
 
     /* "abcdefghij..." long enough that the cursor at the end is off screen. */
     for (int i = 0; i < 40; i++) {
-        tb_put(&ed.buf_, (char)('a' + (i % 26)));
+        tb_put(&ed.doc_.buf_, (char)('a' + (i % 26)));
     }
     /* Put the view where the cursor is, as the editor would have. */
     int psz = 0;
-    char* pre = tb_prefix(&ed.buf_, &psz);
+    char* pre = tb_prefix(&ed.doc_.buf_, &psz);
     (void) scr_place_cursor(&ed.scr_, pre, psz);
     check("cursor is off the left edge of the window", ed.scr_.originX_, 40 - 19);
 
@@ -170,7 +170,7 @@ int main(void) {
     check("and redraws the row from the document",
           contains(buf, n, want), 1);
 
-    tb_destroy(&ed.buf_);
+    tb_destroy(&ed.doc_.buf_);
     ui_destroy(&ed.ui_);
 
     if (failures > 0) {
