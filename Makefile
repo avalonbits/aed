@@ -75,6 +75,12 @@ $(LIBUI): $(UI_OBJS) | $(BINDIR)
 
 libs: $(LIBCORE) $(LIBUI)
 
+# AgonDev's own `make lib` archives whatever $(OBJS) names, which here is AED's
+# objects: a libaed.a nobody links. It builds the two libraries as well, so
+# asking for "the library" the AgonDev way gets the ones that exist. `make
+# libs` is the target to use; mklibs.sh packages them.
+lib: libs
+
 # makefile.inc links $(OBJS) and then $(LINKERLIBFLAGS), both read when the
 # link runs. So AED's objects, and the libraries in the order they depend on
 # each other: the UI first, then the core it uses.
