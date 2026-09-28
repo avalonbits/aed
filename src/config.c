@@ -105,7 +105,8 @@ static int setting_index(const cfg_schema* sc, const char* section, int seclen,
         if (!ini_name_is(name, namelen, sc->settings[i].name)) {
             continue;
         }
-        if (seclen == 0 || ini_name_is(section, seclen, sc->settings[i].section)) {
+        if (seclen == 0
+                || ini_name_is(section, seclen, sc->settings[i].section)) {
             return i;
         }
     }
@@ -240,14 +241,15 @@ static int flush_section(const cfg_schema* sc, const void* values,
         if (value_of(values, &sc->settings[k]) < 0) {
             continue;
         }
-        at = cfg_put_setting(out, at, max, sc->settings[k].name, value_of(values, &sc->settings[k]));
+        at = cfg_put_setting(out, at, max, sc->settings[k].name,
+                             value_of(values, &sc->settings[k]));
     }
 
     return at;
 }
 
-// Copies `in` to `out`, substituting new values for the settings `values` sets and
-// leaving everything else byte for byte as it was.
+// Copies `in` to `out`, substituting new values for the settings `values` sets
+// and leaving everything else byte for byte as it was.
 static int merge(const cfg_schema* sc, const void* values,
                  const char* in, int inlen, char* out, int max) {
     bool done[CFG_SETTINGS_MAX];
@@ -400,10 +402,11 @@ static int merge(const cfg_schema* sc, const void* values,
         at = cfg_put_text(out, at, max, sc->settings[k].section);
         at = cfg_put_text(out, at, max, "]\r\n");
         at = flush_section(sc, values, sc->settings[k].section,
-                           (int) strlen(sc->settings[k].section), done, out, at, max);
+                           (int) strlen(sc->settings[k].section), done, out,
+                           at, max);
         for (int j = 0; j < sc->n; j++) {
-            if (ini_name_is(sc->settings[k].section, (int) strlen(sc->settings[k].section),
-                        sc->settings[j].section)) {
+            const char* sec = sc->settings[k].section;
+            if (ini_name_is(sec, (int) strlen(sec), sc->settings[j].section)) {
                 done[j] = true;
             }
         }

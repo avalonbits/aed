@@ -1,0 +1,9 @@
+[vdp]
+ctrl_pause_frames = 3
+
+[editor]
+tab = 2
+font = 
+
+[colours]
+fg = 7

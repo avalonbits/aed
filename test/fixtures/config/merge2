@@ -1,0 +1,8 @@
+[editor]
+font = /config/aed/new.bin  # keep
+tab = 2
+[other]
+x = 1
+
+[colours]
+fg = 7

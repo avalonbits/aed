@@ -105,7 +105,8 @@ int main(void) {
         cfg_defaults(&OTHER, &o);
         o.width = 7;
         stub_file_reset();
-        check("saving writes a file", cfg_save(&OTHER, &o, "/config/other.ini") ? 1 : 0, 1);
+        check("saving writes a file",
+              cfg_save(&OTHER, &o, "/config/other.ini") ? 1 : 0, 1);
         check("  from the program's render",
               file_is("# other\r\n[build]\r\nwidth = 7\r\n[tools]\r\n"), 1);
     }
@@ -113,7 +114,8 @@ int main(void) {
     /* --- a merge changes only what the program sets --- */
     {
         static const char BEFORE[] =
-            "[build]\r\nwidth = 1  # keep\r\n[tools]\r\n[editor]\r\ntab = 4\r\n";
+            "[build]\r\nwidth = 1  # keep\r\n[tools]\r\n"
+            "[editor]\r\ntab = 4\r\n";
         other o;
         cfg_defaults(&OTHER, &o);
         o.width = 2;
@@ -161,8 +163,10 @@ int main(void) {
         cfg_defaults(&AED_CONFIG, &back);
         cfg_parse(&AED_CONFIG, &back, first, n);
         check("  and reads back what was written",
-              back.tab_size * 10000 + back.fg * 100 + back.bg, 4 * 10000 + 15 * 100);
-        const int m = cfg_render(&AED_CONFIG, &back, second, (int) sizeof(second));
+              back.tab_size * 10000 + back.fg * 100 + back.bg,
+              4 * 10000 + 15 * 100);
+        const int m = cfg_render(&AED_CONFIG, &back, second,
+                                 (int) sizeof(second));
         check("  rendering what was read gives the same bytes",
               m == n && memcmp(first, second, (size_t) n) == 0 ? 1 : 0, 1);
 

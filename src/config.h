@@ -79,11 +79,6 @@ typedef struct _cfg_schema {
 // Every setting in `values` cleared to "not set".
 void cfg_defaults(const cfg_schema* sc, void* values);
 
-
-// Reads `path` into `cfg`. A missing or unreadable file is not an error: the
-// settings simply stay unset. Unknown sections and names are ignored so that a
-// file written for a later version still loads in this one. Section and setting
-// names are matched without regard to case.
 /*
  * Brings a card written by an older version up to date, once, before anything
  * reads the settings: `old` is what the settings file used to be called and
@@ -104,6 +99,10 @@ void cfg_defaults(const cfg_schema* sc, void* values);
  */
 bool cfg_migrate(const char* old, const char* path);
 
+// Reads `path` into `values`. A missing or unreadable file is not an error:
+// the settings simply stay unset. Unknown sections and names are ignored so
+// that a file written for a later version still loads in this one. Section and
+// setting names are matched without regard to case.
 bool cfg_load(const cfg_schema* sc, void* values, const char* path);
 
 // Parses config text directly. Exposed for tests, and so the file reading and
@@ -115,14 +114,14 @@ void cfg_parse(const cfg_schema* sc, void* values, const char* text, int len);
 // started with, so there is something to edit rather than a format to guess at.
 bool cfg_save(const cfg_schema* sc, const void* values, const char* path);
 
-// Rewrites `path`, changing only the settings that are set in `values` and leaving
-// every other line exactly as it was -- comments, blank lines, spacing, and
-// settings this version does not understand. The file is meant to be edited by
-// hand, so saving a colour change must not reformat it or discard notes. A
-// setting whose section is absent gets that heading written for it. Falls back
-// to writing a fresh file when there is nothing to merge into, and refuses
-// rather than rewriting a file too large to hold in memory whole -- writing back
-// a partial read would truncate away everything past it.
+// Rewrites `path`, changing only the settings that are set in `values` and
+// leaving every other line exactly as it was -- comments, blank lines, spacing,
+// and settings this version does not understand. The file is meant to be
+// edited by hand, so saving a colour change must not reformat it or discard
+// notes. A setting whose section is absent gets that heading written for it.
+// Falls back to writing a fresh file when there is nothing to merge into, and
+// refuses rather than rewriting a file too large to hold in memory whole --
+// writing back a partial read would truncate away everything past it.
 bool cfg_update(const cfg_schema* sc, const void* values, const char* path);
 
 // Renders a fresh file into `buf` through the schema's render. Returns the
