@@ -127,7 +127,7 @@ type    = 14
 ```
 
 A colour that reads well on black is unreadable on white, so **the background in
-force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L181) chooses the
+force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L207) chooses the
 grammar by the document's extension and then the first theme that covers the
 background, and it runs at startup, on open, and when the settings modal leaves
 a different background behind.
@@ -221,7 +221,7 @@ It is not needed, because of two observations:
 
 So: **carry the state forward, and read back a bounded distance after a jump.**
 [`syn_state_before()`](../src/lexer.c#L919) rescans at most
-[`SYN_LOOKBACK`](../src/syntax.h#L257) — 200 lines — which is a trivial lexer
+[`SYN_LOOKBACK`](../src/syntax.h#L290) — 200 lines — which is a trivial lexer
 over about 8 KB, and only on a jump. Zero bytes of document-sized state, and
 correct unless a span runs longer than the lookback.
 

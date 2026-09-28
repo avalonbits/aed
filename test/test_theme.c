@@ -593,6 +593,44 @@ int main(void) {
         check("      nor the other", t.bg, -1);
     }
 
+    /* --- brightness, which picks a theme for a background nobody listed --- */
+    {
+        /*
+         * From the VDP's default palette, on a 0 to 255 scale. The ends and
+         * the sixteen colour grey pin the scale down; the rest are orderings a
+         * reader would agree with, because that is all the choice relies on.
+         */
+        check("black is the darkest colour", theme_brightness(0), 0);
+        check("white is the brightest", theme_brightness(15), 255);
+        check("grey is a third of the way", theme_brightness(8), 85);
+        check("green reads brighter than red",
+              theme_brightness(2) > theme_brightness(1) ? 1 : 0, 1);
+        check("  and red than blue",
+              theme_brightness(1) > theme_brightness(4) ? 1 : 0, 1);
+        check("a 64 colour mode's own colours have one too",
+              theme_brightness(16), 9);
+        check("  up to the last", theme_brightness(63), 245);
+        check("and a colour number past them has none",
+              theme_brightness(64), -1);
+
+        static const char NEAR[] = "[theme]\nname = near\ncovers = 0 1 4\n";
+        stub_file_reset();
+        stub_file_add("/near.cfg", NEAR, (int) sizeof(NEAR) - 1);
+        theme t;
+        check("a theme for dark backgrounds", theme_load(&t, "/near.cfg"), 1);
+        check("  is no distance from one it covers", theme_distance(&t, 1), 0);
+        check("  is near a very dark blue",
+              theme_distance(&t, 16), theme_brightness(16));
+        check("  and far from white",
+              theme_distance(&t, 15) > THEME_NEAR ? 1 : 0, 1);
+
+        static const char NONE[] = "[theme]\nname = none\n";
+        stub_file_add("/none.cfg", NONE, (int) sizeof(NONE) - 1);
+        check("a theme that covers nothing",
+              theme_load(&t, "/none.cfg"), 1);
+        check("  has no distance to anything", theme_distance(&t, 0), -1);
+    }
+
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
 
