@@ -19,6 +19,7 @@
 #include "keys.h"
 
 #include <agon/keyboard.h>
+#include <stddef.h>
 
 // On AgonDev's key handler, and why AED uses it anyway.
 //
@@ -72,13 +73,10 @@ void keys_close(void) {
     kbuf_deinit();
 }
 
-key_press keys_wait(void) {
+bool keys_poll(key_press* kp) {
     struct keyboard_event_t e;
 
-    for (;;) {
-        if (!kbuf_poll_event(&e)) {
-            continue;
-        }
+    while (kbuf_poll_event(&e)) {
         if (!e.isdown) {
             continue;
         }
@@ -91,12 +89,39 @@ key_press keys_wait(void) {
         if (e.vkey >= VK_LSHIFT && e.vkey <= VK_RGUI) {
             continue;
         }
+        kp->ch = (char) e.ascii;
+        kp->vkey = (VKey) e.vkey;
+        kp->mods = (char) e.kmod;
 
-        key_press kp;
-        kp.ch = (char) e.ascii;
-        kp.vkey = (VKey) e.vkey;
-        kp.mods = (char) e.kmod;
-
-        return kp;
+        return true;
     }
+
+    return false;
+}
+
+key_press keys_wait(void) {
+    key_press kp;
+    while (!keys_poll(&kp)) {
+    }
+
+    return kp;
+}
+
+static bool mos_poll(void* ctx, key_press* kp) {
+    (void) ctx;
+
+    return keys_poll(kp);
+}
+
+const key_source KEYS_MOS = { mos_poll, NULL, NULL };
+
+key_press ks_wait(const key_source* ks) {
+    key_press kp;
+    while (!ks->poll(ks->ctx, &kp)) {
+        if (ks->idle != NULL) {
+            ks->idle(ks->ctx);
+        }
+    }
+
+    return kp;
 }

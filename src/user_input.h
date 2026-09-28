@@ -21,6 +21,7 @@
 
 #include "char_buffer.h"
 #include "config.h"
+#include "keys.h"
 #include "screen.h"
 
 typedef enum _response {
@@ -34,10 +35,17 @@ typedef struct _user_input {
     char_buffer cb_;
     char ypos_;
     int cols_;
+    // Where every prompt and modal here reads its keys: KEYS_MOS unless the
+    // program says otherwise with ui_set_keys.
+    const key_source* keys_;
 } user_input;
 
 user_input* ui_init(user_input* ui, int size, char ypos, int cols);
 void ui_destroy(user_input* ui);
+
+// Points the prompts and modals at another key source. The source is not
+// copied, so it must outlive its use; NULL goes back to KEYS_MOS.
+void ui_set_keys(user_input* ui, const key_source* ks);
 
 // The prompt row and the width it has to fill, after the geometry moved. A
 // font change alters both, and everything ui_ draws is placed from them -- a

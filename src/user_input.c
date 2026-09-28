@@ -34,6 +34,8 @@ user_input* ui_init(user_input* ui, int size, char ypos, int cols) {
     }
     ui->ypos_ = ypos;
     ui->cols_ = cols;
+    ui->keys_ = &KEYS_MOS;
+
     return ui;
 }
 
@@ -44,6 +46,10 @@ void ui_resize(user_input* ui, char ypos, int cols) {
 
 void ui_destroy(user_input* ui) {
     cb_destroy(&ui->cb_);
+}
+
+void ui_set_keys(user_input* ui, const key_source* ks) {
+    ui->keys_ = (ks != NULL) ? ks : &KEYS_MOS;
 }
 
 
@@ -68,7 +74,7 @@ RESPONSE ui_goto(user_input* ui, screen* scr, int* line) {
     cb_clear(cb);
 
     do {
-        const key_press kp = keys_wait();
+        const key_press kp = ks_wait(ui->keys_);
         const char key = kp.ch;
         const VKey vkey = kp.vkey;
 
@@ -334,7 +340,7 @@ static void help_modal(user_input* ui, screen* scr) {
         }
         modal_fill(scr, y, bottom, prompt, psz);
 
-        const key_press kp = keys_wait();
+        const key_press kp = ks_wait(ui->keys_);
         const bool fwd = kp.vkey == VK_SPACE || kp.vkey == VK_PAGEDOWN
                          || kp.vkey == VK_DOWN || kp.vkey == VK_KP_DOWN;
         const bool rev = kp.vkey == VK_PAGEUP
@@ -573,7 +579,7 @@ static RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max) 
         modal_fill(scr, y, bottom,
                    "  UP/DOWN to choose, RETURN to take it, ESC to leave it alone", 60);
 
-        const key_press kp = keys_wait();
+        const key_press kp = ks_wait(ui->keys_);
         const pick_key act = modal_move(kp.vkey, &at, n);
         if (act == PICK_LEAVE) {
             return CANCEL_OPT;
@@ -625,7 +631,7 @@ RESPONSE ui_color_picker(user_input* ui, screen* scr) {
             putchar(' ');
         }
 
-        const VKey vkey = keys_wait().vkey;
+        const VKey vkey = ks_wait(ui->keys_).vkey;
 
         switch (vkey) {
             case VK_ESCAPE:
@@ -795,7 +801,7 @@ static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
         modal_fill(scr, y, bottom,
                    "  UP/DOWN to choose, RETURN to change, ESC to close", 51);
 
-        const key_press kp = keys_wait();
+        const key_press kp = ks_wait(ui->keys_);
         const pick_key act = modal_move(kp.vkey, &at, ROW_COUNT - 1);
         if (act == PICK_LEAVE) {
             return changed ? YES_OPT : CANCEL_OPT;
@@ -900,7 +906,7 @@ void ui_message(user_input* ui, screen* scr, char* msg) {
     VDP_PUTS(dismiss);
     scr_show_cursor_ch(scr, scr->cursor_);
 
-    keys_wait();
+    ks_wait(ui->keys_);
 }
 
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
@@ -912,7 +918,7 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     scr_show_cursor_ch(scr, scr->cursor_);
 
     do {
-        const key_press kp = keys_wait();
+        const key_press kp = ks_wait(ui->keys_);
         const char key = kp.ch;
         if (kp.vkey == VK_ESCAPE) {
             break;
@@ -958,7 +964,7 @@ RESPONSE ui_text(
     scr_show_cursor_ch(scr, scr->cursor_);
 
     do {
-        const key_press kp = keys_wait();
+        const key_press kp = ks_wait(ui->keys_);
         const char key = kp.ch;
         const VKey vkey = kp.vkey;
 
