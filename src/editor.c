@@ -271,9 +271,7 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
 
     // Before anything is sized: settings can change the font, and with it how
     // many rows there are.
-    if (prog->settings != NULL) {
-        prog->settings(ed);
-    }
+    const char* say = prog->settings != NULL ? prog->settings(ed) : NULL;
 
     ed->doc_.selecting_ = false;
     ed->doc_.anchor_.line = 1;
@@ -320,10 +318,13 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
         return ed_failed(ed, ED_UNDO);
     }
 
-    // Whatever the settings step has to say, now that there is somewhere to
-    // say it and before the document covers the screen.
-    if (prog->started != NULL) {
-        prog->started(ed);
+    // Whatever the settings step had to say, now that there is a prompt row to
+    // say it on and before the document covers the screen. It waits for a
+    // key: it is a mistake in a settings file, and it will happen every time
+    // until it is fixed.
+    if (say != NULL) {
+        ui_message(&ed->ui_, &ed->scr_, (char*) say);
+        scr_clear(&ed->scr_);
     }
 
     // The document is only drawn when there is something in it -- painting a

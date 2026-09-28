@@ -75,16 +75,17 @@ typedef struct _editor {
  * part of starting up.
  *
  * settings runs as soon as the screen exists and before anything is sized --
- * it may load a font, which changes how many rows there are. started runs once
- * the prompts exist and before the document is shown: anything settings found
- * to report goes there. banner is what to show when the program starts with no
- * file named and nothing to show. Any of the three may be NULL.
+ * it may load a font, which changes how many rows there are. It returns a
+ * message to report, or NULL for none; ed_init_for shows it once the prompts
+ * exist and before the document is shown, and the text only has to last that
+ * long. banner is what to show when the program starts with no file named and
+ * nothing to show. Either may be NULL. The program keeps no state of its own
+ * between them: an editor's is the editor's.
  */
 typedef struct _ed_program {
     const app_context* app;
     const struct _keymap* keys;
-    void (*settings)(editor* ed);
-    void (*started)(editor* ed);
+    const char* (*settings)(editor* ed);
     void (*banner)(user_input* ui, screen* scr);
 } ed_program;
 

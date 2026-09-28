@@ -199,14 +199,44 @@ const keymap AED_KEYS = {
 
 /*
  * AED's part of starting up: its settings, read and applied as soon as the
- * screen exists, and a font that would not load reported once there is a
- * prompt to report it on. The rest of starting is ed_init_for's.
+ * screen exists, with a font that would not load handed back to be reported
+ * once there is a prompt to report it on. The rest of starting is
+ * ed_init_for's.
  */
-static bool font_asked;
-static bool font_loaded;
-static char font_wanted[CFG_FONT_MAX];
+/*
+ * A font was asked for and did not load: the file is missing, or it is not
+ * a whole number of 256-byte rows, or this VDP has no font API. Whichever
+ * it was, saying nothing leaves the stock font on screen and no reason for
+ * it -- and the setting sits in a file edited by hand, so a typo in the
+ * path is the likeliest cause and the least guessable.
+ *
+ * It waits for a key. That is an interruption at startup, which is the
+ * point: it is a mistake in a settings file, and it will happen every time
+ * until it is fixed.
+ *
+ * The message is built here and shown by ed_init_for once there is a prompt
+ * row to show it on. Its buffer is static for the frame's sake, and holds the
+ * message only until then.
+ */
+static const char* font_not_loaded(const char* font) {
+    // Built by hand rather than with snprintf. This is the program's only
+    // formatted print, and asking for it links nanoprintf: 4,994 bytes,
+    // eight per cent of the binary, for one %s.
+    static const char lead[] = "font not loaded: ";
+    static char msg[CFG_FONT_MAX + sizeof(lead)];
+    const int lead_n = (int) sizeof(lead) - 1;
+    int n = (int) strlen(font);
+    if (n > (int) sizeof(msg) - lead_n - 1) {
+        n = (int) sizeof(msg) - lead_n - 1;
+    }
+    memcpy(msg, lead, (size_t) lead_n);
+    memcpy(msg + lead_n, font, (size_t) n);
+    msg[lead_n + n] = 0;
 
-static void aed_apply_settings(editor* ed) {
+    return msg;
+}
+
+static const char* aed_apply_settings(editor* ed) {
     screen* scr = &ed->scr_;
     const app_context* app = app_get();
 
@@ -217,8 +247,7 @@ static void aed_apply_settings(editor* ed) {
     // On first run there is no file. Write one holding what AED is starting
     // with, including the colours it just measured off the Agon, so the user
     // has something to edit instead of a format to guess at.
-    font_asked = false;
-    font_loaded = false;
+    const char* say = NULL;
 
     config cfg;
     cfg_defaults(&AED_CONFIG, &cfg);
@@ -239,10 +268,8 @@ static void aed_apply_settings(editor* ed) {
         // the file asks for it, for the same reason as the line above -- see
         // scr_load_font. A font that will not load is not worth stopping for;
         // the editor runs in whatever font the machine already had.
-        if (cfg.font[0] != 0) {
-            font_asked = true;
-            font_loaded = scr_load_font(scr, cfg.font);
-            strcpy(font_wanted, cfg.font);
+        if (cfg.font[0] != 0 && !scr_load_font(scr, cfg.font)) {
+            say = font_not_loaded(cfg.font);
         }
         // Each colour applies on its own: a file that sets only fg keeps the
         // measured bg, the same way an unset tab keeps the default.
@@ -266,39 +293,12 @@ static void aed_apply_settings(editor* ed) {
      * a fresh one written now would be found first from then on, and their
      * settings would sit in a file nothing reads.
      */
-}
 
-static void aed_report_font(editor* ed) {
-    // A font was asked for and did not load: the file is missing, or it is not
-    // a whole number of 256-byte rows, or this VDP has no font API. Whichever
-    // it was, saying nothing leaves the stock font on screen and no reason for
-    // it -- and the setting sits in a file edited by hand, so a typo in the
-    // path is the likeliest cause and the least guessable.
-    //
-    // It waits for a key. That is an interruption at startup, which is the
-    // point: it is a mistake in a settings file, and it will happen every time
-    // until it is fixed.
-    if (font_asked && !font_loaded) {
-        // Built by hand rather than with snprintf. This is the program's only
-        // formatted print, and asking for it links nanoprintf: 4,994 bytes,
-        // eight per cent of the binary, for one %s.
-        static const char lead[] = "font not loaded: ";
-        static char msg[CFG_FONT_MAX + sizeof(lead)];
-        const int lead_n = (int) sizeof(lead) - 1;
-        int n = (int) strlen(font_wanted);
-        if (n > (int) sizeof(msg) - lead_n - 1) {
-            n = (int) sizeof(msg) - lead_n - 1;
-        }
-        memcpy(msg, lead, (size_t) lead_n);
-        memcpy(msg + lead_n, font_wanted, (size_t) n);
-        msg[lead_n + n] = 0;
-        ui_message(&ed->ui_, &ed->scr_, msg);
-        scr_clear(&ed->scr_);
-    }
+    return say;
 }
 
 static const ed_program AED_PROGRAM = {
-    &AED_APP, &AED_KEYS, aed_apply_settings, aed_report_font, aed_banner,
+    &AED_APP, &AED_KEYS, aed_apply_settings, aed_banner,
 };
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {
