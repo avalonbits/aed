@@ -127,7 +127,7 @@ type    = 14
 ```
 
 A colour that reads well on black is unreadable on white, so **the background in
-force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L235) chooses the
+force picks the theme**. [`ed_pick_syntax()`](../src/editor.c#L208) chooses the
 grammar by the document's extension and then the first theme that covers the
 background, and it runs at startup, on open, and when the settings modal leaves
 a different background behind.
@@ -251,10 +251,10 @@ Four operations, and no state meaning *give up*:
 
 | | |
 |---|---|
-| [`line_state()`](../src/cmd_ops.c#L760) | inside the window it is a lookup; below it the window grows ([`extend_lines`](../src/cmd_ops.c#L643)); above it the window starts again there ([`refill_lines`](../src/cmd_ops.c#L700)) |
-| [`set_line_state()`](../src/cmd_ops.c#L789) | records what a paint has just worked out |
-| [`lines_moved()`](../src/cmd_ops.c#L830) | the document gained or lost a line at a point |
-| [`line_at_row()`](../src/cmd_ops.c#L867) | `synTop_ + (ypos - topY_)`, the only place a row becomes a line |
+| [`line_state()`](../src/cmd_ops.c#L759) | inside the window it is a lookup; below it the window grows ([`extend_lines`](../src/cmd_ops.c#L642)); above it the window starts again there ([`refill_lines`](../src/cmd_ops.c#L699)) |
+| [`set_line_state()`](../src/cmd_ops.c#L788) | records what a paint has just worked out |
+| [`lines_moved()`](../src/cmd_ops.c#L829) | the document gained or lost a line at a point |
+| [`line_at_row()`](../src/cmd_ops.c#L866) | `synTop_ + (ypos - topY_)`, the only place a row becomes a line |
 
 A join **renumbers** its answers rather than throwing them out, which is worth
 doing: throwing them out costs a screenful of lexing per edit and measured seven
@@ -284,8 +284,8 @@ typedef char (*scr_cell_colourer)(void* ctx, char ypos, int col);
 ```
 
 Every path that paints a row asks the first at paint time —
-[`ed_colour_row()`](../src/cmd_ops.c#L176) — and every path that shows the
-cursor asks the second — [`ed_colour_cell()`](../src/cmd_ops.c#L214). **A row
+[`ed_colour_row()`](../src/cmd_ops.c#L175) — and every path that shows the
+cursor asks the second — [`ed_colour_cell()`](../src/cmd_ops.c#L213). **A row
 cannot be painted without the question being asked**, because asking is inside
 the painting rather than in front of it.
 

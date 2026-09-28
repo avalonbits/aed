@@ -102,7 +102,7 @@ needing 825.
 
 ```mermaid
 flowchart TD
-    main["main() — 72 KiB, and the file named on the command line"] --> init["ed_init() — buffers, screen, settings, load"]
+    main["main() — 72 KiB, and the file named on the command line"] --> init["ed_init() — AED's settings, then ed_init_for(): buffers, screen, load"]
     init --> loop["ed_run() — one key at a time, until quit"]
     loop --> key["keys_wait() — a key event with its modifiers"]
     key --> mean["ed_translate() — what that key means, from the keymap"]
@@ -113,13 +113,14 @@ flowchart TD
     paint --> loop
 ```
 
-[`main()`](../src/main.c#L25) ·
-[`ed_init()`](../src/editor.c#L291) ·
-[`ed_run()`](../src/editor.c#L655) ·
-[`ed_translate()`](../src/editor.c#L776) ·
-[`ed_handle()`](../src/editor.c#L603) ·
-[`ed_selection_for()`](../src/editor.c#L470) ·
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L871)
+[`main()`](../src/main.c#L24) ·
+[`ed_init()`](../src/aed.c#L304) ·
+[`ed_init_for()`](../src/editor.c#L264) ·
+[`ed_run()`](../src/editor.c#L560) ·
+[`ed_translate()`](../src/editor.c#L614) ·
+[`ed_handle()`](../src/editor.c#L508) ·
+[`ed_selection_for()`](../src/editor.c#L375) ·
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L870)
 
 `main` asks for **72 KiB** — [`TB_DOC_KB`](../src/text_buffer.h#L172) — and that
 single number sizes the document: `tb_init` splits it into 71,424 bytes of
@@ -154,7 +155,7 @@ model.
 A key becomes a command through a keymap: a table of bindings, each a key, the
 modifiers it needs, flags the loop reads before the command runs, and the
 command. [`AED_KEYS`](../src/editor.c) is AED's, and
-[`ed_translate()`](../src/editor.c#L776) reads a key through one, so a test can
+[`ed_translate()`](../src/editor.c#L614) reads a key through one, so a test can
 assert a binding. A program with keys of its own puts a table of them in front
 of AED's through the keymap's `next`, rather than copying it. **A command
 nothing can reach is not a feature; a command that is reachable and does the
@@ -162,7 +163,7 @@ wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/editor.c#L470) decides what a keystroke does to
+[`ed_selection_for()`](../src/editor.c#L375) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
@@ -381,7 +382,7 @@ separates *the key never arrived* from *the editor did the wrong thing with it*.
 
 Every byte painted goes down the UART, which makes a full repaint the most
 expensive thing the editor can do. So it paints rows:
-[`cmd_repaint_rows()`](../src/cmd_ops.c#L871) takes a range, and most commands
+[`cmd_repaint_rows()`](../src/cmd_ops.c#L870) takes a range, and most commands
 pass a single row.
 
 [`screen`](../src/screen.h#L58) derives its geometry from the font's cell size,

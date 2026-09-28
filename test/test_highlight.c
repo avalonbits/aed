@@ -16,6 +16,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "editor.h"
 #include "cmd_ops.h"
 #include "undo.h"
@@ -1510,7 +1511,7 @@ int main(void) {
          * colours were only right again after quitting and coming back, which
          * is the startup path doing what this one was not.
          *
-         * Driven through cmd_settings rather than by setting the background
+         * Driven through aed_cmd_settings rather than by setting the background
          * directly, because the modal is where the reader changes it and the
          * order it does things in -- pick, then repaint -- is half the fix.
          */
@@ -1534,7 +1535,7 @@ int main(void) {
             { .ch = 27, .vk = VK_ESCAPE },
         };
         stub_set_keys(to_bold, 6);
-        cmd_settings(&ed);
+        aed_cmd_settings(&ed);
 
         check("  and a background the reader moves to 2",
               scr_base_bg(&ed.scr_), 2);
@@ -1580,7 +1581,7 @@ int main(void) {
             { .ch = 27, .vk = VK_ESCAPE },
         };
         stub_set_keys(to_bare, 11);
-        cmd_settings(&ed);
+        aed_cmd_settings(&ed);
 
         check("  moving to a background no theme covers",
               scr_base_bg(&ed.scr_), 7);
@@ -1614,7 +1615,7 @@ int main(void) {
             { .ch = 27, .vk = VK_ESCAPE },
         };
         stub_set_keys(fg_only, 5);
-        cmd_settings(&ed);
+        aed_cmd_settings(&ed);
 
         check("a foreground change moves the base foreground",
               scr_base_fg(&ed.scr_), 0);

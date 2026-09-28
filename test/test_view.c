@@ -13,6 +13,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "aed_config.h"
 #include "screen.h"
 #include "user_input.h"
@@ -280,7 +281,7 @@ int main(void) {
         scr_set_view(&scr, &right);
         stub_set_keys(esc, 1);
         cap_start();
-        ui_help(&ui, &scr);
+        aed_help(&ui, &scr);
         first_tab(got, cap_read(got, sizeof(got)), &x, &y);
         check("help over the right view starts at the whole screen's edge", x, 1);
         check("  and puts the right view back", scr.v_ == &right ? 1 : 0, 1);
@@ -289,7 +290,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
-        ui_settings(&ui, &scr, &cfg);
+        aed_settings(&ui, &scr, &cfg);
         first_tab(got, cap_read(got, sizeof(got)), &x, &y);
         check("settings over the right view start at the whole screen's edge",
               x, 1);
@@ -298,7 +299,7 @@ int main(void) {
         /* The banner is centred, so across the whole screen it starts well
          * left of where the right view begins. */
         cap_start();
-        ui_banner(&ui, &scr);
+        aed_banner(&ui, &scr);
         first_tab(got, cap_read(got, sizeof(got)), &x, &y);
         check("the banner is centred on the whole screen", x > 0 && x < 40, 1);
         check("  and puts the right view back", scr.v_ == &right ? 1 : 0, 1);

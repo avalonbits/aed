@@ -58,8 +58,8 @@ typedef struct _editor {
     bool banner_;
 
     // What the keys mean -- see keymap below -- and whether a command has
-    // asked the loop to stop. ed_init sets keys_ to AED_KEYS; left NULL, no
-    // key is bound to anything and typing still types.
+    // asked the loop to stop. ed_init_for sets keys_ from the program; left
+    // NULL, no key is bound to anything and typing still types.
     const struct _keymap* keys_;
     bool leaving_;
 
@@ -70,11 +70,29 @@ typedef struct _editor {
     int findsz_;
 } editor;
 
-// AED's files: its settings, and where its grammars, themes and fonts live.
-// ed_init hands this to the core with app_set.
-extern const app_context AED_APP;
+/*
+ * What a program brings to an editor: where its files are, its keys, and its
+ * part of starting up.
+ *
+ * settings runs as soon as the screen exists and before anything is sized --
+ * it may load a font, which changes how many rows there are. It returns a
+ * message to report, or NULL for none; ed_init_for shows it once the prompts
+ * exist and before the document is shown, and the text only has to last that
+ * long. banner is what to show when the program starts with no file named and
+ * nothing to show. Either may be NULL. The program keeps no state of its own
+ * between them: an editor's is the editor's.
+ */
+typedef struct _ed_program {
+    const app_context* app;
+    const struct _keymap* keys;
+    const char* (*settings)(editor* ed);
+    void (*banner)(user_input* ui, screen* scr);
+} ed_program;
 
-editor* ed_init(editor* ed, int mem_kb, const char* fname);
+// Sets up an editor for `prog`, with a document of `mem_kb` holding `fname` --
+// or nothing, for NULL. Returns NULL, having said why, when it cannot.
+editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
+                    const ed_program* prog);
 
 /*
  * Chooses the grammar and theme for the document now in the buffer, by its
@@ -147,9 +165,6 @@ typedef struct _keymap {
     // own in front of AED_KEYS rather than copying it. NULL ends the chain.
     const struct _keymap* next;
 } keymap;
-
-// AED's keys, which ed_init gives the editor.
-extern const keymap AED_KEYS;
 
 // Two of AED's commands, bound in AED_KEYS: saving, and leaving -- which
 // asks about unsaved changes and, if the answer is to go, stops the loop.

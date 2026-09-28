@@ -13,6 +13,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "editor.h"
 
 static int failures = 0;

@@ -17,6 +17,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "aed_config.h"
 #include "editor.h"
 #include "screen.h"
@@ -142,7 +143,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
-        ui_settings(&ui, &scr, &cfg);   /* draws the settings, not the picker */
+        aed_settings(&ui, &scr, &cfg);   /* draws the settings, not the picker */
         const int n = cap_read(got, sizeof(got) - 1);
         /* Every row from the title down to the prompt, not just the rows with
          * something on them. The blanking is what covers whatever the document
@@ -183,7 +184,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
-        ui_settings(&ui, &scr, &cfg);
+        aed_settings(&ui, &scr, &cfg);
         cap_read(got, sizeof(got) - 1);
 
         check("the picker lists a font", strstr(got, "unscii16.bin") != NULL, 1);
@@ -218,7 +219,7 @@ int main(void) {
         cfg_defaults(&AED_CONFIG, &cfg);
         cfg.tab_size = 8;               /* as if read from the file */
         check("nothing changed, so nothing to write",
-              ui_settings(&ui, &scr, &cfg), CANCEL_OPT);
+              aed_settings(&ui, &scr, &cfg), CANCEL_OPT);
         /* And it came out holding nothing, so a write could not have rewritten
          * a line the reader had left alone. */
         check("  and no setting is left set", cfg.tab_size, -1);
@@ -251,7 +252,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
-        ui_settings(&ui, &scr, &cfg);
+        aed_settings(&ui, &scr, &cfg);
         cap_read(got, sizeof(got) - 1);
         check("UP moves back a row, so the colours open",
               strstr(got, "select FG/BG") != NULL, 1);
@@ -285,7 +286,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
-        ui_settings(&ui, &scr, &cfg);
+        aed_settings(&ui, &scr, &cfg);
         cap_read(got, sizeof(got) - 1);
         check("DOWN stops on the last row, which opens the fonts",
               strstr(got, "FONTS") != NULL, 1);
@@ -313,7 +314,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         check("changing something is worth writing",
-              ui_settings(&ui, &scr, &cfg), YES_OPT);
+              aed_settings(&ui, &scr, &cfg), YES_OPT);
         check("  and the new width is what comes out", cfg.tab_size, 8);
         check("  with everything else left unset", cfg.fg, -1);
         check("  and the screen using it now", scr_tab_size(&scr), 8);
@@ -342,7 +343,7 @@ int main(void) {
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         check("picking colours is worth writing",
-              ui_settings(&ui, &scr, &cfg), YES_OPT);
+              aed_settings(&ui, &scr, &cfg), YES_OPT);
         cap_read(got, sizeof(got) - 1);
 
         /* The title bar is not one of the rows this modal draws on, so it kept
@@ -379,7 +380,7 @@ int main(void) {
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         check("picking a font is worth writing",
-              ui_settings(&ui, &scr, &cfg), YES_OPT);
+              aed_settings(&ui, &scr, &cfg), YES_OPT);
         check("  and the path comes out",
               strcmp(cfg.font, "/config/aed/unscii16.bin"), 0);
 
@@ -402,7 +403,7 @@ int main(void) {
         stub_set_keys(pickfont, 8);
         cfg_defaults(&AED_CONFIG, &cfg);
         check("picking a font for another program is worth writing",
-              ui_settings(&ui, &scr, &cfg), YES_OPT);
+              aed_settings(&ui, &scr, &cfg), YES_OPT);
         check("  and the path is under that program's directory",
               strcmp(cfg.font, "/config/ade/fonts/unscii16.bin"), 0);
         check("  which is the directory the picker listed",
@@ -435,7 +436,7 @@ int main(void) {
         strcpy(cfg.font, "/config/aed/unscii16.bin");   /* as the file has it */
         cap_start();
         check("choosing none is a change worth writing",
-              ui_settings(&ui, &scr, &cfg), YES_OPT);
+              aed_settings(&ui, &scr, &cfg), YES_OPT);
         cap_read(got, sizeof(got) - 1);
         check("  recorded as wanting none", cfg.font_none, 1);
         check("  and not as a path", cfg.font[0], 0);
@@ -566,7 +567,7 @@ int main(void) {
         /* Open the settings and close them again, changing nothing. */
         const stub_key esc[] = { { .ch = 27, .vk = VK_ESCAPE } };
         stub_set_keys(esc, 1);
-        cmd_settings(&ed);
+        aed_cmd_settings(&ed);
 
         check("  and is still on the same row afterwards",
               ed.scr_.v_->currY_, row_before);
@@ -585,7 +586,7 @@ int main(void) {
             { .ch = 27, .vk = VK_ESCAPE },
         };
         stub_set_keys(pickfont, 8);
-        cmd_settings(&ed);
+        aed_cmd_settings(&ed);
 
         check("a font change leaves 30 rows", ed.scr_.rows_, 30);
         check("  and centres the cursor's line",

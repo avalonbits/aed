@@ -21,6 +21,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "cmd_ops.h"
 #include "editor.h"
 #include "keys.h"

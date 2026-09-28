@@ -14,6 +14,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "editor.h"
 #include "screen.h"
 #include "user_input.h"
@@ -101,7 +102,7 @@ int main(void) {
         stub_set_keys(close, 1);
 
         cap_start();
-        ui_help(&ui, &scr);
+        aed_help(&ui, &scr);
         cap_read(got, sizeof(got) - 1);
 
         check("the version is on the help screen",
@@ -181,7 +182,7 @@ int main(void) {
         stub_set_keys(page, 4);
 
         cap_start();
-        ui_help(&ui, &scr);
+        aed_help(&ui, &scr);
         const int n = cap_read(got, sizeof(got) - 1);
 
         check("a short screen offers more", strstr(got, "for more") != NULL, 1);
@@ -212,7 +213,7 @@ int main(void) {
         stub_set_keys(updown, 5);
 
         cap_start();
-        ui_help(&ui, &scr);
+        aed_help(&ui, &scr);
         cap_read(got, sizeof(got) - 1);
 
         check("every key was used, so UP paged rather than closing",
@@ -243,7 +244,7 @@ int main(void) {
             { .ch = 27, .vk = VK_ESCAPE },
         };
         stub_set_keys(stuck, 3);
-        ui_help(&ui, &scr);
+        aed_help(&ui, &scr);
         check("paging with nowhere to go stays put", stub_keys_read(), 3);
         ui_destroy(&ui);
     }
@@ -365,7 +366,7 @@ int main(void) {
         ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
 
         cap_start();
-        ui_banner(&ui, &scr);
+        aed_banner(&ui, &scr);
         cap_read(got, sizeof(got) - 1);
 
         check("the banner names the version", strstr(got, "AED " AED_VERSION) != NULL, 1);
@@ -396,7 +397,7 @@ int main(void) {
             stub_emit_tabs(1);
             scr_init(&scr, 32);
             cap_start();
-            ui_banner(&ui, &scr);
+            aed_banner(&ui, &scr);
             const int m = cap_read(got, sizeof(got) - 1);
             stub_emit_tabs(0);
 

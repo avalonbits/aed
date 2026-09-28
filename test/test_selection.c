@@ -23,6 +23,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "editor.h"
 #include "cmd_ops.h"
 #include "screen.h"
