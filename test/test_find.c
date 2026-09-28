@@ -392,17 +392,14 @@ int main(void) {
         check("  and the third", tb_ypos(&ped.doc_.buf_), 3900);
 
         /* Through what the editor loop does to a keystroke, not straight into
-         * the command. ed_selection_for runs first, and a key that is not in
-         * owns_selection drops the selection -- which is where cmd_find_prev
+         * the command. ed_selection_for runs first, and a key whose binding
+         * does not own the selection drops it -- which is where cmd_find_prev
          * gets the start of the match it is standing on. Calling the command
          * directly skips that and the bug with it, which is how a test of
          * CTRL+P passed while CTRL+P did nothing on a real machine. */
         {
-            key_command kc;
-            memset(&kc, 0, sizeof(kc));
-            kc.k.vkey = VK_p;
-            kc.mods = MOD_CTRL;
-            kc = ctrlCmds(kc, MOD_CTRL);
+            const key_press ctrl_p = { 0, VK_p, MOD_CTRL };
+            const key_command kc = ed_translate(&AED_KEYS, ctrl_p);
             check("CTRL+P is find-previous", kc.cmd == cmd_find_prev, 1);
             check("  and the find left a selection to measure from",
                   ped.doc_.selecting_ ? 1 : 0, 1);

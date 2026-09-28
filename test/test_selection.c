@@ -199,14 +199,11 @@ static int painted_rows(screen* scr, int cols) {
     return printable / cols;
 }
 
+/* A key with no character, as AED's keymap reads it. */
 static key_command press(VKey vkey, char mods) {
-    key_command kc;
-    kc.cmd = NULL;
-    kc.k.key = 0;
-    kc.k.vkey = vkey;
-    kc.mods = mods;
+    const key_press kp = { 0, vkey, mods };
 
-    return kc;
+    return ed_translate(&AED_KEYS, kp);
 }
 
 int main(void) {

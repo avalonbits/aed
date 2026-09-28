@@ -8,7 +8,7 @@
  *
  * Each line is:
  *
- *   n  ch=<code> vkey=<code> mods=<C|S|A>  <what ctrlCmds would make of it>
+ *   n  ch=<code> vkey=<code> mods=<C|S|A>  <what ed_translate would make of it>
  *
  * Press the chord in question. If nothing prints at all, the key never reached
  * the program and no amount of editor code will help. If a line prints with

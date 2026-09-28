@@ -428,6 +428,8 @@ editor* ed_init(editor* ed, int mem_kb, const char* fname) {
     }
 
     ed->banner_ = false;
+    ed->keys_ = &AED_KEYS;
+    ed->leaving_ = false;
     if (tb_used(&ed->doc_.buf_) > 0) {
         cmd_show(ed);
     } else {
@@ -465,21 +467,6 @@ void ed_destroy(editor* ed) {
 // The commands that act on the selection rather than replacing or ending it.
 // They manage it themselves: copy leaves it alone, cut and paste consume it,
 // and select-all makes one.
-static bool owns_selection(cmd_op cmd) {
-    return cmd == cmd_copy || cmd == cmd_cut
-        || cmd == cmd_paste || cmd == cmd_select_all
-        // Find is about the selection too: a match is left selected, and the
-        // next search measures from where that selection starts. Dropping it
-        // here left cmd_find_prev searching back from the cursor -- which is
-        // at the *end* of the match it is standing on, so it found the same
-        // one again and CTRL+P appeared to do nothing.
-        //
-        // cmd_find_prev has had the code to handle this for a while; it could
-        // never run, because selecting_ was already false by the time it was
-        // called. The test of it called the command directly and so passed.
-        || cmd == cmd_find || cmd == cmd_find_next || cmd == cmd_find_prev;
-}
-
 sel_action ed_selection_for(editor* ed, key_command kc) {
     // Pressing shift is not a keystroke that ends anything. MOS reports it as
     // its own event before the arrow it modifies, so treating it as an ordinary
@@ -489,7 +476,14 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
     }
     // Copy, cut, paste and select-all are about the selection, so they are not
     // keys that end it. What happens to it is each command's own business.
-    if (owns_selection(kc.cmd)) {
+    //
+    // Find is about the selection too: a match is left selected, and the next
+    // search measures from where that selection starts. Dropping it here left
+    // cmd_find_prev searching back from the cursor -- which is at the *end* of
+    // the match it is standing on, so it found the same one again and CTRL+P
+    // appeared to do nothing. The test of it called the command directly and
+    // so passed; it now goes through the keymap.
+    if (kc.flags & KC_OWNS_SEL) {
         return SEL_NONE;
     }
     if ((kc.mods & MOD_SHFT) && ed_is_motion(kc.k.vkey)) {
@@ -505,7 +499,7 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
         // replaces the selection rather than acting next to it. selecting_ is
         // left set so the caller can still see what to delete; deleting it is
         // what clears it.
-        if (ed_key_edits(kc)) {
+        if (kc.flags & KC_EDITS) {
             return SEL_REPLACE;
         }
         ed->doc_.selecting_ = false;
@@ -555,13 +549,13 @@ void ed_selection_repaint(editor* ed, sel_action act, char y_before,
     scr_show_cursor_ch(scr, tb_peek(tb));
 }
 
-bool ed_key_edits(key_command kc) {
-    // The switch is kept to itself and the command pointer tested after it.
-    // Mixing the two in one expression makes the eZ80 backend fall over with
-    // "unable to legalize instruction ... i15", which is a compiler bug rather
-    // than anything wrong with the code -- but this shape avoids it and reads
-    // no worse.
-    switch (kc.k.vkey) {
+// The keys that put something in the document or take something out, whatever
+// they are bound to. With a selection live these replace it rather than acting
+// alongside it, so they have to be told apart from the ones that merely end it.
+// A property of the key rather than of a binding: CTRL+BACKSPACE is bound to
+// nothing and still takes a selection away.
+static bool key_edits(VKey vkey) {
+    switch (vkey) {
         case VK_BACKSPACE:
         case VK_DELETE:
         case VK_KP_DELETE:
@@ -570,10 +564,8 @@ bool ed_key_edits(key_command kc) {
         case VK_TAB:
             return true;
         default:
-            break;
+            return false;
     }
-
-    return kc.cmd == CMD_PUTC;
 }
 
 bool ed_footer_wanted(char held) {
@@ -608,12 +600,62 @@ bool ed_is_motion(VKey vkey) {
     }
 }
 
-void ed_run(editor* ed) {
+bool ed_handle(editor* ed, key_command kc) {
     text_buffer* buf = &ed->doc_.buf_;
     screen* scr = &ed->scr_;
 
-    for (;;) {
+    ed_clear_banner(ed);
 
+    const sel_action act = ed_selection_for(ed, kc);
+
+    // Where the view was, so the repaint afterwards can tell a cursor that
+    // moved within the screen from one that moved the screen.
+    const char y_before = scr->v_->currY_;
+    const char x_before = scr->v_->currX_;
+    const int top_before = tb_ypos(buf) - (y_before - scr->v_->topY_);
+    const int origin_before = scr->v_->originX_;
+
+    if (act == SEL_REPLACE) {
+        cmd_delete_selection(ed);
+        // For BACKSPACE and DELETE that was the whole action: they mean
+        // "remove this", and this was the selection.
+        if (kc.k.vkey == VK_BACKSPACE || kc.k.vkey == VK_DELETE
+            || kc.k.vkey == VK_KP_DELETE) {
+            kc.cmd = NULL;
+            kc.flags &= (char) ~KC_PUTC;
+        }
+    }
+
+    if (kc.flags & KC_PUTC) {
+        cmd_putc(ed, kc.k);
+    } else if (kc.cmd != NULL) {
+        kc.cmd(ed);
+    }
+    // Leaving is decided before anything is settled or repainted: the screen
+    // is about to be handed back.
+    if (ed->leaving_) {
+        return false;
+    }
+
+    // Once the command is done and before anything is repainted. A repaint
+    // reads about a screenful either side of the cursor through walkers, and a
+    // walker may not slide -- so whatever it is going to want has to be in
+    // memory by now. On an unpaged document this is two comparisons and a
+    // return.
+    tb_settle(buf);
+
+    // A replace leaves no selection and has moved the text below it, so it
+    // repaints like a drop: the whole area.
+    ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,
+                         y_before, x_before, top_before, origin_before);
+
+    return true;
+}
+
+void ed_run(editor* ed) {
+    text_buffer* buf = &ed->doc_.buf_;
+
+    do {
         // Not while a chord is held down. The footer sits on the bottom row,
         // so drawing it means moving the cursor off the text, writing, and
         // moving back -- and doing that between keystrokes is what stops the
@@ -630,56 +672,10 @@ void ed_run(editor* ed) {
         // Reading them is a load through the sysvars pointer, not a call into
         // MOS, so asking costs nothing on the path this is protecting.
         if (ed_footer_wanted((char) getsysvar_keymods())) {
-            scr_footer(scr, tb_fname(buf), tb_changed(buf),
+            scr_footer(&ed->scr_, tb_fname(buf), tb_changed(buf),
                        tb_xpos(buf), tb_ypos(buf));
         }
-        key_command kc = read_input();
-
-        ed_clear_banner(ed);
-
-        const sel_action act = ed_selection_for(ed, kc);
-
-        // Where the view was, so the repaint afterwards can tell a cursor that
-        // moved within the screen from one that moved the screen.
-        const char y_before = scr->v_->currY_;
-        const char x_before = scr->v_->currX_;
-        const int top_before = tb_ypos(buf) - (y_before - scr->v_->topY_);
-        const int origin_before = scr->v_->originX_;
-
-        if (act == SEL_REPLACE) {
-            cmd_delete_selection(ed);
-            // For BACKSPACE and DELETE that was the whole action: they mean
-            // "remove this", and this was the selection.
-            if (kc.k.vkey == VK_BACKSPACE || kc.k.vkey == VK_DELETE
-                || kc.k.vkey == VK_KP_DELETE) {
-                kc.cmd = NULL;
-            }
-        }
-
-        if (kc.cmd == CMD_PUTC) {
-            cmd_putc(ed, kc.k);
-        } else if (kc.cmd == CMD_QUIT) {
-            if (cmd_quit(ed)) {
-                break;
-            }
-        } else if (kc.cmd == CMD_SAVE) {
-            cmd_save(ed);
-        } else if (kc.cmd != NULL) {
-            kc.cmd(ed);
-        }
-
-        // Once the command is done and before anything is repainted. A repaint
-        // reads about a screenful either side of the cursor through walkers,
-        // and a walker may not slide -- so whatever it is going to want has to
-        // be in memory by now. On an unpaged document this is two comparisons
-        // and a return.
-        tb_settle(buf);
-
-        // A replace leaves no selection and has moved the text below it, so it
-        // repaints like a drop: the whole area.
-        ed_selection_repaint(ed, act == SEL_REPLACE ? SEL_DROP : act,
-                             y_before, x_before, top_before, origin_before);
-    }
+    } while (ed_handle(ed, ed_translate(ed->keys_, keys_wait())));
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
 }
@@ -699,172 +695,115 @@ void ed_clear_banner(editor* ed) {
     scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_.buf_));
 }
 
-key_command ctrlCmds(key_command kc, char mods) {
-    switch (kc.k.vkey) {
-        case VK_q:
-        case VK_Q:
-            kc.cmd = CMD_QUIT;
-            break;
-        case VK_LEFT:
-        case VK_KP_LEFT:
-            kc.cmd = cmd_w_left;
-            break;
-        case VK_RIGHT:
-        case VK_KP_RIGHT:
-            kc.cmd = cmd_w_right;
-            break;
-        case VK_DELETE:
-        case VK_KP_DELETE:
-        case VK_d:
-        case VK_D:
-            kc.cmd = cmd_del_line;
-            break;
-        case VK_HOME:
-        case VK_KP_HOME:
-            kc.cmd = cmd_doc_top;
-            break;
-        case VK_END:
-        case VK_KP_END:
-            kc.cmd = cmd_doc_end;
-            break;
-        case VK_S:
-        case VK_s:
-		    if (mods & MOD_ALT) {
-                kc.cmd = cmd_save_as;
-            } else {
-                kc.cmd = CMD_SAVE;
-            }
-            break;
-        case VK_C:
-        case VK_c:
-            kc.cmd = cmd_copy;
-            break;
-        case VK_G:
-        case VK_g:
-            kc.cmd = cmd_goto;
-            break;
-        case VK_H:
-        case VK_h:
-            kc.cmd = cmd_help;
-            break;
-        case VK_E:
-        case VK_e:
-            kc.cmd = cmd_settings;
-            break;
-        case VK_O:
-        case VK_o:
-            kc.cmd = cmd_open;
-            break;
-        case VK_A:
-        case VK_a:
-            kc.cmd = cmd_select_all;
-            break;
-        case VK_X:
-        case VK_x:
-            kc.cmd = cmd_cut;
-            break;
-        case VK_F:
-        case VK_f:
-            kc.cmd = cmd_find;
-            break;
-        case VK_N:
-        case VK_n:
-            kc.cmd = cmd_find_next;
-            break;
-        case VK_P:
-        case VK_p:
-            kc.cmd = cmd_find_prev;
-            break;
-        case VK_Z:
-        case VK_z:
-            kc.cmd = cmd_undo;
-            break;
-        case VK_Y:
-        case VK_y:
-            kc.cmd = cmd_redo;
-            break;
-        case VK_V:
-        case VK_v:
-            kc.cmd = cmd_paste;
-            break;
-        default:
-            kc.cmd = NULL;
-            break;
-    }
-    return kc;
+void ed_cmd_save(editor* ed) {
+    (void) cmd_save(ed);
 }
 
-key_command editCmds(key_command kc) {
-    switch (kc.k.vkey) {
-        case VK_LEFT:
-        case VK_KP_LEFT:
-            kc.cmd = cmd_left;
-            break;
-        case VK_RIGHT:
-        case VK_KP_RIGHT:
-            kc.cmd = cmd_right;
-            break;
-        case VK_BACKSPACE:
-            kc.cmd = cmd_bksp;
-            break;
-        case VK_DELETE:
-        case VK_KP_DELETE:
-            kc.cmd = cmd_del;
-            break;
-        case VK_HOME:
-        case VK_KP_HOME:
-            kc.cmd = cmd_home;
-            break;
-        case VK_END:
-        case VK_KP_END:
-            kc.cmd = cmd_end;
-            break;
-        case VK_RETURN:
-        case VK_KP_ENTER:
-            kc.cmd = cmd_newl;
-            break;
-        case VK_UP:
-        case VK_KP_UP:
-            kc.cmd = cmd_up;
-            break;
-        case VK_DOWN:
-        case VK_KP_DOWN:
-            kc.cmd = cmd_down;
-            break;
-        case VK_PAGEUP:
-            kc.cmd = cmd_page_up;
-            break;
-        case VK_PAGEDOWN:
-            kc.cmd = cmd_page_down;
-            break;
-        default:
-            break;
+void ed_cmd_quit(editor* ed) {
+    if (cmd_quit(ed)) {
+        ed->leaving_ = true;
     }
-    return kc;
 }
 
-key_command read_input(void) {
-    key_command kc = {NULL, {'\0', VK_NONE}, 0};
+#define C MOD_CTRL
+#define OWN KC_OWNS_SEL
+
+// Both cases of a letter: MOS reports the shifted one when SHIFT is held.
+#define LETTER(lo, up, mods, flags, cmd) \
+    { lo, mods, flags, cmd }, { up, mods, flags, cmd }
+
+static const key_binding AED_BINDINGS[] = {
+    // With CTRL.
+    LETTER(VK_q, VK_Q, C, 0, ed_cmd_quit),
+    { VK_LEFT,      C, 0, cmd_w_left },
+    { VK_KP_LEFT,   C, 0, cmd_w_left },
+    { VK_RIGHT,     C, 0, cmd_w_right },
+    { VK_KP_RIGHT,  C, 0, cmd_w_right },
+    { VK_DELETE,    C, 0, cmd_del_line },
+    { VK_KP_DELETE, C, 0, cmd_del_line },
+    LETTER(VK_d, VK_D, C, 0, cmd_del_line),
+    { VK_HOME,      C, 0, cmd_doc_top },
+    { VK_KP_HOME,   C, 0, cmd_doc_top },
+    { VK_END,       C, 0, cmd_doc_end },
+    { VK_KP_END,    C, 0, cmd_doc_end },
+    LETTER(VK_s, VK_S, C | MOD_ALT, 0, cmd_save_as),
+    LETTER(VK_s, VK_S, C, 0, ed_cmd_save),
+    LETTER(VK_c, VK_C, C, OWN, cmd_copy),
+    LETTER(VK_g, VK_G, C, 0, cmd_goto),
+    LETTER(VK_h, VK_H, C, 0, cmd_help),
+    LETTER(VK_e, VK_E, C, 0, cmd_settings),
+    LETTER(VK_o, VK_O, C, 0, cmd_open),
+    LETTER(VK_a, VK_A, C, OWN, cmd_select_all),
+    LETTER(VK_x, VK_X, C, OWN, cmd_cut),
+    LETTER(VK_f, VK_F, C, OWN, cmd_find),
+    LETTER(VK_n, VK_N, C, OWN, cmd_find_next),
+    LETTER(VK_p, VK_P, C, OWN, cmd_find_prev),
+    LETTER(VK_z, VK_Z, C, 0, cmd_undo),
+    LETTER(VK_y, VK_Y, C, 0, cmd_redo),
+    LETTER(VK_v, VK_V, C, OWN, cmd_paste),
+
+    // Without it.
+    { VK_LEFT,      0, 0, cmd_left },
+    { VK_KP_LEFT,   0, 0, cmd_left },
+    { VK_RIGHT,     0, 0, cmd_right },
+    { VK_KP_RIGHT,  0, 0, cmd_right },
+    { VK_BACKSPACE, 0, 0, cmd_bksp },
+    { VK_DELETE,    0, 0, cmd_del },
+    { VK_KP_DELETE, 0, 0, cmd_del },
+    { VK_HOME,      0, 0, cmd_home },
+    { VK_KP_HOME,   0, 0, cmd_home },
+    { VK_END,       0, 0, cmd_end },
+    { VK_KP_END,    0, 0, cmd_end },
+    { VK_RETURN,    0, 0, cmd_newl },
+    { VK_KP_ENTER,  0, 0, cmd_newl },
+    { VK_UP,        0, 0, cmd_up },
+    { VK_KP_UP,     0, 0, cmd_up },
+    { VK_DOWN,      0, 0, cmd_down },
+    { VK_KP_DOWN,   0, 0, cmd_down },
+    { VK_PAGEUP,    0, 0, cmd_page_up },
+    { VK_PAGEDOWN,  0, 0, cmd_page_down },
+};
+
+#undef LETTER
+#undef OWN
+#undef C
+
+const keymap AED_KEYS = {
+    AED_BINDINGS, (int) (sizeof(AED_BINDINGS) / sizeof(AED_BINDINGS[0])),
+};
+
+key_command ed_translate(const keymap* km, key_press kp) {
+    key_command kc = {NULL, {'\0', VK_NONE}, 0, 0};
 
     // One event carries the key and the modifiers held with it, so a chord
     // arrives whole. Reading them separately -- a character, then the keymods
     // sysvar -- is what used to lose CTRL+SHIFT+<arrow>: the chord produces no
     // character to read.
-    const key_press kp = keys_wait();
     kc.k.key = kp.ch;
     kc.k.vkey = kp.vkey;
     kc.mods = kp.mods;
-
-    if (kp.mods & MOD_CTRL) {
-        return ctrlCmds(kc, kp.mods);
+    if (key_edits(kp.vkey)) {
+        kc.flags |= KC_EDITS;
     }
 
-    if (kc.k.key == '\t' || (kc.k.key != 0x7F && kc.k.key >= 32)) {
-        kc.cmd = CMD_PUTC;
-    } else {
-        return editCmds(kc);
+    const char ctrl = kp.mods & MOD_CTRL;
+    if (!ctrl && (kp.ch == '\t' || (kp.ch != 0x7F && kp.ch >= 32))) {
+        kc.flags |= KC_PUTC | KC_EDITS;
+
+        return kc;
+    }
+    for (int i = 0; i < km->n; i++) {
+        const key_binding* b = &km->keys[i];
+        if (b->vkey != kp.vkey || (b->mods & MOD_CTRL) != ctrl) {
+            continue;
+        }
+        if ((b->mods & kp.mods) != b->mods) {
+            continue;
+        }
+        kc.cmd = b->cmd;
+        kc.flags |= b->flags;
+        break;
     }
 
     return kc;
 }
-

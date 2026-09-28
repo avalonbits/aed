@@ -25,6 +25,7 @@
 #include "clipboard.h"
 #include "document.h"
 #include "cmd_ops.h"
+#include "keys.h"
 #include "vkey.h"
 #include "screen.h"
 #include "text_buffer.h"
@@ -55,6 +56,11 @@ typedef struct _editor {
     // rest of it sitting behind the document. So the first key clears the whole
     // text area before anything else happens.
     bool banner_;
+
+    // What the keys mean -- see keymap below -- and whether a command has
+    // asked the loop to stop.
+    const struct _keymap* keys_;
+    bool leaving_;
 
     clipboard clip_;
     // What was last searched for, so CTRL+N and CTRL+P have something to
@@ -95,25 +101,66 @@ void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);
 
-// Three commands the main loop handles itself rather than calling through, so
-// they are sentinels in the table rather than functions.
-#define CMD_PUTC    (cmd_op) 0x01
-#define CMD_QUIT    (cmd_op) 0x02
-#define CMD_SAVE    (cmd_op) 0x03
+/*
+ * What a key means: the command it runs and what it says about itself.
+ *
+ * The flags are what the loop decides from before the command runs, which is
+ * why they travel with the key rather than being asked of the command.
+ */
+#define KC_OWNS_SEL 0x01    // about the selection, so it does not end it
+#define KC_EDITS    0x02    // changes the document, so it replaces a selection
+#define KC_PUTC     0x04    // puts the key's character in the document
 
 typedef struct _key_command {
     cmd_op cmd;
     key k;
-    // Carried out of read_input because whether a motion extends a selection is
-    // decided above the command, not inside it: cmd_left does the same thing
+    // Carried out of translation because whether a motion extends a selection
+    // is decided above the command, not inside it: cmd_left does the same thing
     // either way.
     char mods;
+    char flags;
 } key_command;
 
-// Blocks for the next key and works out what it means. Declared here so the
-// translation can be tested directly: it is where a chord that MOS reports
-// perfectly well can still be lost, and nothing below it would notice.
-key_command read_input(void);
+/*
+ * A front end's keys, as a table: the first binding whose key is the one
+ * pressed, and whose modifiers are held, is what the key means.
+ *
+ * A binding with MOD_CTRL matches only while CTRL is down and one without it
+ * only while CTRL is up; any other modifier it names must be held, and the
+ * ones it does not name are ignored. So CTRL+ALT+S goes before CTRL+S, and
+ * SHIFT+LEFT finds LEFT, which is how a selection is extended. Without CTRL, a
+ * key that types a character puts it in the document before the table is
+ * asked. A program adds its own keys by giving the editor its own table.
+ */
+typedef struct _key_binding {
+    VKey vkey;
+    char mods;
+    char flags;
+    cmd_op cmd;
+} key_binding;
+
+typedef struct _keymap {
+    const key_binding* keys;
+    int n;
+} keymap;
+
+// AED's keys, which ed_init gives the editor.
+extern const keymap AED_KEYS;
+
+// Two of AED's commands, bound in AED_KEYS: saving, and leaving -- which
+// asks about unsaved changes and, if the answer is to go, stops the loop.
+void ed_cmd_save(editor* ed);
+void ed_cmd_quit(editor* ed);
+
+// What a key means under `km`. Waits for nothing: the key is the caller's, so
+// a program can read keys however it likes and still hand them here. This is
+// where a chord that MOS reports perfectly well can still be lost, and nothing
+// below it would notice.
+key_command ed_translate(const keymap* km, key_press kp);
+
+// Runs one key through the editor: the selection, the command, and the
+// repaint afterwards. False once a command has asked to leave.
+bool ed_handle(editor* ed, key_command kc);
 
 // Whether the footer should be drawn, given the modifiers held right now.
 //
@@ -134,27 +181,12 @@ bool ed_footer_wanted(char held);
 // leave most of it behind, and that is invisible until someone looks.
 void ed_clear_banner(editor* ed);
 
-// What a key means with CTRL held. Declared here so the bindings can be
-// asserted directly: a command that exists but is not reachable from the
-// keyboard is not a feature, and nothing below this level would notice.
-key_command ctrlCmds(key_command kc, char mods);
-
-// What a key means on its own. Declared beside ctrlCmds and for the same
-// reason: CTRL+HOME and HOME have to be different commands, and the only way
-// to say so is to ask both tables.
-key_command editCmds(key_command kc);
-
 typedef enum _sel_action {
     SEL_NONE = 0,   // there was no selection and there still is none
     SEL_EXTEND,     // one was started or is being extended
     SEL_DROP,       // one was in progress and this key ended it
     SEL_REPLACE,    // ...and the key changes the document, so it takes its place
 } sel_action;
-
-// True for the keys that put something in the document or take something out.
-// With a selection live these replace it rather than acting alongside it, so
-// they have to be told apart from the ones that merely end it.
-bool ed_key_edits(key_command kc);
 
 // Applies a keypress to the selection, before the command it names runs. The
 // return value tells the caller whether anything needs repainting, which is why
