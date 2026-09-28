@@ -246,6 +246,17 @@ static int number_at(const syntax* g, const char* s, int len, int at) {
         }
         break;
     }
+    /*
+     * A trailing `h` marks hexadecimal in assembly: `0Ah`, `0FFh`. ez80asm,
+     * zap and MOS 3's command line all take it, and it is why an assembly
+     * constant written that way has to start with a digit -- `FFh` is a label.
+     * The digit is already required above, so taking the `h` here cannot turn
+     * a word into a number. Without it the `h` was a word character the run
+     * had not consumed, and the whole constant was refused.
+     */
+    if (i < len && fold(s[i]) == 'h') {
+        i++;
+    }
     // A number runs up to a word character it did not consume, which is what
     // keeps `1st` out: the `s` and `t` are word characters, so this is a word.
     if (i < len && is_word(g, s[i])) {

@@ -91,7 +91,7 @@ the characters numbers are made of. `1st` is not a number and neither is a bare
 break.** Everything else begins and ends inside one line, and that single fact
 is what makes sections 5 and 6 as small as they are. A grammar with no multiline
 span — assembly, BASIC, INI, which is every shipped grammar but C — skips all of
-it: [`syn_crosses_lines()`](../src/lexer.c#L895) answers that question once and
+it: [`syn_crosses_lines()`](../src/lexer.c#L906) answers that question once and
 the model costs nothing.
 
 ### 2a. Scope names, and why they are kept
@@ -144,7 +144,7 @@ colour is the work without the result.
 
 ## 4. The lexer
 
-[`syn_lex()`](../src/lexer.c#L702) takes one row of text, the state it begins
+[`syn_lex()`](../src/lexer.c#L713) takes one row of text, the state it begins
 in, and returns the runs and the state it leaves.
 
 ```
@@ -156,7 +156,7 @@ and the column it ends at — rather than a colour per column. That is the shape
 the painting wants: it walks the columns and emits a colour change only when it
 crosses a run boundary.
 
-[`add_run()`](../src/lexer.c#L260) merges neighbouring runs of the same class,
+[`add_run()`](../src/lexer.c#L271) merges neighbouring runs of the same class,
 and lets the last run swallow the rest when it runs out of room. Overflow
 therefore costs **colour rather than correctness** — and since the cost of a
 colour change is why a cap is wanted at all, a row that overflows the cap is a
@@ -177,7 +177,7 @@ from the byte in front of it that it did not apply. Three calls into `lit_at`
 and four into `is_word` for every byte of the document, and the rule loop's own
 dispatch on top.
 
-Both questions depend only on the byte, so [`syn_index()`](../src/lexer.c#L455)
+Both questions depend only on the byte, so [`syn_index()`](../src/lexer.c#L466)
 answers them once when the grammar loads, into two tables of 256 entries:
 
 | table | answers |
@@ -220,7 +220,7 @@ It is not needed, because of two observations:
    is `CTRL+G`, `CTRL+END`, landing on a find result, or a window slide.
 
 So: **carry the state forward, and read back a bounded distance after a jump.**
-[`syn_state_before()`](../src/lexer.c#L908) rescans at most
+[`syn_state_before()`](../src/lexer.c#L919) rescans at most
 [`SYN_LOOKBACK`](../src/syntax.h#L257) — 200 lines — which is a trivial lexer
 over about 8 KB, and only on a jump. Zero bytes of document-sized state, and
 correct unless a span runs longer than the lookback.

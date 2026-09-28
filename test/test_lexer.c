@@ -241,6 +241,28 @@ int main(void) {
         /* A label only where a line starts: `start` further along is a
          * reference to one, and the grammar has no way to know it. */
         check_lex("nope:\tjp nope",    &g, "LLLLTTKKTTTTT");
+
+        /*
+         * Every numeric constant ez80asm documents, which is what the Agon's
+         * own assembler reads and so what a .asm file on the card is written
+         * in. `0Ah` and `0Bh` were refused for years: the rule took the digits
+         * and then found an `h` it had not consumed, which is a word
+         * character, so the whole constant read as plain text.
+         */
+        check_lex("\tld a, $0A",       &g, "TKKTYTTNNN");
+        check_lex("\tld a, 0x0A",      &g, "TKKTYTTNNNN");
+        check_lex("\tld a, #0A",       &g, "TKKTYTTNNN");
+        check_lex("\tld a, 0Ah",       &g, "TKKTYTTNNN");
+        check_lex("\tld a, 0Bh",       &g, "TKKTYTTNNN");
+        check_lex("\tld a, 0FFH",      &g, "TKKTYTTNNNN");
+        check_lex("\tld a, 0b1010",    &g, "TKKTYTTNNNNNN");
+        check_lex("\tld a, 1010b",     &g, "TKKTYTTNNNNN");
+        check_lex("\tld a, %1010",     &g, "TKKTYTTNNNNN");
+        check_lex("\tld a, 10",        &g, "TKKTYTTNN");
+        /* The digit in front is what makes it a constant: FFh is a label. */
+        check_lex("\tjp FFh",          &g, "TKKTTTT");
+        /* And the `h` ends it: anything after is a word, as `1st` is. */
+        check_lex("\tjp 10hz",         &g, "TKKTTTTT");
     }
 
     /* --- what the lexer must never do --- */
@@ -675,6 +697,8 @@ int main(void) {
         check_lex("ifthere x then run y", &g, "KKKKKKKTTTKKKKTYYYTT");
         /* An argument, and a hexadecimal address. */
         check_lex("load %0 &40000", &g, "YYYYTNNTNNNNNN");
+        check_lex("run 0x40000", &g, "YYYTNNNNNNN");
+        check_lex("run 40000h", &g, "YYYTNNNNNN");
         /* `%` in front of a command skips aliases, and the command is still a
          * command. */
         check_lex("%cat", &g, "TYYY");
