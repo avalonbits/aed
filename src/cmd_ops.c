@@ -1564,7 +1564,7 @@ void cmd_open(editor* ed) {
 // meaningless then -- there may not be that many rows any more -- so the
 // cursor's line is centred instead, or put as far down as the document allows
 // when there is not enough above it to centre against.
-static void restore_after_modal(editor* ed, bool moved) {
+void restore_after_modal(editor* ed, bool moved) {
     SCR(ed);
     TB(ed);
 
@@ -1581,81 +1581,6 @@ static void restore_after_modal(editor* ed, bool moved) {
     }
     refresh_screen(ed, tb);
     scr_show_cursor_ch(scr, ch);
-}
-
-void cmd_help(editor* ed) {
-    SCR(ed);
-    UI(ed);
-
-    ui_help(ui, scr);
-
-    // The help wrote over the document, and the view cannot put it back on its
-    // own -- it has no access to the buffer.
-    restore_after_modal(ed, false);
-}
-
-void cmd_settings(editor* ed) {
-    SCR(ed);
-    UI(ed);
-
-    // Comes in holding what the settings file says, so the font row can show
-    // the one in use, and goes out holding only what was changed.
-    config cfg;
-    cfg_defaults(&AED_CONFIG, &cfg);
-    cfg_load(&AED_CONFIG, &cfg, app_get()->cfg_path);
-
-    // A theme is chosen for the background it was written against, so the one
-    // in force may be the wrong one by the time this modal closes.
-    const char was_bg = scr_base_bg(scr);
-
-    const RESPONSE ret = ui_settings(ui, scr, &cfg);
-
-    // A font changes the cell size, and with it the number of rows and where
-    // the footer sits. Everything below is laid out from those, so the font
-    // goes in first and the screen is rebuilt from what it leaves behind.
-    bool moved = false;
-    if (ret == YES_OPT && (cfg.font[0] != 0 || cfg.font_none)) {
-        if (cfg.font[0] != 0) {
-            scr_load_font(scr, cfg.font);
-        } else {
-            scr_system_font(scr);
-        }
-
-        // The prompt row moved with the geometry; ui_ places everything it
-        // draws from it, so a prompt left on the old bottom row would land in
-        // the middle of the document.
-        ui_resize(ui, scr->v_->bottomY_, scr->v_->cols_);
-
-        // Fewer rows than before can leave the cursor past the bottom. Pulling
-        // it back to the last text row keeps it somewhere the screen has, and
-        // refresh_screen re-anchors the view from wherever it ends up.
-        moved = true;
-    }
-
-    /*
-     * The background the reader just picked chooses the theme, exactly as the
-     * background at startup does: a colour that reads well on black is
-     * unreadable on white, and a background no theme covers means painting
-     * plainly. Done here rather than in the picker because the rule lives in
-     * ed_pick_syntax, which knows the document as well as the background.
-     *
-     * Before the screen goes back, so the repaint below draws in whatever the
-     * new background calls for. ed_pick_syntax winds the model back to the top
-     * of the document and refresh_screen sets it from the view, which is the
-     * order restore_after_modal already relies on.
-     */
-    if (scr_base_bg(scr) != was_bg) {
-        ed_pick_syntax(ed);
-    }
-
-    restore_after_modal(ed, moved);
-
-    if (ret == YES_OPT) {
-        // Only the changed settings are set, and cfg_update copies every other
-        // line through as it found it -- comments, spacing, and anything a
-        // later version understands and this one does not.
-        cfg_update(&AED_CONFIG, &cfg, app_get()->cfg_path);
-    }
 }
 
 void cmd_putc(editor* ed, key k) {

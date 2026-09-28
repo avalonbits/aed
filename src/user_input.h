@@ -20,7 +20,7 @@
 #define _USER_INPUT_H_
 
 #include "char_buffer.h"
-#include "aed_config.h"
+#include "config.h"
 #include "keys.h"
 #include "screen.h"
 
@@ -61,28 +61,24 @@ RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg);
 // through the main loop, so a message that did not wait would be gone before it
 // could be read.
 void ui_message(user_input* ui, screen* scr, char* msg);
-// Draws the command list over the text area and waits. Pages when the list is
-// longer than the area, which it is on a 16-row font. Any key that is not a
-// paging key closes it.
-//
-// It only draws: putting the document back is the caller's job, because the
-// view cannot -- it has no access to the document. cmd_help does it the same
-// way cmd_settings does.
-void ui_help(user_input* ui, screen* scr);
+// What a key means to a list the reader is moving through, with the motion
+// already applied to `at`. Both pickers had their own copy of this, one written
+// as a chain of ifs and one as a switch, agreeing on every key.
+typedef enum _pick_key {
+    PICK_IDLE,          // nothing to do; redraw and wait again
+    PICK_TAKE,          // RETURN: act on the row `at` names
+    PICK_LEAVE          // ESC
+} pick_key;
 
-// The startup banner, centred in the text area, for a session started with no
-// file. Says what this is and where the commands are, and is wiped by the first
-// keystroke rather than lingering behind the text.
-void ui_banner(user_input* ui, screen* scr);
-
-// The settings, editable. Draws over the text area; the caller puts the
-// document back, as it does after the help. Returns YES_OPT when something was
-// changed and is worth writing to the file.
-//
-// `cfg` comes in holding what AED is currently using and goes out holding the
-// changes -- and only the changes: everything else stays unset, so writing it
-// back with cfg_update cannot invent a setting the reader never asked for.
-RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg);
+// The pieces AED's own modals are built from, shared so that a program's
+// menus and lists are drawn the same way.
+void modal_fill(screen* scr, char y, char bottom, const char* prompt, int psz);
+char modal_title(screen* scr, char top, int width, const char* title);
+pick_key modal_move(VKey vkey, int* at, int max);
+int put_at(char* out, int at, int width, const char* s);
+int pad_to(char* out, int at, int width, int col);
+int put_num(char* out, int at, int width, int v);
+RESPONSE ui_font_picker(user_input* ui, screen* scr, char* out, int max);
 
 RESPONSE ui_text(
     user_input* ui,

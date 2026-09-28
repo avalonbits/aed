@@ -14,6 +14,7 @@
 #include <agon/keyboard.h>
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "editor.h"
 #include "keys.h"
 #include "user_input.h"

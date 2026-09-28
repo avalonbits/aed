@@ -70,10 +70,6 @@ typedef struct _editor {
     int findsz_;
 } editor;
 
-// AED's files: its settings, and where its grammars, themes and fonts live.
-// ed_init hands this to the core with app_set.
-extern const app_context AED_APP;
-
 editor* ed_init(editor* ed, int mem_kb, const char* fname);
 
 /*
@@ -147,9 +143,6 @@ typedef struct _keymap {
     // own in front of AED_KEYS rather than copying it. NULL ends the chain.
     const struct _keymap* next;
 } keymap;
-
-// AED's keys, which ed_init gives the editor.
-extern const keymap AED_KEYS;
 
 // Two of AED's commands, bound in AED_KEYS: saving, and leaving -- which
 // asks about unsaved changes and, if the answer is to go, stops the loop.

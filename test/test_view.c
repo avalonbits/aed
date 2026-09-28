@@ -13,6 +13,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "aed_config.h"
 #include "screen.h"
 #include "user_input.h"

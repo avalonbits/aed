@@ -114,11 +114,11 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L25) ·
-[`ed_init()`](../src/editor.c#L291) ·
-[`ed_run()`](../src/editor.c#L655) ·
-[`ed_translate()`](../src/editor.c#L776) ·
-[`ed_handle()`](../src/editor.c#L603) ·
-[`ed_selection_for()`](../src/editor.c#L470) ·
+[`ed_init()`](../src/editor.c#L266) ·
+[`ed_run()`](../src/editor.c#L630) ·
+[`ed_translate()`](../src/editor.c#L684) ·
+[`ed_handle()`](../src/editor.c#L578) ·
+[`ed_selection_for()`](../src/editor.c#L445) ·
 [`cmd_repaint_rows()`](../src/cmd_ops.c#L871)
 
 `main` asks for **72 KiB** — [`TB_DOC_KB`](../src/text_buffer.h#L172) — and that
@@ -154,7 +154,7 @@ model.
 A key becomes a command through a keymap: a table of bindings, each a key, the
 modifiers it needs, flags the loop reads before the command runs, and the
 command. [`AED_KEYS`](../src/editor.c) is AED's, and
-[`ed_translate()`](../src/editor.c#L776) reads a key through one, so a test can
+[`ed_translate()`](../src/editor.c#L684) reads a key through one, so a test can
 assert a binding. A program with keys of its own puts a table of them in front
 of AED's through the keymap's `next`, rather than copying it. **A command
 nothing can reach is not a feature; a command that is reachable and does the
@@ -162,7 +162,7 @@ wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/editor.c#L470) decides what a keystroke does to
+[`ed_selection_for()`](../src/editor.c#L445) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.

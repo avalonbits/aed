@@ -14,6 +14,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "editor.h"
 #include "screen.h"
 #include "user_input.h"

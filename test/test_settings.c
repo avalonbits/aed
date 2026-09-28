@@ -17,6 +17,7 @@
 
 #include <agon/mos.h>
 
+#include "aed.h"
 #include "aed_config.h"
 #include "editor.h"
 #include "screen.h"
