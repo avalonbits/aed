@@ -13,7 +13,10 @@
 
 #include <agon/mos.h>
 
+#include "config.h"
 #include "screen.h"
+#include "user_input.h"
+#include "vkey.h"
 
 static int failures = 0;
 static long mark;
@@ -247,6 +250,59 @@ int main(void) {
         check("  and each scroll", left.originX_ * 100 + right.originX_, 12);
         check("the screen is drawing the right view",
               scr.v_ == &right ? 1 : 0, 1);
+    }
+
+    /* --- the footer is the screen's, below a view that stops short of it --- */
+    {
+        view upper = scr.whole_;
+        upper.bottomY_ = 12;
+        scr_set_view(&scr, &upper);
+        scr_footer_invalidate(&scr);
+        cap_start();
+        scr_footer(&scr, "f.c", false, 1, 1);
+        const int n = cap_read(got, sizeof(got));
+        int l, b, r, t, x, y;
+        viewport(got, n, &l, &b, &r, &t);
+        first_tab(got, n, &x, &y);
+        check("the footer's viewport is the screen's last row",
+              t * 100 + b, (scr.rows_ - 1) * 100 + scr.rows_ - 1);
+        check("  below a view that stops at row 12", upper.bottomY_, 12);
+        check("  and it is written there", y, scr.rows_ - 1);
+    }
+
+    /* --- whole-screen dialogs draw across the whole text area --- */
+    {
+        static user_input ui;
+        ui_init(&ui, 256, scr.whole_.bottomY_, scr.whole_.cols_);
+        const stub_key esc[] = { { .ch = 27, .vk = VK_ESCAPE } };
+        int x, y;
+
+        scr_set_view(&scr, &right);
+        stub_set_keys(esc, 1);
+        cap_start();
+        ui_help(&ui, &scr);
+        first_tab(got, cap_read(got, sizeof(got)), &x, &y);
+        check("help over the right view starts at the whole screen's edge", x, 1);
+        check("  and puts the right view back", scr.v_ == &right ? 1 : 0, 1);
+
+        stub_set_keys(esc, 1);
+        config cfg;
+        cfg_defaults(&cfg);
+        cap_start();
+        ui_settings(&ui, &scr, &cfg);
+        first_tab(got, cap_read(got, sizeof(got)), &x, &y);
+        check("settings over the right view start at the whole screen's edge",
+              x, 1);
+        check("  and put the right view back", scr.v_ == &right ? 1 : 0, 1);
+
+        /* The banner is centred, so across the whole screen it starts well
+         * left of where the right view begins. */
+        cap_start();
+        ui_banner(&ui, &scr);
+        first_tab(got, cap_read(got, sizeof(got)), &x, &y);
+        check("the banner is centred on the whole screen", x > 0 && x < 40, 1);
+        check("  and puts the right view back", scr.v_ == &right ? 1 : 0, 1);
+        ui_destroy(&ui);
     }
 
     /* --- NULL goes back to the whole screen --- */

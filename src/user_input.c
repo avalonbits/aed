@@ -268,7 +268,7 @@ static pick_key modal_move(VKey vkey, int* at, int max) {
     return PICK_IDLE;
 }
 
-void ui_help(user_input* ui, screen* scr) {
+static void help_modal(user_input* ui, screen* scr) {
     scr_footer_invalidate(scr);
 
     // The prompt goes on ui->ypos_, the row every other modal uses. Putting it
@@ -362,7 +362,7 @@ void ui_help(user_input* ui, screen* scr) {
     }
 }
 
-void ui_banner(user_input* ui, screen* scr) {
+static void banner_modal(user_input* ui, screen* scr) {
     (void) ui;
 
     static const char* BANNER[] = {
@@ -722,7 +722,7 @@ static bool ask_number(user_input* ui, screen* scr, char* title, int cur,
     return true;
 }
 
-RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
+static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
     // What AED is using now, which is what the rows show until something is
     // changed. `cfg` itself is left holding only the changes: it is written
     // back with cfg_update, which copies through every setting it is not told
@@ -860,6 +860,36 @@ RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
                 break;
         }
     }
+}
+
+/*
+ * Help, the banner and the settings are laid out on the whole screen, like the
+ * header and footer, whichever view is current: the screen is pointed at
+ * whole_ while they are up and back at the caller's view afterwards. A
+ * program showing more than one view gets them across the whole text area
+ * rather than squeezed into one pane.
+ */
+void ui_help(user_input* ui, screen* scr) {
+    view* was = scr->v_;
+    scr_set_view(scr, NULL);
+    help_modal(ui, scr);
+    scr_set_view(scr, was);
+}
+
+void ui_banner(user_input* ui, screen* scr) {
+    view* was = scr->v_;
+    scr_set_view(scr, NULL);
+    banner_modal(ui, scr);
+    scr_set_view(scr, was);
+}
+
+RESPONSE ui_settings(user_input* ui, screen* scr, config* cfg) {
+    view* was = scr->v_;
+    scr_set_view(scr, NULL);
+    const RESPONSE got = settings_modal(ui, scr, cfg);
+    scr_set_view(scr, was);
+
+    return got;
 }
 
 void ui_message(user_input* ui, screen* scr, char* msg) {

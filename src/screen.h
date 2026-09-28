@@ -86,8 +86,6 @@ typedef struct _screen {
     char charW_;
     char charH_;
 
-
-
     // What the footer last showed, so an unchanged one is not redrawn. That is
     // not only a saving: the footer is a whole row of characters plus two
     // colour changes, and repainting it on every keystroke floods the same
@@ -124,6 +122,9 @@ typedef struct _screen {
     // starts as whole_, the text area of the whole screen, laid out from the
     // mode and font. A front end showing more than one view points it at each
     // in turn -- see scr_set_view.
+    //
+    // Don't copy a screen: v_ may point into its own whole_, and a copy's
+    // would still point into the original.
     view whole_;
     view* v_;
     char cursor_;
