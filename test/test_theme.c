@@ -19,7 +19,7 @@
 
 #include "screen.h"
 #include "editor.h"
-#include "config.h"
+#include "aed_config.h"
 #include "syntax.h"
 #include "user_input.h"
 #include "keys.h"

@@ -17,7 +17,7 @@
 
 #include <agon/mos.h>
 
-#include "config.h"
+#include "aed_config.h"
 #include "editor.h"
 #include "screen.h"
 #include "user_input.h"
@@ -140,7 +140,7 @@ int main(void) {
         stub_set_keys(esc, 1);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         ui_settings(&ui, &scr, &cfg);   /* draws the settings, not the picker */
         const int n = cap_read(got, sizeof(got) - 1);
@@ -181,7 +181,7 @@ int main(void) {
         stub_set_keys(open_picker, 5);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         ui_settings(&ui, &scr, &cfg);
         cap_read(got, sizeof(got) - 1);
@@ -215,7 +215,7 @@ int main(void) {
         stub_set_keys(esc, 1);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cfg.tab_size = 8;               /* as if read from the file */
         check("nothing changed, so nothing to write",
               ui_settings(&ui, &scr, &cfg), CANCEL_OPT);
@@ -249,7 +249,7 @@ int main(void) {
         stub_set_keys(down_up, 6);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         ui_settings(&ui, &scr, &cfg);
         cap_read(got, sizeof(got) - 1);
@@ -283,7 +283,7 @@ int main(void) {
         stub_set_keys(far_down, 8);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         ui_settings(&ui, &scr, &cfg);
         cap_read(got, sizeof(got) - 1);
@@ -311,7 +311,7 @@ int main(void) {
         stub_set_keys(settab, 5);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         check("changing something is worth writing",
               ui_settings(&ui, &scr, &cfg), YES_OPT);
         check("  and the new width is what comes out", cfg.tab_size, 8);
@@ -339,7 +339,7 @@ int main(void) {
         stub_set_keys(pick, 5);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         check("picking colours is worth writing",
               ui_settings(&ui, &scr, &cfg), YES_OPT);
@@ -377,7 +377,7 @@ int main(void) {
         stub_set_keys(pickfont, 8);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         check("picking a font is worth writing",
               ui_settings(&ui, &scr, &cfg), YES_OPT);
         check("  and the path comes out",
@@ -388,7 +388,7 @@ int main(void) {
         static const char before[] = "[editor]\r\ntab = 4\r\n";
         stub_file_reset();
         stub_file_set_content(before, (int) sizeof(before) - 1);
-        cfg_update(&cfg, AED_APP.cfg_path);
+        cfg_update(&AED_CONFIG, &cfg, AED_APP.cfg_path);
         check("  and reaches the file",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
 
@@ -400,7 +400,7 @@ int main(void) {
         app_set(&ELSEWHERE);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
         stub_set_keys(pickfont, 8);
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         check("picking a font for another program is worth writing",
               ui_settings(&ui, &scr, &cfg), YES_OPT);
         check("  and the path is under that program's directory",
@@ -431,7 +431,7 @@ int main(void) {
         stub_set_keys(nofont, 5);
 
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         strcpy(cfg.font, "/config/aed/unscii16.bin");   /* as the file has it */
         cap_start();
         check("choosing none is a change worth writing",
@@ -472,11 +472,11 @@ int main(void) {
         static const char had[] =
             "[editor]\r\ntab = 4\r\nfont = /config/aed/old.bin  # keep this\r\n";
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         strcpy(cfg.font, "/config/aed/unscii16.bin");
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&cfg, AED_APP.cfg_path);
+        cfg_update(&AED_CONFIG, &cfg, AED_APP.cfg_path);
 
         const char* out = stub_file_bytes();
         check("the new font replaces the old one",
@@ -497,21 +497,21 @@ int main(void) {
 
         /* Said nothing: the line is left exactly as it was. */
         config quiet;
-        cfg_defaults(&quiet);
+        cfg_defaults(&AED_CONFIG, &quiet);
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&quiet, AED_APP.cfg_path);
+        cfg_update(&AED_CONFIG, &quiet, AED_APP.cfg_path);
         check("saying nothing leaves the font line alone",
               strstr(stub_file_bytes(), "font = /config/aed/unscii16.bin") != NULL, 1);
 
         /* Asked for none: the line is written out empty, which is how the file
          * says no font -- cfg_parse ignores a setting with no value. */
         config none;
-        cfg_defaults(&none);
+        cfg_defaults(&AED_CONFIG, &none);
         none.font_none = true;
         stub_file_reset();
         stub_file_set_content(had, (int) sizeof(had) - 1);
-        cfg_update(&none, AED_APP.cfg_path);
+        cfg_update(&AED_CONFIG, &none, AED_APP.cfg_path);
         check("  but asking for none empties it",
               strstr(stub_file_bytes(), "unscii16") == NULL, 1);
         check("  leaving the setting there, with no value",
@@ -519,8 +519,8 @@ int main(void) {
 
         /* And read back, that is no font. */
         config back;
-        cfg_defaults(&back);
-        cfg_parse(&back, stub_file_bytes(), (int) strlen(stub_file_bytes()));
+        cfg_defaults(&AED_CONFIG, &back);
+        cfg_parse(&AED_CONFIG, &back, stub_file_bytes(), (int) strlen(stub_file_bytes()));
         check("  which reads back as no font", back.font[0], 0);
     }
 

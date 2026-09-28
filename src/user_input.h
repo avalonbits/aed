@@ -20,7 +20,7 @@
 #define _USER_INPUT_H_
 
 #include "char_buffer.h"
-#include "config.h"
+#include "aed_config.h"
 #include "keys.h"
 #include "screen.h"
 

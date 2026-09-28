@@ -13,7 +13,7 @@
 
 #include <agon/mos.h>
 
-#include "config.h"
+#include "aed_config.h"
 #include "screen.h"
 #include "user_input.h"
 #include "vkey.h"
@@ -287,7 +287,7 @@ int main(void) {
 
         stub_set_keys(esc, 1);
         config cfg;
-        cfg_defaults(&cfg);
+        cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
         ui_settings(&ui, &scr, &cfg);
         first_tab(got, cap_read(got, sizeof(got)), &x, &y);

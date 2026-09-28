@@ -24,8 +24,9 @@
 // Settings live in /config, alongside /bin and /mos rather than inside them:
 // /bin is for executables. One file per application keeps the convention small
 // enough for other applications to follow. An application that outgrows a single
-// file can take a /config/<name>/ directory instead -- AED will want one for
-// syntax definitions -- so the loader takes the path rather than assuming it.
+// file takes a /config/<name>/ directory as well -- AED keeps its grammars,
+// themes and fonts in one -- so the loader takes the path rather than assuming
+// it.
 #define CFG_DIR  "/config"
 
 // The file is an INI file: [section] headings, then `name = value` lines, with
@@ -35,45 +36,49 @@
 // make room for growth -- syntax highlighting will want names like `fg` that
 // mean something different from the ones in [colours].
 
-// Longest font path the settings file can name. A font lives beside the other
-// per-application files, so `/config/aed/unscii8x9.bin` is the shape of it;
-// this leaves room for a deeper directory without inviting a path that no
-// longer fits on the footer.
-#define CFG_FONT_MAX 64
+/*
+ * What a program's settings are: a table of them, each an INI section and name
+ * and where its value lives in the program's own settings struct, and how a
+ * fresh file reads.
+ *
+ * The engine below reads, merges and writes against a schema and a pointer to
+ * that struct, so the file format, the parsing and the careful rewriting are
+ * shared, and which settings there are -- and the comments a new file carries
+ * -- are each program's. AED's is in aed_config.h.
+ */
+typedef enum _cfg_kind {
+    CFG_INT,    // an int: negative means "not set"
+    CFG_STR,    // text, in a char array of `size` bytes: empty means "not set"
+} cfg_kind;
 
-typedef struct _config {
-    // Negative means "not set in the file", so the caller keeps its own value.
-    int tab_size;
-    int fg;
-    int bg;
-    // Frames the VDP pauses for on a line wrap while CTRL is held. It defaults
-    // to 3, which makes CTRL with an arrow key feel sluggish once a line
-    // reaches the right-hand edge. Setting it to 0 turns that off.
-    //
-    // Off by default because the VDU sequence that sets it does not exist on
-    // older VDPs, and one that does not know it reads the four bytes that
-    // follow as commands -- one of which clears the screen.
-    int ctrl_pause;
+typedef struct _cfg_setting {
+    const char* section;
+    const char* name;
+    cfg_kind kind;
+    // Where the value is in the settings struct, as offsetof gives it.
+    int at;
+    // CFG_STR only: the array's size, and the offset of a bool that asks for
+    // the setting to be written out empty -- "set, to nothing", which is not
+    // the same as not set -- or -1 for a setting that cannot ask that.
+    int size;
+    int none;
+} cfg_setting;
 
-    // Path to a font file to load at startup, or an empty string for "not set".
-    // Unlike every other setting this one is a string, and unlike every other
-    // setting AED only ever reads it: see cfg_render for why it is written as a
-    // commented example rather than a value.
-    //
-    // Setting it is also the declaration that the VDP is new enough for the
-    // font API (Console8 2.8.0). MOS cannot report the VDP version, so there is
-    // nothing else to gate on -- the same shape ctrl_pause_frames took.
-    char font[CFG_FONT_MAX];
+typedef struct _cfg_schema {
+    const cfg_setting* settings;
+    int n;
+    // Writes a fresh file for `values` into `buf`: the program's layout and
+    // comments, built with the cfg_put_* helpers. Returns the length, or a
+    // negative number if it would not fit.
+    int (*render)(const void* values, char* buf, int max);
+} cfg_schema;
 
-    // Asking for no font at all, which is not the same as saying nothing about
-    // it. An empty `font` means "this version has nothing to say, leave the
-    // line as it is"; this means "write the line out empty", which is how the
-    // file says no font -- cfg_parse ignores a setting with no value.
-    bool font_none;
-} config;
+// The most settings a schema can have.
+#define CFG_SETTINGS_MAX 16
 
-// Every field cleared to "not set".
-void cfg_defaults(config* cfg);
+// Every setting in `values` cleared to "not set".
+void cfg_defaults(const cfg_schema* sc, void* values);
+
 
 // Reads `path` into `cfg`. A missing or unreadable file is not an error: the
 // settings simply stay unset. Unknown sections and names are ignored so that a
@@ -99,18 +104,18 @@ void cfg_defaults(config* cfg);
  */
 bool cfg_migrate(const char* old, const char* path);
 
-bool cfg_load(config* cfg, const char* path);
+bool cfg_load(const cfg_schema* sc, void* values, const char* path);
 
 // Parses config text directly. Exposed for tests, and so the file reading and
 // the parsing can be checked separately.
-void cfg_parse(config* cfg, const char* text, int len);
+void cfg_parse(const cfg_schema* sc, void* values, const char* text, int len);
 
-// Writes `cfg` to `path`, creating the directory if needed. Used on first run to
-// leave a commented file holding the settings AED started with, so there is
-// something to edit rather than a format to guess at.
-bool cfg_save(const config* cfg, const char* path);
+// Writes `values` to `path` as a fresh file, creating the directory if needed.
+// Used on first run to leave a commented file holding the settings the program
+// started with, so there is something to edit rather than a format to guess at.
+bool cfg_save(const cfg_schema* sc, const void* values, const char* path);
 
-// Rewrites `path`, changing only the settings that are set in `cfg` and leaving
+// Rewrites `path`, changing only the settings that are set in `values` and leaving
 // every other line exactly as it was -- comments, blank lines, spacing, and
 // settings this version does not understand. The file is meant to be edited by
 // hand, so saving a colour change must not reformat it or discard notes. A
@@ -118,10 +123,19 @@ bool cfg_save(const config* cfg, const char* path);
 // to writing a fresh file when there is nothing to merge into, and refuses
 // rather than rewriting a file too large to hold in memory whole -- writing back
 // a partial read would truncate away everything past it.
-bool cfg_update(const config* cfg, const char* path);
+bool cfg_update(const cfg_schema* sc, const void* values, const char* path);
 
-// Renders the file contents into `buf`. Returns the length written, or 0 if it
-// would not fit. Separated from the file writing so it can be checked directly.
-int cfg_render(const config* cfg, char* buf, int max);
+// Renders a fresh file into `buf` through the schema's render. Returns the
+// length written, or 0 if it would not fit. Separated from the file writing so
+// it can be checked directly.
+int cfg_render(const cfg_schema* sc, const void* values, char* buf, int max);
+
+// For a schema's render. Each appends to `out` at `at` and returns where it
+// stopped, or -1 once anything has not fitted -- which every later call passes
+// on, so a render can make its calls in a row and check once at the end.
+int cfg_put_text(char* out, int at, int max, const char* text);
+// "name = value\r\n". CRLF because that is what the editor writes into text
+// files, and this one is meant to be opened in it.
+int cfg_put_setting(char* out, int at, int max, const char* name, int value);
 
 #endif  // _CONFIG_H_

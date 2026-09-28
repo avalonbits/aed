@@ -746,7 +746,7 @@ static RESPONSE settings_modal(user_input* ui, screen* scr, config* cfg) {
     const int fl = (int) strlen(cfg->font);
     memcpy(font_now, cfg->font, (size_t)(fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1));
     font_now[fl < CFG_FONT_MAX ? fl : CFG_FONT_MAX - 1] = 0;
-    cfg_defaults(cfg);
+    cfg_defaults(&AED_CONFIG, cfg);
 
     const char top = scr->v_->topY_;
     const char bottom = ui->ypos_;
