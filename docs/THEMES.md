@@ -111,13 +111,28 @@ The three shipped themes divide the sixteen standard backgrounds between them:
 | `light.cfg` | 3 6 7 11 14 15 |
 | `mid.cfg` | 2 8 9 10 12 13 |
 
-Two consequences:
+Three consequences:
 
 * **Changing your background changes your theme**, immediately, including from
   inside `CTRL+E`.
-* **A background no theme covers means no colouring at all.** AED would rather
-  leave a file in your own colours than paint it in something unreadable — so if
-  you add a theme, give it every background you want it used for.
+* **A background no theme covers takes the nearest theme in brightness.** A
+  64 colour mode has 48 backgrounds beyond the sixteen, and listing all of them
+  would take three more themes. So when no `covers` names the background, AED
+  measures how bright it is and uses the theme whose covered backgrounds are
+  closest — their brightness is what that theme's colours were chosen against.
+  With the three shipped themes every one of the 64 colours finds one.
+* **Too far from every theme means no colouring at all.** A background more than
+  32 steps of 255 from anything a theme covers gets no theme, because AED would
+  rather leave a file in your own colours than paint it in something chosen for
+  a much lighter or darker background. A card with only a dark theme and a white
+  background stays plain.
+
+Brightness comes from the Agon's default palette. If you have redefined colours
+with `VDU 19`, AED still measures the colours they started as — MOS has no way to
+ask what a colour number has become without drawing it.
+
+A `covers` entry always wins over brightness: the author's word is the rule, and
+brightness is only the guess for the backgrounds nobody named.
 
 To take over a background from a shipped theme, list it in your own `covers` and
 make sure yours is found first. AED reads the directory in the order the card

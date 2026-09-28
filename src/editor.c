@@ -143,15 +143,29 @@ static bool grammar_for(syntax* g, const char* fname) {
 }
 
 // The first theme whose author meant it for this background.
+/*
+ * The theme for a background: the first whose `covers` lists it, and failing
+ * that the one whose covered backgrounds are nearest it in brightness.
+ *
+ * The first rule is the author's word and always wins. The second is for the
+ * backgrounds nobody listed, which in a 64 colour mode is most of them: a
+ * theme's covered backgrounds say what brightness its colours were chosen
+ * against, so the nearest is the best guess at one that reads. Too far from
+ * every theme -- THEME_NEAR -- and there is no theme, and the file keeps the
+ * reader's own colours rather than be painted in something unreadable.
+ */
 static bool theme_for(theme* t, int bg) {
     static DIR dir;
     static FILINFO info;
     static char path[SYN_PATH_MAX];
+    static char nearest[SYN_PATH_MAX];
 
     if (ffs_dopen(&dir, THEME_DIR) != 0) {
         return false;
     }
     bool got = false;
+    int best = -1;
+    nearest[0] = 0;
     while (!got) {
         if (ffs_dread(&dir, &info) != 0 || info.fname[0] == 0) {
             break;
@@ -166,8 +180,20 @@ static bool theme_for(theme* t, int bg) {
             continue;
         }
         got = theme_covers(t, bg);
+        if (!got) {
+            const int d = theme_distance(t, bg);
+            if (d >= 0 && d <= THEME_NEAR && (best < 0 || d < best)) {
+                best = d;
+                strcpy(nearest, path);
+            }
+        }
     }
     ffs_dclose(&dir);
+    // The nearest was loaded and then overwritten by the themes read after it,
+    // so it is read again. Once, and only when nothing covered the background.
+    if (!got && best >= 0) {
+        got = theme_load(t, nearest);
+    }
     if (!got) {
         theme_clear(t);
     }

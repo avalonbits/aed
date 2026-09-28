@@ -100,6 +100,39 @@ bool theme_load(theme* t, const char* path);
 // Whether this theme's author meant it for that background.
 bool theme_covers(const theme* t, int bg);
 
+/*
+ * How bright a colour number is, 0 for black to 255 for white, as the VDP
+ * draws it with its default palette -- the same table for every mode, since a
+ * 64 colour mode's first sixteen are the sixteen colour palette.
+ *
+ * The default palette, because MOS offers no way to ask what a colour number
+ * has been redefined to without drawing it. A reader who has moved the palette
+ * with VDU 19 gets themes chosen for the colours it started with.
+ */
+int theme_brightness(int colour);
+
+/*
+ * How far this theme is from suiting `bg`: the brightness distance to the
+ * nearest background in its `covers`, or -1 for a theme that covers nothing.
+ *
+ * What picks a theme for a background no theme lists, which is most of a 64
+ * colour mode. The backgrounds a theme covers say what brightness its colours
+ * were chosen against, so the nearest one is the best guess at a theme that
+ * reads on this background.
+ */
+int theme_distance(const theme* t, int bg);
+
+/*
+ * The furthest a background may be from a theme's before that theme is used
+ * for it anyway. Past this, AED leaves the file in the reader's own colours
+ * rather than paint it in colours chosen for something much lighter or darker.
+ *
+ * With the three shipped themes every one of the 64 colours is within 22 of a
+ * covered background, so they theme all of them; a card with only a dark theme
+ * and a white background is 185 away and stays plain.
+ */
+#define THEME_NEAR 32
+
 // The colour for a class. TOK_TEXT when the theme says nothing about it.
 char theme_colour(const theme* t, tok_class c);
 

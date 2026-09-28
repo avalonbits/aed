@@ -293,6 +293,10 @@ What ships:
 | `themes/light.cfg` | 3 6 7 11 14 15 |
 | `themes/mid.cfg` | 2 8 9 10 12 13 |
 
+In a 64 colour mode the other 48 backgrounds take whichever theme is nearest them
+in brightness, so every background is coloured. See
+[writing a theme](docs/THEMES.md) for how that is decided.
+
 `.bbc` is deliberately absent: that extension is normally tokenised BASIC, which has no
 text in it to colour.
 

@@ -254,6 +254,57 @@ int main(void) {
         tb_destroy(&ed.buf_);
     }
 
+    /* --- a background no theme lists takes the nearest in brightness --- */
+    {
+        /*
+         * A 64 colour mode has 48 backgrounds no shipped theme lists. A
+         * theme's covered backgrounds say what brightness its colours were
+         * chosen against, so a background nobody listed takes the theme whose
+         * covered backgrounds are nearest it -- and none at all when every
+         * theme is further than THEME_NEAR, so a file is never painted in
+         * colours meant for something much lighter or darker.
+         *
+         * dark covers 0, 1 and 4 (brightness 0, 50 and 19); bold covers 2
+         * (99). Directory order puts dark first, so the second case is the
+         * one that shows nearest winning rather than first.
+         */
+        static const struct { int bg; const char* theme; } cases[] = {
+            { 16, "dark" },     /* 9: dark is 9 away, bold 90 */
+            { 20, "bold" },     /* 78: dark is 28 away, bold 21 */
+            { 39, NULL   },     /* 204: dark is 154 away, bold 105 */
+        };
+        for (int i = 0; i < 3; i++) {
+            files();
+            setup(&ed, cases[i].bg);
+            ed.scr_.colors_ = 64;
+            named(&ed, "/main.c");
+            ed_pick_syntax(&ed);
+            char name[64];
+            snprintf(name, sizeof(name), "background %d in a 64 colour mode",
+                     cases[i].bg);
+            if (cases[i].theme != NULL) {
+                check(name, ed.syn_.loaded ? 1 : 0, 1);
+                check("  takes the theme nearest it",
+                      strcmp(ed.theme_.name, cases[i].theme) == 0 ? 1 : 0, 1);
+            } else {
+                check(name, ed.syn_.loaded ? 1 : 0, 0);
+                check("  is too far from every theme to take one",
+                      ed.scr_.theme_ == NULL ? 1 : 0, 1);
+            }
+            tb_destroy(&ed.buf_);
+        }
+
+        /* A background a theme lists keeps that theme, even when another is
+         * nearer: the author's word is the rule, brightness only the guess. */
+        files();
+        setup(&ed, 2);
+        named(&ed, "/main.c");
+        ed_pick_syntax(&ed);
+        check("a listed background keeps the theme that lists it",
+              strcmp(ed.theme_.name, "bold") == 0 ? 1 : 0, 1);
+        tb_destroy(&ed.buf_);
+    }
+
     /* --- a file no grammar claims is painted plainly --- */
     {
         files();

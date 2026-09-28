@@ -105,6 +105,60 @@ bool theme_covers(const theme* t, int bg) {
     return false;
 }
 
+/*
+ * The VDP's default palette for 64 colour modes, as RGB222: two bits each of
+ * red, green and blue, in that order from the top. The first sixteen are the
+ * sixteen colour palette. From agon-vdp's video/agon_palette.h.
+ */
+static const unsigned char PALETTE64[64] = {
+    0x00, 0x20, 0x08, 0x28, 0x02, 0x22, 0x0A, 0x2A,
+    0x15, 0x30, 0x0C, 0x3C, 0x03, 0x33, 0x0F, 0x3F,
+    0x01, 0x04, 0x05, 0x06, 0x07, 0x09, 0x0B, 0x0D,
+    0x0E, 0x10, 0x11, 0x12, 0x13, 0x14, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+    0x21, 0x23, 0x24, 0x25, 0x26, 0x27, 0x29, 0x2B,
+    0x2C, 0x2D, 0x2E, 0x2F, 0x31, 0x32, 0x34, 0x35,
+    0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3D, 0x3E,
+};
+
+int theme_brightness(int colour) {
+    if (colour < 0 || colour >= 64) {
+        return -1;
+    }
+    // The four levels a channel can take, as the VDP turns them into RGB888.
+    static const int LEVEL[4] = { 0x00, 0x55, 0xAA, 0xFF };
+    const int v = PALETTE64[colour];
+    const int r = LEVEL[(v >> 4) & 3];
+    const int g = LEVEL[(v >> 2) & 3];
+    const int b = LEVEL[v & 3];
+
+    // Rec. 601 luma: green reads brighter than red, and red than blue.
+    return (299 * r + 587 * g + 114 * b) / 1000;
+}
+
+int theme_distance(const theme* t, int bg) {
+    if (t == NULL || !t->loaded) {
+        return -1;
+    }
+    const int want = theme_brightness(bg);
+    if (want < 0) {
+        return -1;
+    }
+    int best = -1;
+    for (int i = 0; i < t->ncovers; i++) {
+        const int have = theme_brightness(t->covers[i]);
+        if (have < 0) {
+            continue;
+        }
+        const int d = have > want ? have - want : want - have;
+        if (best < 0 || d < best) {
+            best = d;
+        }
+    }
+
+    return best;
+}
+
 // `covers = 0 1 4 5`: the backgrounds the theme's author meant it for. Parsed
 // here rather than through ini_parse_number, which reads one number and a
 // whole value.
