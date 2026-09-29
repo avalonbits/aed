@@ -25,8 +25,8 @@
 
 // The command list, as pairs. Kept next to nothing else on purpose: a help
 // screen that disagrees with the key handling is worse than no help screen, so
-// the order here follows AED_KEYS in editor.c and any change to one is a change
-// to the other.
+// the order here follows the keys -- AED_KEYS in aed.c, and ED_KEYS in editor.c
+// behind it -- and any change to one is a change to the other.
 //
 // A NULL key starts a new section, with the description as its heading.
 typedef struct _help_line {

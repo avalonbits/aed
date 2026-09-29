@@ -135,10 +135,10 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L24) ·
-[`ed_init()`](../src/aed.c#L304) ·
+[`ed_init()`](../src/aed.c#L263) ·
 [`ed_init_for()`](../src/ui/editor.c#L264) ·
 [`ed_run()`](../src/ui/editor.c#L560) ·
-[`ed_translate()`](../src/ui/editor.c#L614) ·
+[`ed_translate()`](../src/ui/editor.c#L675) ·
 [`ed_handle()`](../src/ui/editor.c#L508) ·
 [`ed_selection_for()`](../src/ui/editor.c#L375) ·
 [`cmd_repaint_rows()`](../src/ui/cmd_ops.c#L870)
@@ -175,12 +175,13 @@ model.
 
 A key becomes a command through a keymap: a table of bindings, each a key, the
 modifiers it needs, flags the loop reads before the command runs, and the
-command. [`AED_KEYS`](../src/ui/editor.c) is AED's, and
-[`ed_translate()`](../src/ui/editor.c#L614) reads a key through one, so a test can
-assert a binding. A program with keys of its own puts a table of them in front
-of AED's through the keymap's `next`, rather than copying it. **A command
-nothing can reach is not a feature; a command that is reachable and does the
-wrong thing is worse.**
+command. [`ED_KEYS`](../src/ui/editor.c) is the editor's own -- moving,
+editing, selecting, the clipboard, finding, undo -- and a program puts its keys
+in front of it through the keymap's `next`: [`AED_KEYS`](../src/aed.c) is
+AED's files, leaving, help and settings, followed by `ED_KEYS`.
+[`ed_translate()`](../src/ui/editor.c#L675) reads a key through the chain, so a
+test can assert a binding. **A command nothing can reach is not a feature; a
+command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
@@ -527,7 +528,8 @@ Four things learned the hard way:
 * **Something on the document** goes in the `text_buffer_*.c` whose job it is,
   and anything two of them need goes in `text_buffer_int.h` with a `tbi_` name.
 * **A command** needs a function in `cmd_ops.c`, a declaration in `cmd_ops.h`, a
-  binding in [`AED_KEYS`](../src/ui/editor.c), a row in the help table in
+  binding in [`ED_KEYS`](../src/ui/editor.c) -- or
+  [`AED_KEYS`](../src/aed.c) for one of AED's own -- a row in the help table in
   `user_input.c`, a line in the README, and a test that goes through the *table*
   and the loop rather than calling the function.
 * **If it moves the cursor**, it seeks. Stepping is for moving by one.

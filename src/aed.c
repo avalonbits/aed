@@ -130,70 +130,29 @@ void aed_cmd_settings(editor* ed) {
 }
 
 #define C MOD_CTRL
-#define OWN KC_OWNS_SEL
 
 // Both cases of a letter: MOS reports the shifted one when SHIFT is held.
 #define LETTER(lo, up, mods, flags, cmd) \
     { lo, mods, flags, cmd }, { up, mods, flags, cmd }
 
+// AED's own keys: its files, leaving, and its help and settings. Everything
+// else -- moving, editing, selecting, the clipboard, finding, undo -- is the
+// editor's, in ED_KEYS, which these are put in front of.
 static const key_binding AED_BINDINGS[] = {
-    // With CTRL.
-    LETTER(VK_q, VK_Q, C, 0, ed_cmd_quit),
-    { VK_LEFT,      C, 0, cmd_w_left },
-    { VK_KP_LEFT,   C, 0, cmd_w_left },
-    { VK_RIGHT,     C, 0, cmd_w_right },
-    { VK_KP_RIGHT,  C, 0, cmd_w_right },
-    { VK_DELETE,    C, 0, cmd_del_line },
-    { VK_KP_DELETE, C, 0, cmd_del_line },
-    LETTER(VK_d, VK_D, C, 0, cmd_del_line),
-    { VK_HOME,      C, 0, cmd_doc_top },
-    { VK_KP_HOME,   C, 0, cmd_doc_top },
-    { VK_END,       C, 0, cmd_doc_end },
-    { VK_KP_END,    C, 0, cmd_doc_end },
+    LETTER(VK_o, VK_O, C, 0, cmd_open),
     LETTER(VK_s, VK_S, C | MOD_ALT, 0, cmd_save_as),
     LETTER(VK_s, VK_S, C, 0, ed_cmd_save),
-    LETTER(VK_c, VK_C, C, OWN, cmd_copy),
-    LETTER(VK_g, VK_G, C, 0, cmd_goto),
+    LETTER(VK_q, VK_Q, C, 0, ed_cmd_quit),
     LETTER(VK_h, VK_H, C, 0, aed_cmd_help),
     LETTER(VK_e, VK_E, C, 0, aed_cmd_settings),
-    LETTER(VK_o, VK_O, C, 0, cmd_open),
-    LETTER(VK_a, VK_A, C, OWN, cmd_select_all),
-    LETTER(VK_x, VK_X, C, OWN, cmd_cut),
-    LETTER(VK_f, VK_F, C, OWN, cmd_find),
-    LETTER(VK_n, VK_N, C, OWN, cmd_find_next),
-    LETTER(VK_p, VK_P, C, OWN, cmd_find_prev),
-    LETTER(VK_z, VK_Z, C, 0, cmd_undo),
-    LETTER(VK_y, VK_Y, C, 0, cmd_redo),
-    LETTER(VK_v, VK_V, C, OWN, cmd_paste),
-
-    // Without it.
-    { VK_LEFT,      0, 0, cmd_left },
-    { VK_KP_LEFT,   0, 0, cmd_left },
-    { VK_RIGHT,     0, 0, cmd_right },
-    { VK_KP_RIGHT,  0, 0, cmd_right },
-    { VK_BACKSPACE, 0, 0, cmd_bksp },
-    { VK_DELETE,    0, 0, cmd_del },
-    { VK_KP_DELETE, 0, 0, cmd_del },
-    { VK_HOME,      0, 0, cmd_home },
-    { VK_KP_HOME,   0, 0, cmd_home },
-    { VK_END,       0, 0, cmd_end },
-    { VK_KP_END,    0, 0, cmd_end },
-    { VK_RETURN,    0, 0, cmd_newl },
-    { VK_KP_ENTER,  0, 0, cmd_newl },
-    { VK_UP,        0, 0, cmd_up },
-    { VK_KP_UP,     0, 0, cmd_up },
-    { VK_DOWN,      0, 0, cmd_down },
-    { VK_KP_DOWN,   0, 0, cmd_down },
-    { VK_PAGEUP,    0, 0, cmd_page_up },
-    { VK_PAGEDOWN,  0, 0, cmd_page_down },
 };
 
 #undef LETTER
-#undef OWN
 #undef C
 
 const keymap AED_KEYS = {
-    AED_BINDINGS, (int) (sizeof(AED_BINDINGS) / sizeof(AED_BINDINGS[0])), NULL,
+    AED_BINDINGS, (int) (sizeof(AED_BINDINGS) / sizeof(AED_BINDINGS[0])),
+    &ED_KEYS,
 };
 
 
