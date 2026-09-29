@@ -68,6 +68,9 @@
 
 typedef struct _doc_store {
     char head_[STORE_PATH_MAX];
+    // head_ resolved to one spelling per file: absolute, with . and .. folded
+    // away -- what store_live compares, so "big.c" and "/big.c" are one file.
+    char key_[STORE_PATH_MAX];
     char tail_[STORE_PATH_MAX];
 
     // HEAD's length is kept here rather than read back off the file. There is
@@ -94,8 +97,14 @@ typedef struct _doc_store {
 
 // Names the scratch files after `base` and creates them both empty. `base` is
 // the document's path; an empty or NULL one gets a plain name in the current
-// directory, the way the clipboard's scratch file does.
+// directory, the way the clipboard's scratch file does. Fails when another
+// store has those files -- see store_live.
 bool store_init(doc_store* st, const char* base);
+
+// Whether a store other than `except` has the files a store on `base` would
+// use. store_init refuses such a name: two stores on one file would share its
+// scratch files, and the second would empty the first's.
+bool store_live(const char* base, const doc_store* except);
 
 // Closes and removes both files. Safe on a store that never opened.
 void store_destroy(doc_store* st);

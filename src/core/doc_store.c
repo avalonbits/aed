@@ -106,6 +106,143 @@ static bool name_with(char* out, const char* base, const char* suffix) {
     return true;
 }
 
+/*
+ * The stores with their files open right now.
+ *
+ * A store's files are named after its document, so two stores on one file
+ * would share them -- and store_init creates them afresh, so the second would
+ * empty the first's, and closing either would delete both. The part of a
+ * document that is not in memory lives only there. So a name already in use
+ * is refused, and the files are the card's, which is the program's: this list
+ * is too. Two stores hold four of the seven handles MOS gives a program, so
+ * no more than three can be open at once; this is room for all of them.
+ */
+#define STORE_LIVE_MAX 4
+
+static const doc_store* live[STORE_LIVE_MAX];
+
+// Case-blind, as FAT names are: A.TXT and a.txt are one file.
+static bool same_name(const char* a, const char* b) {
+    for (;; a++, b++) {
+        char x = *a;
+        char y = *b;
+        if (x >= 'a' && x <= 'z') {
+            x = (char) (x - 'a' + 'A');
+        }
+        if (y >= 'a' && y <= 'z') {
+            y = (char) (y - 'a' + 'A');
+        }
+        if (x != y) {
+            return false;
+        }
+        if (x == 0) {
+            return true;
+        }
+    }
+}
+
+/*
+ * A path as one spelling per file, so that two names for the same file compare
+ * equal: MOS resolves a relative name against the current directory, so from
+ * the root "big.c", "/big.c", "./big.c" and "sub/../big.c" are one file. The
+ * current directory is asked for (MOS 2.2.0+), a drive prefix such as "0:" is
+ * dropped, and "." and ".." are folded away. False when it does not fit or the
+ * directory cannot be had -- which callers treat as a clash, the safe answer.
+ */
+static bool resolve(char* out, int max, const char* path) {
+    static char joined[2 * STORE_PATH_MAX];
+    int j = 0;
+    if (path[0] != '/') {
+        if (ffs_getcwd(joined, (unsigned) STORE_PATH_MAX) != 0) {
+            return false;
+        }
+        const char* colon = strchr(joined, ':');
+        if (colon != NULL) {
+            memmove(joined, colon + 1, strlen(colon + 1) + 1);
+        }
+        j = (int) strlen(joined);
+        joined[j++] = '/';
+    }
+    const int plen = (int) strlen(path);
+    if (j + plen >= (int) sizeof(joined)) {
+        return false;
+    }
+    memcpy(joined + j, path, (size_t) plen + 1);
+
+    int n = 0;
+    const char* p = joined;
+    while (*p != 0) {
+        while (*p == '/') {
+            p++;
+        }
+        const char* e = p;
+        while (*e != 0 && *e != '/') {
+            e++;
+        }
+        const int len = (int) (e - p);
+        if (len == 2 && p[0] == '.' && p[1] == '.') {
+            while (n > 0 && out[n - 1] != '/') {
+                n--;
+            }
+            if (n > 0) {
+                n--;
+            }
+        } else if (len > 0 && !(len == 1 && p[0] == '.')) {
+            if (n + 1 + len >= max) {
+                return false;
+            }
+            out[n++] = '/';
+            memcpy(out + n, p, (size_t) len);
+            n += len;
+        }
+        p = e;
+    }
+    if (n == 0) {
+        out[n++] = '/';
+    }
+    out[n] = 0;
+
+    return true;
+}
+
+bool store_live(const char* base, const doc_store* except) {
+    static char head[STORE_PATH_MAX];
+    static char key[STORE_PATH_MAX];
+    if (!name_with(head, base, STORE_HEAD_SUFFIX)) {
+        return false;
+    }
+    if (!resolve(key, STORE_PATH_MAX, head)) {
+        return true;        // cannot tell: say it clashes rather than risk it
+    }
+    for (int i = 0; i < STORE_LIVE_MAX; i++) {
+        if (live[i] != NULL && live[i] != except && same_name(live[i]->key_, key)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool live_add(const doc_store* st) {
+    for (int i = 0; i < STORE_LIVE_MAX; i++) {
+        if (live[i] == NULL) {
+            live[i] = st;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void live_remove(const doc_store* st) {
+    for (int i = 0; i < STORE_LIVE_MAX; i++) {
+        if (live[i] == st) {
+            live[i] = NULL;
+        }
+    }
+}
+
 bool store_init(doc_store* st, const char* base) {
     if (st == NULL) {
         return false;
@@ -119,6 +256,11 @@ bool store_init(doc_store* st, const char* base) {
 
     if (!name_with(st->head_, base, STORE_HEAD_SUFFIX)
             || !name_with(st->tail_, base, STORE_TAIL_SUFFIX)) {
+        return false;
+    }
+    // Another store's files: see live above. And the resolved name kept, for
+    // later stores to be compared with.
+    if (store_live(base, NULL) || !resolve(st->key_, STORE_PATH_MAX, st->head_)) {
         return false;
     }
 
@@ -176,6 +318,7 @@ bool store_init(doc_store* st, const char* base) {
     }
 
     st->open_ = true;
+    live_add(st);
 
     return true;
 }
@@ -197,6 +340,7 @@ void store_destroy(doc_store* st) {
     }
     mos_del(st->head_);
     mos_del(st->tail_);
+    live_remove(st);
     st->open_ = false;
     st->head_len_ = 0;
     st->tail_start_ = STORE_HEADROOM;

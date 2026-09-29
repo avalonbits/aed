@@ -405,15 +405,15 @@ int main(void) {
     stub_file_set_content(first, (int) sizeof(first) - 1);
     editor ed;
     check("editor starts", ed_init(&ed, 8, "first.txt") != NULL, 1);
-    check("  with the first document", doc_is(&ed.doc_.buf_, "alpha\nbeta\n\n"), 1);
+    check("  with the first document", doc_is(&ed.doc_->buf_, "alpha\nbeta\n\n"), 1);
 
     stub_file_reset();
     stub_file_set_content(second, (int) sizeof(second) - 1);
     stub_set_keys(keys, n);
     cmd_open(&ed);
     check("cmd_open loaded the named file",
-          doc_is(&ed.doc_.buf_, "gamma\ndelta\nepsilon\n\n"), 1);
-    check("  and renamed the buffer", strcmp(tb_fname(&ed.doc_.buf_), "second.txt"), 0);
+          doc_is(&ed.doc_->buf_, "gamma\ndelta\nepsilon\n\n"), 1);
+    check("  and renamed the buffer", strcmp(tb_fname(&ed.doc_->buf_), "second.txt"), 0);
     /* The view has to be wound back too: a long line scrolled right, then a
      * short file opened, would otherwise paint from a column that no longer
      * exists in any line. */
@@ -429,8 +429,8 @@ int main(void) {
     cmd_open(&ed);
     drawn = cap_read();
     check("cancelling the prompt keeps the document",
-          doc_is(&ed.doc_.buf_, "gamma\ndelta\nepsilon\n\n"), 1);
-    check("  and the name", strcmp(tb_fname(&ed.doc_.buf_), "second.txt"), 0);
+          doc_is(&ed.doc_->buf_, "gamma\ndelta\nepsilon\n\n"), 1);
+    check("  and the name", strcmp(tb_fname(&ed.doc_->buf_), "second.txt"), 0);
     /* Changing your mind is not an error. Handing the empty result straight to
      * tb_open would refuse it and complain, which is a message the user did
      * nothing to deserve. */
@@ -439,8 +439,8 @@ int main(void) {
 
     /* An unsaved document asks first, and answering ESC calls it all off --
      * the file must not be opened and the work must still be there. */
-    tb_put(&ed.doc_.buf_, 'Z');
-    check("the document is now dirty", tb_changed(&ed.doc_.buf_) ? 1 : 0, 1);
+    tb_put(&ed.doc_->buf_, 'Z');
+    check("the document is now dirty", tb_changed(&ed.doc_->buf_) ? 1 : 0, 1);
     /* ESC, and then a perfectly good file name behind it. Answering the save
      * prompt with ESC has to abandon the whole command: falling through to the
      * file prompt would open that name and throw the unsaved work away, which
@@ -461,9 +461,9 @@ int main(void) {
     stub_set_keys(cancel_save, n);
     cmd_open(&ed);
     check("cancelling the save prompt keeps the work",
-          doc_is(&ed.doc_.buf_, "Zgamma\ndelta\nepsilon\n\n"), 1);
-    check("  and opens nothing", strcmp(tb_fname(&ed.doc_.buf_), "second.txt"), 0);
-    check("  leaving it still unsaved", tb_changed(&ed.doc_.buf_) ? 1 : 0, 1);
+          doc_is(&ed.doc_->buf_, "Zgamma\ndelta\nepsilon\n\n"), 1);
+    check("  and opens nothing", strcmp(tb_fname(&ed.doc_->buf_), "second.txt"), 0);
+    check("  leaving it still unsaved", tb_changed(&ed.doc_->buf_) ? 1 : 0, 1);
 
     /* Answering "yes" saves first, then opens. The save is the point: without
      * the prompt at all, the 'y' would just be typed into the file name. */
@@ -485,11 +485,11 @@ int main(void) {
     check("answering yes wrote the document out", stub_file_size() > 0, 1);
     check("  and what it wrote is the document that was on screen",
           strncmp(stub_file_bytes(), "Zgamma", 6), 0);
-    check("  then opened the named file", doc_is(&ed.doc_.buf_, "alpha\nbeta\n\n"), 1);
+    check("  then opened the named file", doc_is(&ed.doc_->buf_, "alpha\nbeta\n\n"), 1);
 
     /* Dirty it again for the "no" case below. */
-    tb_put(&ed.doc_.buf_, 'Q');
-    check("dirty once more", tb_changed(&ed.doc_.buf_) ? 1 : 0, 1);
+    tb_put(&ed.doc_->buf_, 'Q');
+    check("dirty once more", tb_changed(&ed.doc_->buf_) ? 1 : 0, 1);
 
     /* Answering "no" discards the changes and goes ahead with the open. */
     stub_key no_save[64];
@@ -508,9 +508,9 @@ int main(void) {
     stub_set_keys(no_save, n);
     cmd_open(&ed);
     check("answering no discards and opens",
-          doc_is(&ed.doc_.buf_, "gamma\ndelta\nepsilon\n\n"), 1);
-    check("  under the new name", strcmp(tb_fname(&ed.doc_.buf_), "second.txt"), 0);
-    check("  and it is clean again", tb_changed(&ed.doc_.buf_) ? 1 : 0, 0);
+          doc_is(&ed.doc_->buf_, "gamma\ndelta\nepsilon\n\n"), 1);
+    check("  under the new name", strcmp(tb_fname(&ed.doc_->buf_), "second.txt"), 0);
+    check("  and it is clean again", tb_changed(&ed.doc_->buf_) ? 1 : 0, 0);
     check("  having written nothing out", stub_file_size(), 0);
 
     /* --- the view is wound back, not just the document --- */
@@ -543,7 +543,7 @@ int main(void) {
     openit[n].ch = 0; openit[n++].vk = VK_RETURN;
     stub_set_keys(openit, n);
     cmd_open(&wide);
-    check("opening a short file loaded it", doc_is(&wide.doc_.buf_, "alpha\nbeta\n\n"), 1);
+    check("opening a short file loaded it", doc_is(&wide.doc_->buf_, "alpha\nbeta\n\n"), 1);
     check("  and wound the horizontal scroll back", wide.scr_.v_->originX_, 0);
     check("  and put the cursor at the top", wide.scr_.v_->currY_, wide.scr_.v_->topY_);
     check("  at the left", wide.scr_.v_->currX_, 0);
@@ -567,8 +567,8 @@ int main(void) {
     cmd_open(&ed);
     drawn = cap_read();
     check("a file too large to open leaves the document",
-          doc_is(&ed.doc_.buf_, "gamma\ndelta\nepsilon\n\n"), 1);
-    check("  and the name", strcmp(tb_fname(&ed.doc_.buf_), "second.txt"), 0);
+          doc_is(&ed.doc_->buf_, "gamma\ndelta\nepsilon\n\n"), 1);
+    check("  and the name", strcmp(tb_fname(&ed.doc_->buf_), "second.txt"), 0);
     /* Silence here would look like the key had not registered. */
     check("  and says why", strstr(drawn, "File too large") != NULL, 1);
 
@@ -579,7 +579,7 @@ int main(void) {
     cmd_open(&ed);
     drawn = cap_read();
     check("a file that will not open leaves the document",
-          doc_is(&ed.doc_.buf_, "gamma\ndelta\nepsilon\n\n"), 1);
+          doc_is(&ed.doc_->buf_, "gamma\ndelta\nepsilon\n\n"), 1);
     check("  and says so", strstr(drawn, "Cannot open file") != NULL, 1);
 
     /* --- a save that could not happen stops the open --- */
@@ -589,8 +589,8 @@ int main(void) {
     stub_set_keys(NULL, 0);
     editor un;
     check("editor starts unnamed", ed_init(&un, 8, NULL) != NULL, 1);
-    tb_put(&un.doc_.buf_, 'k');
-    check("  and is dirty", tb_changed(&un.doc_.buf_) ? 1 : 0, 1);
+    tb_put(&un.doc_->buf_, 'k');
+    check("  and is dirty", tb_changed(&un.doc_->buf_) ? 1 : 0, 1);
 
     stub_key failed_save[32];
     n = 0;
@@ -605,8 +605,8 @@ int main(void) {
     stub_file_set_content(first, (int) sizeof(first) - 1);
     stub_set_keys(failed_save, n);
     cmd_open(&un);
-    check("a save that did not happen stops the open", tb_used(&un.doc_.buf_), 1);
-    check("  the work is still there", tb_changed(&un.doc_.buf_) ? 1 : 0, 1);
+    check("a save that did not happen stops the open", tb_used(&un.doc_->buf_), 1);
+    check("  the work is still there", tb_changed(&un.doc_->buf_) ? 1 : 0, 1);
     check("  and nothing was written", stub_file_size(), 0);
     ed_destroy(&un);
 
@@ -665,8 +665,8 @@ int main(void) {
         editor ged;
         check("an editor on a paged document",
               ed_init(&ged, 64, "/go.txt") != NULL, 1);
-        check("  which really is paged", tb_used(&ged.doc_.buf_) < (int) sizeof(go), 1);
-        check("  with all of its lines", tb_ymax(&ged.doc_.buf_), GO_LINES + 1);
+        check("  which really is paged", tb_used(&ged.doc_->buf_) < (int) sizeof(go), 1);
+        check("  with all of its lines", tb_ymax(&ged.doc_->buf_), GO_LINES + 1);
 
         /* Typing a line number into the prompt, then RETURN. */
         static stub_key gkeys[16];
@@ -682,9 +682,9 @@ int main(void) {
         } while (0)
 
         GO_TO("3900");
-        check("going down to a line past the window", tb_ypos(&ged.doc_.buf_), 3900);
+        check("going down to a line past the window", tb_ypos(&ged.doc_->buf_), 3900);
         check("  which reads as itself",
-              memcmp(tb_curr_line(&ged.doc_.buf_).suffix_,
+              memcmp(tb_curr_line(&ged.doc_->buf_).suffix_,
                      go + 3899 * GO_LEN, 5) == 0, 1);
         /* The view has to follow. A jump further than a screenful puts the
          * cursor against the edge it travelled towards -- without that the
@@ -693,9 +693,9 @@ int main(void) {
               (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->bottomY_ - 1);
 
         GO_TO("200");
-        check("and back up to one well behind it", tb_ypos(&ged.doc_.buf_), 200);
+        check("and back up to one well behind it", tb_ypos(&ged.doc_->buf_), 200);
         check("  which reads as itself",
-              memcmp(tb_curr_line(&ged.doc_.buf_).suffix_,
+              memcmp(tb_curr_line(&ged.doc_->buf_).suffix_,
                      go + 199 * GO_LEN, 5) == 0, 1);
         check("  with the cursor against the top of it",
               (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->topY_);
@@ -703,42 +703,42 @@ int main(void) {
         /* The column is carried over, which is what stepping a line at a time
          * did: going to a line does not also go to its start. */
         { const tb_pos mid = { 200, 7 };
-          tb_seek(&ged.doc_.buf_, mid); }
-        check("the cursor part way along a line", tb_xpos(&ged.doc_.buf_), 8);
+          tb_seek(&ged.doc_->buf_, mid); }
+        check("the cursor part way along a line", tb_xpos(&ged.doc_->buf_), 8);
         GO_TO("3000");
-        check("  goto keeps the column", tb_xpos(&ged.doc_.buf_), 8);
-        check("    on the line asked for", tb_ypos(&ged.doc_.buf_), 3000);
+        check("  goto keeps the column", tb_xpos(&ged.doc_->buf_), 8);
+        check("    on the line asked for", tb_ypos(&ged.doc_->buf_), 3000);
 
         GO_TO("4000");
-        check("the last line of the document", tb_ypos(&ged.doc_.buf_), 4000);
+        check("the last line of the document", tb_ypos(&ged.doc_->buf_), 4000);
 
         GO_TO("1");
-        check("and the first", tb_ypos(&ged.doc_.buf_), 1);
+        check("and the first", tb_ypos(&ged.doc_->buf_), 1);
 
         /* Past the end goes as far as there is, rather than nowhere. */
         GO_TO("99999");
         check("a line number past the end stops at the end",
-              tb_ypos(&ged.doc_.buf_), GO_LINES + 1);
+              tb_ypos(&ged.doc_->buf_), GO_LINES + 1);
 
         /* CTRL+HOME and CTRL+END, which share the same jump. HOME and END on
          * their own are the ends of the line, so these have to be the ends of
          * the document and not that. */
         { const tb_pos mid2 = { 2000, 0 };
-          tb_seek(&ged.doc_.buf_, mid2); }
+          tb_seek(&ged.doc_->buf_, mid2); }
         cmd_doc_top(&ged);
-        check("CTRL+HOME goes to the first line", tb_ypos(&ged.doc_.buf_), 1);
+        check("CTRL+HOME goes to the first line", tb_ypos(&ged.doc_->buf_), 1);
         check("  with the cursor at the top of the view",
               (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->topY_);
 
         cmd_doc_end(&ged);
-        check("CTRL+END goes to the last", tb_ypos(&ged.doc_.buf_), GO_LINES + 1);
+        check("CTRL+END goes to the last", tb_ypos(&ged.doc_->buf_), GO_LINES + 1);
         check("  with the cursor at the bottom of the view",
               (int) ged.scr_.v_->currY_, (int) ged.scr_.v_->bottomY_ - 1);
 
         cmd_doc_top(&ged);
-        check("and CTRL+HOME comes back from there", tb_ypos(&ged.doc_.buf_), 1);
+        check("and CTRL+HOME comes back from there", tb_ypos(&ged.doc_->buf_), 1);
         check("  reading the first line",
-              memcmp(tb_curr_line(&ged.doc_.buf_).suffix_, go, 5) == 0, 1);
+              memcmp(tb_curr_line(&ged.doc_->buf_).suffix_, go, 5) == 0, 1);
 
         stub_set_keys(NULL, 0);
         ed_destroy(&ged);

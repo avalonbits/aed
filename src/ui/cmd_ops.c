@@ -30,7 +30,7 @@
 
 #define SCR(ed) screen* scr = &ed->scr_
 #define UI(ed) user_input* ui = &ed->ui_
-#define TB(ed) text_buffer* tb = &ed->doc_.buf_
+#define TB(ed) text_buffer* tb = &ed->doc_->buf_
 
 /*
  * A row, joined and lexed, so it can be coloured.
@@ -142,7 +142,7 @@ static int refill_lines(editor* ed, int line, int back);
  */
 static void resync_below(editor* ed, char y, int was) {
     SCR(ed);
-    if (!syn_crosses_lines(&ed->doc_.syn_)) {
+    if (!syn_crosses_lines(&ed->doc_->syn_)) {
         return;
     }
     const char next = (char)(y + 1);
@@ -175,7 +175,7 @@ static int top_line(screen* scr, text_buffer* tb);
 static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
                          const char* suf, int sufsz, const tok_run** runs) {
     editor* ed = (editor*) ctx;
-    if (!ed->doc_.syn_.loaded || ypos < 0 || ypos >= SCR_MAX_ROWS) {
+    if (!ed->doc_->syn_.loaded || ypos < 0 || ypos >= SCR_MAX_ROWS) {
         return 0;
     }
     const split_line ln = { presz, (char*) pre, sufsz, (char*) suf };
@@ -193,7 +193,7 @@ static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
      */
     const int line = line_at_row(ed, ypos);
     int out = SYN_STATE_NONE;
-    const int n = syn_lex(&ed->doc_.syn_, synRow_, len, line_state(ed, line), &out,
+    const int n = syn_lex(&ed->doc_->syn_, synRow_, len, line_state(ed, line), &out,
                           synRuns_, SYN_ROW_RUNS);
     // What this line leaves is what the next begins in, and that is worth
     // keeping: a screen painted top to bottom answers for itself.
@@ -213,7 +213,7 @@ static int ed_colour_row(void* ctx, char ypos, const char* pre, int presz,
 static char ed_colour_cell(void* ctx, char ypos, int col) {
     editor* ed = (editor*) ctx;
     SCR(ed);
-    if (!ed->doc_.syn_.loaded || ypos < scr->v_->topY_ || ypos >= scr->v_->bottomY_) {
+    if (!ed->doc_->syn_.loaded || ypos < scr->v_->topY_ || ypos >= scr->v_->bottomY_) {
         return -1;
     }
 
@@ -223,7 +223,7 @@ static char ed_colour_cell(void* ctx, char ypos, int col) {
      * so asking it which line this is gives the line being arrived at.
      */
     static text_buffer cp;
-    tb_copy(&cp, &ed->doc_.buf_);
+    tb_copy(&cp, &ed->doc_->buf_);
     tb_pos p;
     p.line = line_at_row(ed, ypos);
     p.x = 0;
@@ -235,7 +235,7 @@ static char ed_colour_cell(void* ctx, char ypos, int col) {
     // makes two different things.
     const int at = scr_byte_at(scr, synRow_, len, col);
     int out = SYN_STATE_NONE;
-    const int n = syn_lex(&ed->doc_.syn_, synRow_, len,
+    const int n = syn_lex(&ed->doc_->syn_, synRow_, len,
                           line_state(ed, line_at_row(ed, ypos)), &out,
                           synRuns_, SYN_ROW_RUNS);
     for (int i = 0; i < n; i++) {
@@ -291,7 +291,7 @@ static int back_get(void* ctx, int y, char* buf, int max) {
  * grammar but C -- syn_state_before answers those without reading a line.
  */
 static int top_state(editor* ed, int line, char* out, int nout) {
-    if (!syn_crosses_lines(&ed->doc_.syn_) || line <= 1) {
+    if (!syn_crosses_lines(&ed->doc_->syn_) || line <= 1) {
         if (out != NULL && nout > 0) {
             memset(out, SYN_STATE_NONE, (size_t) nout);
         }
@@ -303,7 +303,7 @@ static int top_state(editor* ed, int line, char* out, int nout) {
     // past the 128 bytes an eZ80 index displacement reaches. One scan at a
     // time, and it never runs while a row is being painted.
     static back_scan bs;
-    tb_copy(&bs.cp, &ed->doc_.buf_);
+    tb_copy(&bs.cp, &ed->doc_->buf_);
     int from = line - SYN_LOOKBACK;
     if (from < 1) {
         from = 1;
@@ -314,7 +314,7 @@ static int top_state(editor* ed, int line, char* out, int nout) {
     tb_seek(&bs.cp, p);
     bs.at = tb_ypos(&bs.cp);
 
-    return syn_state_before(&ed->doc_.syn_, line - 1, back_get, &bs,
+    return syn_state_before(&ed->doc_->syn_, line - 1, back_get, &bs,
                             synScan_, SYN_ROW_MAX, out, nout);
 }
 
@@ -347,8 +347,8 @@ static int top_state(editor* ed, int line, char* out, int nout) {
  */
 static void view_top_is(editor* ed, int top) {
     ed->scr_.v_->synTop_ = top;
-    const int held = ed->doc_.synFirst_ != 0 ? top - ed->doc_.synFirst_ : -1;
-    if (held < 0 || held >= ed->doc_.synKnown_) {
+    const int held = ed->doc_->synFirst_ != 0 ? top - ed->doc_->synFirst_ : -1;
+    if (held < 0 || held >= ed->doc_->synKnown_) {
         refill_lines(ed, top, syn_backfill(ed));
     }
 }
@@ -589,8 +589,8 @@ static int top_line(screen* scr, text_buffer* tb) {
 }
 
 void cmd_selection_range(editor* ed, tb_pos* from, tb_pos* to) {
-    tb_pos a = ed->doc_.anchor_;
-    tb_pos b = tb_tell(&ed->doc_.buf_);
+    tb_pos a = ed->doc_->anchor_;
+    tb_pos b = tb_tell(&ed->doc_->buf_);
     if (tb_cmp(a, b) > 0) {
         const tb_pos t = a;
         a = b;
@@ -606,7 +606,7 @@ static void row_selection(editor* ed, int line, const split_line* ln,
                           int* from, int* to) {
     *from = 0;
     *to = 0;
-    if (!ed->doc_.selecting_) {
+    if (!ed->doc_->selecting_) {
         return;
     }
 
@@ -655,11 +655,11 @@ static void extend_lines(editor* ed, int upto) {
     // joins the frame of whatever this lands in, and an eZ80 index
     // displacement reaches 128 bytes (test/frames.sh).
     static text_buffer cp;
-    int at = ed->doc_.synFirst_ + ed->doc_.synKnown_ - 1;
+    int at = ed->doc_->synFirst_ + ed->doc_->synKnown_ - 1;
     if (at < 1) {
         return;
     }
-    tb_copy(&cp, &ed->doc_.buf_);
+    tb_copy(&cp, &ed->doc_->buf_);
     tb_pos p;
     p.line = at;
     p.x = 0;
@@ -667,18 +667,18 @@ static void extend_lines(editor* ed, int upto) {
     if (tb_ypos(&cp) != at) {
         return;
     }
-    int state = ed->doc_.lineSyn_[ed->doc_.synKnown_ - 1];
-    while (at < upto && ed->doc_.synKnown_ < SYN_WINDOW) {
+    int state = ed->doc_->lineSyn_[ed->doc_->synKnown_ - 1];
+    while (at < upto && ed->doc_->synKnown_ < SYN_WINDOW) {
         const split_line ln = tb_curr_line(&cp);
         const int len = row_bytes(&ln, synScan_, SYN_ROW_MAX);
-        syn_lex(&ed->doc_.syn_, synScan_, len, state, &state, NULL, 0);
+        syn_lex(&ed->doc_->syn_, synScan_, len, state, &state, NULL, 0);
         tb_down(&cp);
         if (tb_ypos(&cp) == at) {
             break;              // the document ended
         }
         at = tb_ypos(&cp);
-        ed->doc_.lineSyn_[ed->doc_.synKnown_] = (char) state;
-        ed->doc_.synKnown_++;
+        ed->doc_->lineSyn_[ed->doc_->synKnown_] = (char) state;
+        ed->doc_->synKnown_++;
     }
 }
 
@@ -721,11 +721,11 @@ static int refill_lines(editor* ed, int line, int back) {
      * read-back that was happening anyway.
      */
     const int above = line - from;
-    ed->doc_.synFirst_ = from;
-    ed->doc_.lineSyn_[above] = (char) top_state(ed, line, ed->doc_.lineSyn_, above);
-    ed->doc_.synKnown_ = above + 1;
+    ed->doc_->synFirst_ = from;
+    ed->doc_->lineSyn_[above] = (char) top_state(ed, line, ed->doc_->lineSyn_, above);
+    ed->doc_->synKnown_ = above + 1;
 
-    return ed->doc_.lineSyn_[above];
+    return ed->doc_->lineSyn_[above];
 }
 
 /*
@@ -738,13 +738,13 @@ static int refill_lines(editor* ed, int line, int back) {
  * dropping the ones above changes nothing about the ones below.
  */
 static void drop_oldest(editor* ed, int keep) {
-    if (ed->doc_.synFirst_ == 0 || ed->doc_.synKnown_ <= keep || keep < 1) {
+    if (ed->doc_->synFirst_ == 0 || ed->doc_->synKnown_ <= keep || keep < 1) {
         return;
     }
-    const int drop = ed->doc_.synKnown_ - keep;
-    memmove(&ed->doc_.lineSyn_[0], &ed->doc_.lineSyn_[drop], (size_t) keep);
-    ed->doc_.synFirst_ += drop;
-    ed->doc_.synKnown_ = keep;
+    const int drop = ed->doc_->synKnown_ - keep;
+    memmove(&ed->doc_->lineSyn_[0], &ed->doc_->lineSyn_[drop], (size_t) keep);
+    ed->doc_->synFirst_ += drop;
+    ed->doc_->synKnown_ = keep;
 }
 
 /*
@@ -757,26 +757,26 @@ static void drop_oldest(editor* ed, int keep) {
  * to consult puts the document's own colour back over whatever it crosses.
  */
 static int line_state(editor* ed, int line) {
-    if (!syn_crosses_lines(&ed->doc_.syn_) || line <= 1) {
+    if (!syn_crosses_lines(&ed->doc_->syn_) || line <= 1) {
         return SYN_STATE_NONE;
     }
-    if (ed->doc_.synFirst_ != 0) {
-        int at = line - ed->doc_.synFirst_;
-        if (at >= 0 && at < ed->doc_.synKnown_) {
-            return ed->doc_.lineSyn_[at];
+    if (ed->doc_->synFirst_ != 0) {
+        int at = line - ed->doc_->synFirst_;
+        if (at >= 0 && at < ed->doc_->synKnown_) {
+            return ed->doc_->lineSyn_[at];
         }
-        if (at >= ed->doc_.synKnown_ && at >= SYN_WINDOW) {
+        if (at >= ed->doc_->synKnown_ && at >= SYN_WINDOW) {
             // Full, and the line wanted is past the end of it. Slide rather
             // than start again: half the window is still about lines on or
             // near the screen, and the walk can carry on from the last of
             // them instead of reading back for a fresh start.
             drop_oldest(ed, SYN_WINDOW / 2);
-            at = line - ed->doc_.synFirst_;
+            at = line - ed->doc_->synFirst_;
         }
-        if (at >= ed->doc_.synKnown_ && at < SYN_WINDOW) {
+        if (at >= ed->doc_->synKnown_ && at < SYN_WINDOW) {
             extend_lines(ed, line);
-            if (line - ed->doc_.synFirst_ < ed->doc_.synKnown_) {
-                return ed->doc_.lineSyn_[line - ed->doc_.synFirst_];
+            if (line - ed->doc_->synFirst_ < ed->doc_->synKnown_) {
+                return ed->doc_->lineSyn_[line - ed->doc_->synFirst_];
             }
         }
     }
@@ -786,15 +786,15 @@ static int line_state(editor* ed, int line) {
 
 // Records what a line begins inside, when a paint has just worked it out.
 static void set_line_state(editor* ed, int line, int state) {
-    if (ed->doc_.synFirst_ == 0) {
+    if (ed->doc_->synFirst_ == 0) {
         return;
     }
-    const int at = line - ed->doc_.synFirst_;
-    if (at >= 0 && at < ed->doc_.synKnown_) {
-        ed->doc_.lineSyn_[at] = (char) state;
-    } else if (at == ed->doc_.synKnown_ && at < SYN_WINDOW) {
-        ed->doc_.lineSyn_[at] = (char) state;
-        ed->doc_.synKnown_++;
+    const int at = line - ed->doc_->synFirst_;
+    if (at >= 0 && at < ed->doc_->synKnown_) {
+        ed->doc_->lineSyn_[at] = (char) state;
+    } else if (at == ed->doc_->synKnown_ && at < SYN_WINDOW) {
+        ed->doc_->lineSyn_[at] = (char) state;
+        ed->doc_->synKnown_++;
     }
 }
 
@@ -827,22 +827,22 @@ static void set_line_state(editor* ed, int line, int state) {
  * stops there as well.
  */
 static void lines_moved(editor* ed, int line, int delta) {
-    if (ed->doc_.synFirst_ == 0) {
+    if (ed->doc_->synFirst_ == 0) {
         return;
     }
-    const int at = line - ed->doc_.synFirst_;
+    const int at = line - ed->doc_->synFirst_;
     if (at < 0) {
         // Above the window: every answer in it is for a line numbered
         // differently now.
-        ed->doc_.synFirst_ += delta;
-        if (ed->doc_.synFirst_ < 1) {
-            ed->doc_.synFirst_ = 0;
-            ed->doc_.synKnown_ = 0;
+        ed->doc_->synFirst_ += delta;
+        if (ed->doc_->synFirst_ < 1) {
+            ed->doc_->synFirst_ = 0;
+            ed->doc_->synKnown_ = 0;
         }
 
         return;
     }
-    if (at >= ed->doc_.synKnown_) {
+    if (at >= ed->doc_->synKnown_) {
         return;             // below what is known; there is nothing to move
     }
 
@@ -850,15 +850,15 @@ static void lines_moved(editor* ed, int line, int delta) {
     if (delta == -1) {
         // The line at `from` went away; the ones under it keep their answers
         // and move up into its slot.
-        const int n = ed->doc_.synKnown_ - (from + 1);
+        const int n = ed->doc_->synKnown_ - (from + 1);
         if (n > 0) {
-            memmove(&ed->doc_.lineSyn_[from], &ed->doc_.lineSyn_[from + 1], (size_t) n);
-            ed->doc_.synKnown_ = from + n;
+            memmove(&ed->doc_->lineSyn_[from], &ed->doc_->lineSyn_[from + 1], (size_t) n);
+            ed->doc_->synKnown_ = from + n;
         } else {
-            ed->doc_.synKnown_ = from;
+            ed->doc_->synKnown_ = from;
         }
     } else {
-        ed->doc_.synKnown_ = from;
+        ed->doc_->synKnown_ = from;
     }
 }
 
@@ -1117,7 +1117,7 @@ static void show_line_at(editor* ed, int line, int top_before) {
 static void reshow_edit(editor* ed, int lines_before, int top_before) {
     TB(ed);
 
-    ed->doc_.selecting_ = false;
+    ed->doc_->selecting_ = false;
     show_line_at(ed, tb_ypos(tb), top_before);
 
     const int delta = tb_ymax(tb) - lines_before;
@@ -1136,7 +1136,7 @@ void cmd_undo(editor* ed) {
 
     const int top_before = top_line(scr, tb);
     const int lines_before = tb_ymax(tb);
-    if (!undo_apply(&ed->doc_.undo_, tb)) {
+    if (!undo_apply(&ed->doc_->undo_, tb)) {
         return;
     }
     reshow_edit(ed, lines_before, top_before);
@@ -1171,8 +1171,8 @@ static void jump_to_match(editor* ed, tb_pos at, int len) {
 
     scr_hide_cursor_ch(scr, tb_peek(tb));
 
-    ed->doc_.anchor_ = at;
-    ed->doc_.selecting_ = true;
+    ed->doc_->anchor_ = at;
+    ed->doc_->selecting_ = true;
     tb_pos end = at;
     end.x += len;
     tb_seek(tb, end);
@@ -1213,10 +1213,10 @@ static void find_from_cursor(editor* ed, bool forward) {
         // hand can run the other way, and its anchor is then ahead of the
         // cursor -- searching back from there would skip over everything
         // between the two.
-        if (ed->doc_.selecting_
-            && (ed->doc_.anchor_.line < from.line
-                || (ed->doc_.anchor_.line == from.line && ed->doc_.anchor_.x < from.x))) {
-            from = ed->doc_.anchor_;
+        if (ed->doc_->selecting_
+            && (ed->doc_->anchor_.line < from.line
+                || (ed->doc_->anchor_.line == from.line && ed->doc_->anchor_.x < from.x))) {
+            from = ed->doc_->anchor_;
         }
         from.x -= 1;
     }
@@ -1224,7 +1224,7 @@ static void find_from_cursor(editor* ed, bool forward) {
     tb_pos at;
     if (!tb_find(tb, ed->find_, ed->findsz_, from, forward, &at)) {
         // Whatever was selected described the last match, not this attempt.
-        ed->doc_.selecting_ = false;
+        ed->doc_->selecting_ = false;
         // Left exactly where it was. Someone who cannot find what they wanted
         // has no use for a view that has moved somewhere else in the trying.
         ui_message(ui, scr, "Not found");
@@ -1247,7 +1247,7 @@ void cmd_find(editor* ed) {
         // Cancelled, or nothing typed. The document has not moved -- a modal
         // search only jumps once there is something to jump to.
         cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
-        scr_show_cursor_ch(scr, tb_peek(&ed->doc_.buf_));
+        scr_show_cursor_ch(scr, tb_peek(&ed->doc_->buf_));
 
         return;
     }
@@ -1276,14 +1276,14 @@ void cmd_redo(editor* ed) {
 
     const int top_before = top_line(scr, tb);
     const int lines_before = tb_ymax(tb);
-    if (!redo_apply(&ed->doc_.undo_, tb)) {
+    if (!redo_apply(&ed->doc_->undo_, tb)) {
         return;
     }
     reshow_edit(ed, lines_before, top_before);
 }
 
 bool cmd_delete_selection(editor* ed) {
-    if (!ed->doc_.selecting_) {
+    if (!ed->doc_->selecting_) {
         return false;
     }
     TB(ed);
@@ -1291,7 +1291,7 @@ bool cmd_delete_selection(editor* ed) {
     tb_pos a;
     tb_pos b;
     cmd_selection_range(ed, &a, &b);
-    ed->doc_.selecting_ = false;
+    ed->doc_->selecting_ = false;
 
     // Read before the delete: afterwards the cursor is at `a` and this is gone.
     const int cursor_line = tb_ypos(tb);
@@ -1300,9 +1300,9 @@ bool cmd_delete_selection(editor* ed) {
     // are grouped as keystrokes would be -- split at word boundaries, and worse,
     // joined to whatever was deleted just before, so deleting two selections
     // over the same span took a single undo to reverse both.
-    undo_group_begin(&ed->doc_.undo_);
+    undo_group_begin(&ed->doc_->undo_);
     const bool did = tb_range_del(tb, a, b);
-    undo_group_end(&ed->doc_.undo_);
+    undo_group_end(&ed->doc_->undo_);
     if (!did) {
         return false;
     }
@@ -1338,7 +1338,7 @@ static bool may_spill(editor* ed, tb_pos a, tb_pos b) {
 }
 
 void cmd_copy(editor* ed) {
-    if (!ed->doc_.selecting_) {
+    if (!ed->doc_->selecting_) {
         return;
     }
     TB(ed);
@@ -1366,7 +1366,7 @@ void cmd_copy(editor* ed) {
 }
 
 void cmd_cut(editor* ed) {
-    if (!ed->doc_.selecting_) {
+    if (!ed->doc_->selecting_) {
         return;
     }
     TB(ed);
@@ -1410,7 +1410,7 @@ void cmd_paste(editor* ed) {
     // and nothing put in its place, with no undo to get it back.
     int free_bytes = 0;
     int free_lines = 0;
-    if (ed->doc_.selecting_) {
+    if (ed->doc_->selecting_) {
         tb_pos a;
         tb_pos b;
         cmd_selection_range(ed, &a, &b);
@@ -1438,7 +1438,7 @@ void cmd_paste(editor* ed) {
         return;
     }
 
-    if (ed->doc_.selecting_) {
+    if (ed->doc_->selecting_) {
         cmd_delete_selection(ed);
     }
 
@@ -1456,9 +1456,9 @@ void cmd_paste(editor* ed) {
      * group first, so an undo takes the paste back and another restores what
      * it replaced -- two steps for two things, which is what happened.
      */
-    undo_group_begin(&ed->doc_.undo_);
+    undo_group_begin(&ed->doc_->undo_);
     const bool pasted = clip_paste(&ed->clip_, tb);
-    undo_group_end(&ed->doc_.undo_);
+    undo_group_end(&ed->doc_->undo_);
     if (!pasted) {
         ui_message(ui, scr, "Not enough room to paste");
         cmd_repaint_rows(ed, scr->v_->topY_, scr->v_->bottomY_);
@@ -1477,9 +1477,9 @@ void cmd_select_all(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    ed->doc_.anchor_.line = 1;
-    ed->doc_.anchor_.x = 0;
-    ed->doc_.selecting_ = true;
+    ed->doc_->anchor_.line = 1;
+    ed->doc_->anchor_.x = 0;
+    ed->doc_->selecting_ = true;
 
     // To the very end, which is where the cursor belongs after selecting
     // everything and where a paste over the selection would leave it anyway.
@@ -1530,6 +1530,9 @@ void cmd_open(editor* ed) {
         case TB_NO_FILE:
             ui_message(ui, scr, "Cannot open file");
             return;
+        case TB_IN_USE:
+            ui_message(ui, scr, "Already open in another document");
+            return;
         case TB_OK:
             break;
     }
@@ -1541,7 +1544,7 @@ void cmd_open(editor* ed) {
 
     // A selection points into the document that just went away, so it goes with
     // it -- its line numbers mean something else now.
-    ed->doc_.selecting_ = false;
+    ed->doc_->selecting_ = false;
 
     // scr_clear winds the cursor and the horizontal origin back to the start
     // as well as repainting the banner, which is exactly the reset a whole new
@@ -1691,7 +1694,7 @@ void cmd_del(editor* ed) {
     if (!tb_del(tb)) {
         return;
     }
-    if (ed->doc_.syn_.loaded) {
+    if (ed->doc_->syn_.loaded) {
         /*
          * scr_del paints from the cursor, and a deletion can change the colour
          * of what is left of it -- taking the star out of a slash-star ends a
@@ -1810,7 +1813,7 @@ void cmd_newl(editor* ed) {
      */
     static char indent[AUTO_INDENT_MAX];
     int nindent = 0;
-    if (ed->doc_.syn_.loaded) {
+    if (ed->doc_->syn_.loaded) {
         nindent = indent_len(ln.prefix_, ln.psz_);
         if (nindent > AUTO_INDENT_MAX) {
             nindent = AUTO_INDENT_MAX;
@@ -1834,9 +1837,9 @@ void cmd_newl(editor* ed) {
      * break. Making it one would mean an undo record that spans a line break,
      * which is a change to the log rather than to this.
      */
-    undo_group_begin(&ed->doc_.undo_);
+    undo_group_begin(&ed->doc_->undo_);
     if (!tb_newline(tb)) {
-        undo_group_end(&ed->doc_.undo_);
+        undo_group_end(&ed->doc_->undo_);
 
         return;
     }
@@ -1846,7 +1849,7 @@ void cmd_newl(editor* ed) {
             break;
         }
     }
-    undo_group_end(&ed->doc_.undo_);
+    undo_group_end(&ed->doc_->undo_);
     // What is left on this row is the text before the break, so it is lexed as
     // its own line -- which it now is. It begins where the whole line began,
     // which was read before the split: asking afterwards asks about a document
@@ -1895,10 +1898,10 @@ void cmd_del_line(editor* ed) {
     TB(ed);
     SCR(ed);
 
-    undo_group_begin(&ed->doc_.undo_);
+    undo_group_begin(&ed->doc_->undo_);
     const int in = line_state(ed, line_at_row(ed, scr->v_->currY_));
     const bool did = tb_del_line(tb);
-    undo_group_end(&ed->doc_.undo_);
+    undo_group_end(&ed->doc_->undo_);
     if (!did) {
         return;
     }

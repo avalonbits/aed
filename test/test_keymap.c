@@ -42,16 +42,16 @@ static int handle(char ch, VKey vkey, char mods) {
 
 /* Whether line 1 of the document is `want`, exactly. */
 static int first_line_is(const char* want) {
-    const tb_pos was = tb_tell(&ed.doc_.buf_);
+    const tb_pos was = tb_tell(&ed.doc_->buf_);
     const tb_pos top = { .line = 1, .x = 0 };
-    tb_seek(&ed.doc_.buf_, top);
-    const split_line sl = tb_curr_line(&ed.doc_.buf_);
+    tb_seek(&ed.doc_->buf_, top);
+    const split_line sl = tb_curr_line(&ed.doc_->buf_);
     const int n = (int) strlen(want);
     int len = sl.ssz_;
     while (len > 0 && (sl.suffix_[len - 1] == '\n' || sl.suffix_[len - 1] == '\r')) {
         len--;
     }
-    tb_seek(&ed.doc_.buf_, was);
+    tb_seek(&ed.doc_->buf_, was);
 
     return len == n && memcmp(sl.suffix_, want, (size_t) n) == 0;
 }
@@ -86,10 +86,10 @@ int main(void) {
     {
         check("typing through the loop carries on", handle('x', VK_x, 0), 1);
         check("  and the character is in the document", first_line_is("xone"), 1);
-        const int lines = tb_ymax(&ed.doc_.buf_);
+        const int lines = tb_ymax(&ed.doc_->buf_);
         handle(13, VK_RETURN, 0);
         check("RETURN through the loop splits the line",
-              tb_ymax(&ed.doc_.buf_), lines + 1);
+              tb_ymax(&ed.doc_->buf_), lines + 1);
         check("  leaving the first half", first_line_is("x"), 1);
     }
 
@@ -98,12 +98,12 @@ int main(void) {
         handle(0, VK_UP, 0);
         handle(0, VK_HOME, 0);
         handle(0, VK_RIGHT, MOD_SHFT);
-        check("SHIFT+RIGHT starts a selection", ed.doc_.selecting_ ? 1 : 0, 1);
+        check("SHIFT+RIGHT starts a selection", ed.doc_->selecting_ ? 1 : 0, 1);
         handle(3, VK_c, MOD_CTRL);
         check("  which CTRL+C, owning it, leaves alone",
-              ed.doc_.selecting_ ? 1 : 0, 1);
+              ed.doc_->selecting_ ? 1 : 0, 1);
         handle(0, VK_LEFT, 0);
-        check("  and a plain LEFT ends", ed.doc_.selecting_ ? 1 : 0, 0);
+        check("  and a plain LEFT ends", ed.doc_->selecting_ ? 1 : 0, 0);
 
         /* CTRL+BACKSPACE is bound to nothing, and still edits: it is the key
          * that says so, not a binding. */
@@ -113,7 +113,7 @@ int main(void) {
         check("  and still edits", (kc.flags & KC_EDITS) ? 1 : 0, 1);
         ed_handle(&ed, kc);
         check("  so it takes a selection away", first_line_is(""), 1);
-        check("  and ends it", ed.doc_.selecting_ ? 1 : 0, 0);
+        check("  and ends it", ed.doc_->selecting_ ? 1 : 0, 0);
     }
 
     /* --- how a table is read --- */
@@ -147,10 +147,10 @@ int main(void) {
 
         handle(0, VK_HOME, MOD_SHFT);
         check("with no LEFT or HOME bound, SHIFT+HOME only starts selecting",
-              ed.doc_.selecting_ ? 1 : 0, 1);
+              ed.doc_->selecting_ ? 1 : 0, 1);
         handle(3, VK_c, MOD_CTRL);
         check("its CTRL+C runs its command", f9s, 2);
-        check("  and its flag keeps the selection", ed.doc_.selecting_ ? 1 : 0, 1);
+        check("  and its flag keeps the selection", ed.doc_->selecting_ ? 1 : 0, 1);
         ed.keys_ = &AED_KEYS;
     }
 

@@ -36,8 +36,12 @@ typedef struct _editor {
     screen scr_;
     user_input ui_;
 
-    // The document being edited: its text, undo log, grammar and selection.
-    document doc_;
+    // The document being edited -- its text, undo log, grammar and selection
+    // -- and the editor's own, which is where it starts. A program with more
+    // than one document open keeps the others itself and points doc_ at each
+    // in turn with ed_doc_show; AED only ever has home_.
+    document* doc_;
+    document home_;
 
     /*
      * The theme the document's grammar is coloured by. It belongs to the
@@ -89,6 +93,28 @@ typedef struct _ed_program {
     void (*banner)(user_input* ui, screen* scr);
 } ed_program;
 
+/*
+ * More than one document.
+ *
+ * An editor starts with its own, home_. A program that keeps others holds
+ * them and a view for each, and makes one current at a time: every command
+ * works on the current document, in the current view.
+ *
+ * ed_doc_open sets `doc` up holding `fname` -- or nothing, for NULL -- with
+ * `mem_kb` of text and an undo log of its own, and makes it current in `v`,
+ * which it lays out over the whole text area and shows from the top. On
+ * anything but TB_OK nothing is changed: the document that was current still
+ * is. No memory for another is TB_TOO_LARGE.
+ *
+ * ed_doc_show makes an open document current again in its view, as it was
+ * left, and repaints. ed_doc_close gives back what ed_doc_open took, and
+ * removes its scratch files; show another document first if it is current.
+ */
+tb_result ed_doc_open(editor* ed, document* doc, view* v, int mem_kb,
+                      const char* fname);
+void ed_doc_show(editor* ed, document* doc, view* v);
+void ed_doc_close(document* doc);
+
 // Sets up an editor for `prog`, with a document of `mem_kb` holding `fname` --
 // or nothing, for NULL. Returns NULL, having said why, when it cannot.
 editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
@@ -116,6 +142,8 @@ bool ed_is_motion(VKey vkey);
 // keystroke, and it arrives right in the middle of the selection it is making.
 bool ed_is_modifier(VKey vkey);
 
+// Takes an editor down, and its own document with it. Documents a program
+// opened with ed_doc_open are the program's to close.
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);

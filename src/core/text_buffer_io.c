@@ -548,6 +548,14 @@ tb_result tb_load(text_buffer* tb, const char* fname) {
         return TB_TOO_LARGE;
     }
     if (fil->obj.objsize > (uint32_t) cb_available(&tb->cb_)) {
+        // Paged by another document: its scratch files are this file's, and a
+        // second store on them would wreck the first. See store_live.
+        if (store_live(tb->fname_, NULL)) {
+            mos_fclose(fh);
+            tb->fname_[0] = 0;
+
+            return TB_IN_USE;
+        }
         const bool paged = tb_load_paged(tb, fh, (int) fil->obj.objsize);
         mos_fclose(fh);
         if (!paged) {
@@ -713,6 +721,14 @@ tb_result tb_open(text_buffer* tb, const char* fname, int sz) {
 
             return TB_NO_FILE;
         }
+    }
+
+    // Before anything is cleared, so a refusal leaves the document as it was.
+    // This document's own store does not count: its files go with tb_clear.
+    if (big && store_live(name, tb->store_)) {
+        mos_fclose(fh);
+
+        return TB_IN_USE;
     }
 
     tb_clear(tb);

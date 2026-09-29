@@ -105,8 +105,10 @@ There is no global state. Everything hangs off one
 [`editor`](../src/ui/editor.h#L35), which `main` owns and passes down by address;
 nothing reaches it any other way. What belongs to the open file rather than the
 screen -- its text, undo log, grammar, syntax window and selection --
-is the editor's [`document`](../src/core/document.h), the part of it the core knows
-about.
+is a [`document`](../src/core/document.h), the part of it the core knows about.
+The editor works on the one its `doc_` points at: its own, `home_`, which is the
+only one AED ever has. A program with several open keeps them and a view for
+each, and switches with `ed_doc_open` and `ed_doc_show`.
 
 It is a `static` local rather than an ordinary one, which is a placement rather
 than a change of ownership -- no other translation unit can name it. The editor
@@ -136,11 +138,11 @@ flowchart TD
 
 [`main()`](../src/main.c#L24) ·
 [`ed_init()`](../src/aed.c#L263) ·
-[`ed_init_for()`](../src/ui/editor.c#L264) ·
-[`ed_run()`](../src/ui/editor.c#L560) ·
-[`ed_translate()`](../src/ui/editor.c#L675) ·
-[`ed_handle()`](../src/ui/editor.c#L508) ·
-[`ed_selection_for()`](../src/ui/editor.c#L375) ·
+[`ed_init_for()`](../src/ui/editor.c#L329) ·
+[`ed_run()`](../src/ui/editor.c#L626) ·
+[`ed_translate()`](../src/ui/editor.c#L741) ·
+[`ed_handle()`](../src/ui/editor.c#L574) ·
+[`ed_selection_for()`](../src/ui/editor.c#L441) ·
 [`cmd_repaint_rows()`](../src/ui/cmd_ops.c#L870)
 
 `main` asks for **72 KiB** — [`TB_DOC_KB`](../src/core/text_buffer.h#L172) — and that
@@ -179,13 +181,13 @@ command. [`ED_KEYS`](../src/ui/editor.c) is the editor's own -- moving,
 editing, selecting, the clipboard, finding, undo -- and a program puts its keys
 in front of it through the keymap's `next`: [`AED_KEYS`](../src/aed.c) is
 AED's files, leaving, help and settings, followed by `ED_KEYS`.
-[`ed_translate()`](../src/ui/editor.c#L675) reads a key through the chain, so a
+[`ed_translate()`](../src/ui/editor.c#L741) reads a key through the chain, so a
 test can assert a binding. **A command nothing can reach is not a feature; a
 command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/ui/editor.c#L375) decides what a keystroke does to
+[`ed_selection_for()`](../src/ui/editor.c#L441) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
@@ -329,7 +331,7 @@ Its longest line, rather than its size: a slide moves whole lines and carries a
 chunk at most, so a line longer than `TB_CHUNK` can never be brought in. That is
 2 KB, against a 72 KiB window — a line of 5,000 characters is refused although it
 would fit in memory many times over.
-[`tb_open`](../src/core/text_buffer_io.c#L633) reads the front of the file and refuses
+[`tb_open`](../src/core/text_buffer_io.c#L641) reads the front of the file and refuses
 before discarding what is on screen, and
 [`tb_load`](../src/core/text_buffer_io.c#L472) has nothing to lose so it catches the
 case after the load — nothing in memory with a document in the store is an
@@ -356,7 +358,7 @@ goes out of scope, so the last of those has never been called on one — it is
 guarded because it fails as memory corruption rather than as a wrong answer.
 
 Everything else that has to see text outside the window **streams the document**.
-[`tbi_doc_stream()`](../src/core/text_buffer_io.c#L780) walks HEAD, then memory, then what
+[`tbi_doc_stream()`](../src/core/text_buffer_io.c#L796) walks HEAD, then memory, then what
 is left of TAIL, feeding a sink. It reads only: the window stays where it is and
 so does the cursor, so a caller can stream the document and carry on.
 

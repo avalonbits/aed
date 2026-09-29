@@ -111,6 +111,55 @@ int main(void) {
         app_set(&ADE);
     }
 
+    /* --- one file's scratch files belong to one store --- */
+    {
+        /* A second store on the same file would create its files afresh --
+         * emptying the first's -- and closing either would delete both. */
+        stub_file_reset();
+        doc_store first;
+        doc_store second;
+        check("a store on a file opens", store_init(&first, "/doc.txt") ? 1 : 0, 1);
+        store_tail_append(&first, DOC, DOC_LEN);
+        check("a second store on the same file is refused",
+              store_init(&second, "/doc.txt") ? 1 : 0, 0);
+        check("  in any case of its name, as FAT sees it",
+              store_init(&second, "/DOC.TXT") ? 1 : 0, 0);
+        check("  and the first keeps what it holds", store_tail_bytes(&first), DOC_LEN);
+        check("  its files untouched", stub_file_exists("/doc.txt.aedt"), 1);
+        check("a store on another file opens beside it",
+              store_init(&second, "/other.txt") ? 1 : 0, 1);
+        store_destroy(&second);
+        check("the other one's closing leaves the first's files",
+              stub_file_exists("/doc.txt.aedh") && stub_file_exists("/doc.txt.aedt"), 1);
+        store_destroy(&first);
+        check("once the first is closed, the name is free again",
+              store_init(&second, "/doc.txt") ? 1 : 0, 1);
+        store_destroy(&second);
+    }
+
+    /* --- one file, whatever it is called --- */
+    {
+        /* MOS resolves a relative name against the current directory, so
+         * from the root these are all one file -- and so are its scratch
+         * files. Each has to be refused while the first is open. */
+        stub_file_reset();
+        stub_set_cwd("/");
+        doc_store first;
+        doc_store other;
+        check("a store on /same.txt opens", store_init(&first, "/same.txt") ? 1 : 0, 1);
+        check("  same.txt from the root is the same file",
+              store_init(&other, "same.txt") ? 1 : 0, 0);
+        check("  and so is ./same.txt", store_init(&other, "./same.txt") ? 1 : 0, 0);
+        check("  and sub/../same.txt", store_init(&other, "sub/../same.txt") ? 1 : 0, 0);
+        stub_set_cwd("/sub");
+        check("  and ../same.txt from /sub", store_init(&other, "../same.txt") ? 1 : 0, 0);
+        check("but same.txt from /sub is another file",
+              store_init(&other, "same.txt") ? 1 : 0, 1);
+        store_destroy(&other);
+        stub_set_cwd("/");
+        store_destroy(&first);
+    }
+
     /* --- building the tail at open --- */
     {
         check("a document goes into the tail", filled(&st), 1);
