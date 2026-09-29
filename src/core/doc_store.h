@@ -68,6 +68,9 @@
 
 typedef struct _doc_store {
     char head_[STORE_PATH_MAX];
+    // head_ resolved to one spelling per file: absolute, with . and .. folded
+    // away -- what store_live compares, so "big.c" and "/big.c" are one file.
+    char key_[STORE_PATH_MAX];
     char tail_[STORE_PATH_MAX];
 
     // HEAD's length is kept here rather than read back off the file. There is

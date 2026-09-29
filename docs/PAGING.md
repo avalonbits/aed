@@ -62,9 +62,9 @@ flowchart LR
 
 [`doc_store`](../src/core/doc_store.h#L69) owns the two scratch files and offers four
 operations — push and pop at each end — plus a read for saving.
-[`store_init`](../src/core/doc_store.c#L178) creates them;
-[`store_head_push`](../src/core/doc_store.c#L300) and
-[`store_tail_pop`](../src/core/doc_store.c#L337) are the pair a downward slide uses.
+[`store_init`](../src/core/doc_store.c#L246) creates them;
+[`store_head_push`](../src/core/doc_store.c#L369) and
+[`store_tail_pop`](../src/core/doc_store.c#L406) are the pair a downward slide uses.
 
 Two files rather than one, because the two ends grow independently and a single
 file would need the middle moved every time either did.
@@ -73,7 +73,7 @@ Named after the document, they belong to it alone. Two documents paging one
 file would share them, and since a store creates its files afresh, the second
 would empty the first's. So a file one document already pages is refused to
 another as `TB_IN_USE`: `doc_store` keeps the few stores that are open and
-answers [`store_live`](../src/core/doc_store.c#L144) from them, `tb_load` asks
+answers [`store_live`](../src/core/doc_store.c#L208) from them, `tb_load` asks
 before paging, and `tb_open` asks before clearing anything, counting the
 document's own store as free.
 

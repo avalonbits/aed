@@ -419,10 +419,73 @@ static void stub_fs_wipe(void) {
     }
 }
 
+/* The current directory, and names resolved against it -- "doc.txt" from
+ * the root and "/doc.txt" are one file, as they are to MOS, and so are
+ * "./doc.txt" and "sub/../doc.txt". Every name is kept, and looked up, in the
+ * resolved form. */
+static char stub_cwd[STUB_NAME_MAX] = "/";
+
+void stub_set_cwd(const char* dir) {
+    snprintf(stub_cwd, sizeof(stub_cwd), "%s", dir != NULL ? dir : "/");
+}
+
+uint8_t ffs_getcwd(char* dirpath, unsigned bufferlength) {
+    if (dirpath == NULL || strlen(stub_cwd) >= bufferlength) {
+        return 17;          /* FR_NOT_ENOUGH_CORE, near enough */
+    }
+    strcpy(dirpath, stub_cwd);
+
+    return FR_OK;
+}
+
+static const char* stub_abs(const char* name) {
+    static char joined[2 * STUB_NAME_MAX];
+    static char out[2 * STUB_NAME_MAX];
+    if (name[0] == '/') {
+        snprintf(joined, sizeof(joined), "%s", name);
+    } else {
+        snprintf(joined, sizeof(joined), "%s/%s", stub_cwd, name);
+    }
+    int n = 0;
+    const char* p = joined;
+    while (*p != 0) {
+        while (*p == '/') {
+            p++;
+        }
+        const char* e = p;
+        while (*e != 0 && *e != '/') {
+            e++;
+        }
+        const int len = (int) (e - p);
+        if (len == 0 || (len == 1 && p[0] == '.')) {
+            /* nothing, or here */
+        } else if (len == 2 && p[0] == '.' && p[1] == '.') {
+            while (n > 0 && out[n - 1] != '/') {
+                n--;
+            }
+            if (n > 0) {
+                n--;
+            }
+        } else {
+            out[n++] = '/';
+            memcpy(out + n, p, (size_t) len);
+            n += len;
+        }
+        p = e;
+    }
+    if (n == 0) {
+        out[n++] = '/';
+    }
+    out[n] = 0;
+
+    return out;
+}
+
 static int stub_fs_find(const char* name) {
     if (name == NULL) {
         return -1;
     }
+    name = stub_abs(name);
     for (int i = 0; i < STUB_FILES; i++) {
         if (stub_fs[i].live && strcmp(stub_fs[i].name, name) == 0) {
             return i;
@@ -437,6 +500,7 @@ static int stub_fs_make(const char* name) {
     if (at >= 0) {
         return at;
     }
+    name = stub_abs(name);
     for (int i = 0; i < STUB_FILES; i++) {
         if (!stub_fs[i].live) {
             size_t n = strlen(name);
@@ -626,6 +690,7 @@ uint8_t mos_ren(const char* filename, const char* newname) {
     if (stub_fs_find(newname) >= 0) {
         return 8;       /* FR_EXIST */
     }
+    newname = stub_abs(newname);
     size_t n = strlen(newname);
     if (n >= STUB_NAME_MAX) {
         n = STUB_NAME_MAX - 1;

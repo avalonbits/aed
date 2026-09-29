@@ -50,6 +50,7 @@ typedef struct {
 
 uint8_t  ffs_stat(FILINFO* info, const char* filename);
 uint8_t  ffs_dopen(DIR* dir, const char* path);
+uint8_t  ffs_getcwd(char* dirpath, unsigned bufferlength);
 uint8_t  ffs_dread(DIR* dir, FILINFO* info);
 uint8_t  ffs_dclose(DIR* dir);
 
@@ -158,6 +159,11 @@ void        stub_set_glyph_ink(int first_row);
 /* A directory for ffs_dopen/ffs_dread to walk. Names and sizes, in order;
  * ffs_dread hands them back one at a time and then reports the end. */
 void        stub_set_dir(const char* const* names, const unsigned* sizes, int n);
+
+/* The current directory, "/" unless a test sets another. Every file name is
+ * resolved against it, as MOS does, so a relative and an absolute name for
+ * one file find the same file. */
+void        stub_set_cwd(const char* dir);
 
 /* The path the last ffs_dopen asked for. The directory above is served
  * whatever the path, so this is how a test sees which one was walked. */

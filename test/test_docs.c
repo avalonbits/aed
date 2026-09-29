@@ -179,6 +179,9 @@ int main(void) {
               ed_doc_open(&ed, &s1, &v1, 4, "same.txt"), TB_OK);
         check("the same file in a second is refused",
               ed_doc_open(&ed, &s2, &v2, 4, "same.txt"), TB_IN_USE);
+        check("  and so is it by its absolute name",
+              ed_doc_open(&ed, &s2, &v2, 4, "/same.txt"), TB_IN_USE);
+        check("  or ./ in front", ed_doc_open(&ed, &s2, &v2, 4, "./same.txt"), TB_IN_USE);
         check("  and the first is still current", ed.doc_ == &s1 ? 1 : 0, 1);
 
         char want[40];

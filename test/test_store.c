@@ -137,6 +137,29 @@ int main(void) {
         store_destroy(&second);
     }
 
+    /* --- one file, whatever it is called --- */
+    {
+        /* MOS resolves a relative name against the current directory, so
+         * from the root these are all one file -- and so are its scratch
+         * files. Each has to be refused while the first is open. */
+        stub_file_reset();
+        stub_set_cwd("/");
+        doc_store first;
+        doc_store other;
+        check("a store on /same.txt opens", store_init(&first, "/same.txt") ? 1 : 0, 1);
+        check("  same.txt from the root is the same file",
+              store_init(&other, "same.txt") ? 1 : 0, 0);
+        check("  and so is ./same.txt", store_init(&other, "./same.txt") ? 1 : 0, 0);
+        check("  and sub/../same.txt", store_init(&other, "sub/../same.txt") ? 1 : 0, 0);
+        stub_set_cwd("/sub");
+        check("  and ../same.txt from /sub", store_init(&other, "../same.txt") ? 1 : 0, 0);
+        check("but same.txt from /sub is another file",
+              store_init(&other, "same.txt") ? 1 : 0, 1);
+        store_destroy(&other);
+        stub_set_cwd("/");
+        store_destroy(&first);
+    }
+
     /* --- building the tail at open --- */
     {
         check("a document goes into the tail", filled(&st), 1);

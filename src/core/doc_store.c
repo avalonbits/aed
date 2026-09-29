@@ -141,13 +141,81 @@ static bool same_name(const char* a, const char* b) {
     }
 }
 
+/*
+ * A path as one spelling per file, so that two names for the same file compare
+ * equal: MOS resolves a relative name against the current directory, so from
+ * the root "big.c", "/big.c", "./big.c" and "sub/../big.c" are one file. The
+ * current directory is asked for (MOS 2.2.0+), a drive prefix such as "0:" is
+ * dropped, and "." and ".." are folded away. False when it does not fit or the
+ * directory cannot be had -- which callers treat as a clash, the safe answer.
+ */
+static bool resolve(char* out, int max, const char* path) {
+    static char joined[2 * STORE_PATH_MAX];
+    int j = 0;
+    if (path[0] != '/') {
+        if (ffs_getcwd(joined, (unsigned) STORE_PATH_MAX) != 0) {
+            return false;
+        }
+        const char* colon = strchr(joined, ':');
+        if (colon != NULL) {
+            memmove(joined, colon + 1, strlen(colon + 1) + 1);
+        }
+        j = (int) strlen(joined);
+        joined[j++] = '/';
+    }
+    const int plen = (int) strlen(path);
+    if (j + plen >= (int) sizeof(joined)) {
+        return false;
+    }
+    memcpy(joined + j, path, (size_t) plen + 1);
+
+    int n = 0;
+    const char* p = joined;
+    while (*p != 0) {
+        while (*p == '/') {
+            p++;
+        }
+        const char* e = p;
+        while (*e != 0 && *e != '/') {
+            e++;
+        }
+        const int len = (int) (e - p);
+        if (len == 2 && p[0] == '.' && p[1] == '.') {
+            while (n > 0 && out[n - 1] != '/') {
+                n--;
+            }
+            if (n > 0) {
+                n--;
+            }
+        } else if (len > 0 && !(len == 1 && p[0] == '.')) {
+            if (n + 1 + len >= max) {
+                return false;
+            }
+            out[n++] = '/';
+            memcpy(out + n, p, (size_t) len);
+            n += len;
+        }
+        p = e;
+    }
+    if (n == 0) {
+        out[n++] = '/';
+    }
+    out[n] = 0;
+
+    return true;
+}
+
 bool store_live(const char* base, const doc_store* except) {
     static char head[STORE_PATH_MAX];
+    static char key[STORE_PATH_MAX];
     if (!name_with(head, base, STORE_HEAD_SUFFIX)) {
         return false;
     }
+    if (!resolve(key, STORE_PATH_MAX, head)) {
+        return true;        // cannot tell: say it clashes rather than risk it
+    }
     for (int i = 0; i < STORE_LIVE_MAX; i++) {
-        if (live[i] != NULL && live[i] != except && same_name(live[i]->head_, head)) {
+        if (live[i] != NULL && live[i] != except && same_name(live[i]->key_, key)) {
             return true;
         }
     }
@@ -190,8 +258,9 @@ bool store_init(doc_store* st, const char* base) {
             || !name_with(st->tail_, base, STORE_TAIL_SUFFIX)) {
         return false;
     }
-    // Another store's files: see live above.
-    if (store_live(base, NULL)) {
+    // Another store's files: see live above. And the resolved name kept, for
+    // later stores to be compared with.
+    if (store_live(base, NULL) || !resolve(st->key_, STORE_PATH_MAX, st->head_)) {
         return false;
     }
 
