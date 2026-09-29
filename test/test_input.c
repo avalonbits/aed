@@ -86,13 +86,14 @@ int main(void) {
     {
         editor ed;
         memset(&ed, 0, sizeof(ed));
-        ed.doc_.selecting_ = false;
+        ed.doc_ = &ed.home_;
+        ed.doc_->selecting_ = false;
 
         const stub_key chord = { ASC_RIGHT, VKC_RIGHT, MOD_CTRL | MOD_SHFT, 0 };
         const key_command kc = one(chord);
         check("CTRL+SHIFT+RIGHT extends a selection",
               ed_selection_for(&ed, kc) == SEL_EXTEND, 1);
-        check("...and leaves the editor selecting", ed.doc_.selecting_, 1);
+        check("...and leaves the editor selecting", ed.doc_->selecting_, 1);
     }
 
     /* The same key without shift is the same command and no selection. */

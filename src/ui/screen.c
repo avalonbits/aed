@@ -280,6 +280,14 @@ void scr_set_view(screen* scr, view* v) {
     scr->v_ = (v != NULL) ? v : &scr->whole_;
 }
 
+void scr_view_init(screen* scr, view* v) {
+    *v = scr->whole_;
+    v->currX_ = 0;
+    v->currY_ = v->topY_;
+    v->originX_ = 0;
+    v->synTop_ = 1;
+}
+
 screen *scr_init(screen* scr, char cursor) {
     // VDU 23,16,setting,mask -- new = (current AND mask) EOR setting. With
     // mask 0 this sets the whole byte to 1: bit 0, scroll protection. It has

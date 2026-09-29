@@ -127,7 +127,7 @@ type    = 14
 ```
 
 A colour that reads well on black is unreadable on white, so **the background in
-force picks the theme**. [`ed_pick_syntax()`](../src/ui/editor.c#L208) chooses the
+force picks the theme**. [`ed_pick_syntax()`](../src/ui/editor.c#L241) chooses the
 grammar by the document's extension and then the first theme that covers the
 background, and it runs at startup, on open, and when the settings modal leaves
 a different background behind.
@@ -274,7 +274,7 @@ painted plainly with nothing to say they had. Every bug in the feature's first
 week was a site that forgot, and fixing one by adding a call at the site was
 adding a thirteenth place to forget.
 
-So the screen asks. [`scr_set_colourer()`](../src/ui/screen.c#L1336) hands it two
+So the screen asks. [`scr_set_colourer()`](../src/ui/screen.c#L1344) hands it two
 callbacks, once, at startup:
 
 ```c

@@ -236,8 +236,8 @@ int main(void) {
     stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
     editor ed;
     check("an editor starts", ed_init(&ed, 8, "doc.txt") != NULL, 1);
-    undo* u = &ed.doc_.undo_;
-    text_buffer* tb = &ed.doc_.buf_;
+    undo* u = &ed.doc_->undo_;
+    text_buffer* tb = &ed.doc_->buf_;
 
     /* Loading normalises line endings through the same primitives an edit uses.
      * The log is attached afterwards, so none of that is undoable -- otherwise
@@ -339,8 +339,8 @@ int main(void) {
         stub_file_set_content(D2, (int) sizeof(D2) - 1);
         editor e;
         check("an editor to undo in", ed_init(&e, 8, "u.txt") != NULL, 1);
-        undo* lu = &e.doc_.undo_;
-        text_buffer* lt = &e.doc_.buf_;
+        undo* lu = &e.doc_->undo_;
+        text_buffer* lt = &e.doc_->buf_;
 
         tb_seek(lt, (tb_pos){1, 5});
         put_str(lt, "XY");
@@ -398,8 +398,8 @@ int main(void) {
         stub_file_set_content(D4, (int) sizeof(D4) - 1);
         editor e;
         check("an editor for runs", ed_init(&e, 8, "c.txt") != NULL, 1);
-        undo* lu = &e.doc_.undo_;
-        text_buffer* lt = &e.doc_.buf_;
+        undo* lu = &e.doc_->undo_;
+        text_buffer* lt = &e.doc_->buf_;
 
         /* Backspace runs leftward, so its bytes arrive reversed. Getting that
          * wrong puts the text back inside out, which is why the run is checked
@@ -462,15 +462,15 @@ int main(void) {
         editor e;
         check("an editor for a run ending in a break",
               ed_init(&e, 8, "n.txt") != NULL, 1);
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 5});
-        put_str(&e.doc_.buf_, "XY");
-        tb_newline(&e.doc_.buf_);
-        check("the run absorbed the line break", undo_count(&e.doc_.undo_), 1);
-        check("  four bytes of it", rec_len(&e.doc_.undo_, 0), 4);
-        undo_apply(&e.doc_.undo_, &e.doc_.buf_);
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 5});
+        put_str(&e.doc_->buf_, "XY");
+        tb_newline(&e.doc_->buf_);
+        check("the run absorbed the line break", undo_count(&e.doc_->undo_), 1);
+        check("  four bytes of it", rec_len(&e.doc_->undo_, 0), 4);
+        undo_apply(&e.doc_->undo_, &e.doc_->buf_);
         check_txt("undoing takes the break with it",
-                  line_text(&e.doc_.buf_, 1), "start");
-        check("  and the line count is back", tb_ymax(&e.doc_.buf_), 2);
+                  line_text(&e.doc_->buf_, 1), "start");
+        check("  and the line count is back", tb_ymax(&e.doc_->buf_), 2);
         ed_destroy(&e);
     }
 
@@ -481,8 +481,8 @@ int main(void) {
         stub_file_set_content(D6, (int) sizeof(D6) - 1);
         editor e;
         check("an editor to save from", ed_init(&e, 8, "s.txt") != NULL, 1);
-        undo* lu = &e.doc_.undo_;
-        text_buffer* lt = &e.doc_.buf_;
+        undo* lu = &e.doc_->undo_;
+        text_buffer* lt = &e.doc_->buf_;
 
         check("a freshly opened file is clean", tb_changed(lt) ? 1 : 0, 0);
         tb_seek(lt, (tb_pos){1, 3});
@@ -574,12 +574,12 @@ int main(void) {
         /* Typing groups by word, using the same rule CTRL+LEFT and CTRL+RIGHT
          * stop on. A run is a word and the stops after it, so "hello " is one
          * step and "world" the next. */
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 0});
-        put_str(&e.doc_.buf_, "hello world");
-        check("typing two words is two steps", undo_count(&e.doc_.undo_), 2);
-        undo_apply(&e.doc_.undo_, &e.doc_.buf_);
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 0});
+        put_str(&e.doc_->buf_, "hello world");
+        check("typing two words is two steps", undo_count(&e.doc_->undo_), 2);
+        undo_apply(&e.doc_->undo_, &e.doc_->buf_);
         check_txt("  and one step takes back the second",
-                  line_text(&e.doc_.buf_, 1), "hello the quick brown fox jumps");
+                  line_text(&e.doc_->buf_, 1), "hello the quick brown fox jumps");
 
         /* Backspacing groups the same way, because the bytes are considered in
          * the order the edit travelled rather than in document order.
@@ -587,56 +587,56 @@ int main(void) {
          * Erasing exactly "hello world" -- eleven characters from column 11 of
          * a line that starts with them. Over a partial word plus two whole ones
          * it would be three steps, which is right and would say less. */
-        undo_clear(&e.doc_.undo_);
-        e.doc_.anchor_ = (tb_pos){1, 0};
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 11});
-        e.doc_.selecting_ = true;
+        undo_clear(&e.doc_->undo_);
+        e.doc_->anchor_ = (tb_pos){1, 0};
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 11});
+        e.doc_->selecting_ = true;
         cmd_delete_selection(&e);
-        undo_clear(&e.doc_.undo_);
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 0});
-        put_str(&e.doc_.buf_, "hello world");
-        undo_clear(&e.doc_.undo_);
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 11});
+        undo_clear(&e.doc_->undo_);
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 0});
+        put_str(&e.doc_->buf_, "hello world");
+        undo_clear(&e.doc_->undo_);
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 11});
         for (int i = 0; i < 11; i++) {
-            tb_bksp(&e.doc_.buf_);
+            tb_bksp(&e.doc_->buf_);
         }
         check("backspacing through two words is two steps",
-              undo_count(&e.doc_.undo_), 2);
+              undo_count(&e.doc_->undo_), 2);
 
         /* A command is one step whatever it is made of. Two selection deletes
          * over the same span are two steps even though the bytes are adjacent
          * -- which byte adjacency alone got wrong, merging them into one. */
-        undo_clear(&e.doc_.undo_);
-        e.doc_.anchor_ = (tb_pos){1, 4};
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 10});
-        e.doc_.selecting_ = true;
+        undo_clear(&e.doc_->undo_);
+        e.doc_->anchor_ = (tb_pos){1, 4};
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 10});
+        e.doc_->selecting_ = true;
         cmd_delete_selection(&e);
-        check("a selection delete is one step", undo_count(&e.doc_.undo_), 1);
-        e.doc_.anchor_ = (tb_pos){1, 4};
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 10});
-        e.doc_.selecting_ = true;
+        check("a selection delete is one step", undo_count(&e.doc_->undo_), 1);
+        e.doc_->anchor_ = (tb_pos){1, 4};
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 10});
+        e.doc_->selecting_ = true;
         cmd_delete_selection(&e);
-        check("  and a second is a second step", undo_count(&e.doc_.undo_), 2);
+        check("  and a second is a second step", undo_count(&e.doc_->undo_), 2);
         check("  not joined to the first even though it is adjacent",
-              rec_len(&e.doc_.undo_, 0) > 0 && rec_len(&e.doc_.undo_, 1) > 0, 1);
+              rec_len(&e.doc_->undo_, 0) > 0 && rec_len(&e.doc_->undo_, 1) > 0, 1);
 
         /* And the group has to be closed, not just opened. A plain DELETE after
          * a selection delete is the same kind of edit at the same place, so
          * with the group left open it joins -- and one undo takes back both the
          * selection and the keystroke after it. */
-        undo_clear(&e.doc_.undo_);
-        e.doc_.anchor_ = (tb_pos){1, 0};
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 3});
-        e.doc_.selecting_ = true;
+        undo_clear(&e.doc_->undo_);
+        e.doc_->anchor_ = (tb_pos){1, 0};
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 3});
+        e.doc_->selecting_ = true;
         cmd_delete_selection(&e);
-        check("the selection is one step", undo_count(&e.doc_.undo_), 1);
-        tb_del(&e.doc_.buf_);
-        check("  and a keystroke after it is another", undo_count(&e.doc_.undo_), 2);
+        check("the selection is one step", undo_count(&e.doc_->undo_), 1);
+        tb_del(&e.doc_->buf_);
+        check("  and a keystroke after it is another", undo_count(&e.doc_->undo_), 2);
 
         /* Deleting a line is one command, so one step, however many words. */
-        undo_clear(&e.doc_.undo_);
+        undo_clear(&e.doc_->undo_);
         cmd_del_line(&e);
-        check("deleting a line is one step", undo_count(&e.doc_.undo_), 1);
+        check("deleting a line is one step", undo_count(&e.doc_->undo_), 1);
 
         ed_destroy(&e);
     }
@@ -661,8 +661,8 @@ int main(void) {
         e.scr_.v_->currY_ = (char) (e.scr_.v_->topY_ + 10);
         const int full = e.scr_.v_->cols_ * (e.scr_.v_->bottomY_ - e.scr_.v_->topY_);
 
-        tb_seek(&e.doc_.buf_, (tb_pos){50, 4});
-        put_str(&e.doc_.buf_, "XYZ");
+        tb_seek(&e.doc_->buf_, (tb_pos){50, 4});
+        put_str(&e.doc_->buf_, "XYZ");
         cap_start();
         cmd_undo(&e);
         int n = cap_read(raw, (int) sizeof(raw));
@@ -673,11 +673,11 @@ int main(void) {
         /* Lines removed: the rows below scroll up. One break per record here --
          * two newlines land on different lines and so cannot join, which is
          * why one undo takes one line back rather than both. */
-        undo_clear(&e.doc_.undo_);
-        tb_seek(&e.doc_.buf_, (tb_pos){50, 4});
-        tb_newline(&e.doc_.buf_);
-        tb_newline(&e.doc_.buf_);
-        check("two newlines are two records", undo_count(&e.doc_.undo_), 2);
+        undo_clear(&e.doc_->undo_);
+        tb_seek(&e.doc_->buf_, (tb_pos){50, 4});
+        tb_newline(&e.doc_->buf_);
+        tb_newline(&e.doc_->buf_);
+        check("two newlines are two records", undo_count(&e.doc_->undo_), 2);
         cap_start();
         cmd_undo(&e);
         n = cap_read(raw, (int) sizeof(raw));
@@ -699,15 +699,15 @@ int main(void) {
          * Through the command rather than tb_range_del directly, because the
          * command is what groups the range into one record -- called raw it is
          * grouped as keystrokes are, and one undo brings back a word. */
-        undo_clear(&e.doc_.undo_);
-        e.doc_.anchor_ = (tb_pos){50, 0};
-        tb_seek(&e.doc_.buf_, (tb_pos){52, 0});
-        e.doc_.selecting_ = true;
+        undo_clear(&e.doc_->undo_);
+        e.doc_->anchor_ = (tb_pos){50, 0};
+        tb_seek(&e.doc_->buf_, (tb_pos){52, 0});
+        e.doc_->selecting_ = true;
         cmd_delete_selection(&e);
-        undo_clear(&e.doc_.undo_);
-        e.doc_.anchor_ = (tb_pos){50, 0};
-        tb_seek(&e.doc_.buf_, (tb_pos){52, 0});
-        e.doc_.selecting_ = true;
+        undo_clear(&e.doc_->undo_);
+        e.doc_->anchor_ = (tb_pos){50, 0};
+        tb_seek(&e.doc_->buf_, (tb_pos){52, 0});
+        e.doc_->selecting_ = true;
         cmd_delete_selection(&e);
         cap_start();
         cmd_undo(&e);
@@ -742,19 +742,19 @@ int main(void) {
         editor e;
         check("an editor for a range delete", ed_init(&e, 8, "r.txt") != NULL, 1);
 
-        tb_range_del(&e.doc_.buf_, (tb_pos){1, 4}, (tb_pos){1, 10});
-        check_txt("a range is gone", line_text(&e.doc_.buf_, 1), "the brown fox");
+        tb_range_del(&e.doc_->buf_, (tb_pos){1, 4}, (tb_pos){1, 10});
+        check_txt("a range is gone", line_text(&e.doc_->buf_, 1), "the brown fox");
         // Bounded on purpose. An undo that never reports "nothing left" is a
         // real failure mode -- cur_ failing to decrement is one -- and a drain
         // loop that trusts the return value turns that into a hung test rather
         // than a failed assertion.
         int steps = 0;
-        while (undo_apply(&e.doc_.undo_, &e.doc_.buf_) && steps < 1000) {
+        while (undo_apply(&e.doc_->undo_, &e.doc_->buf_) && steps < 1000) {
             steps++;
         }
         check("undoing it all terminates", steps < 1000, 1);
         check_txt("  and undoing it all puts it back",
-                  line_text(&e.doc_.buf_, 1), "the quick brown fox");
+                  line_text(&e.doc_->buf_, 1), "the quick brown fox");
         ed_destroy(&e);
     }
 

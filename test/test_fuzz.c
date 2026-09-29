@@ -158,14 +158,14 @@ static void one_op(editor* ed, unsigned r) {
     case 17: cmd_doc_end(ed); break;
     case 18: cmd_w_left(ed); break;
     case 19: cmd_w_right(ed); break;
-    case 20: ed->doc_.selecting_ = true; cmd_down(ed); cmd_copy(ed);
-             ed->doc_.selecting_ = false; break;
+    case 20: ed->doc_->selecting_ = true; cmd_down(ed); cmd_copy(ed);
+             ed->doc_->selecting_ = false; break;
     case 21: cmd_paste(ed); break;
     case 22: cmd_undo(ed); break;
     case 23: cmd_redo(ed); break;
-    case 24: ed->doc_.selecting_ = true; cmd_right(ed); cmd_right(ed);
-             cmd_cut(ed); ed->doc_.selecting_ = false; break;
-    case 25: cmd_select_all(ed); cmd_copy(ed); ed->doc_.selecting_ = false; break;
+    case 24: ed->doc_->selecting_ = true; cmd_right(ed); cmd_right(ed);
+             cmd_cut(ed); ed->doc_->selecting_ = false; break;
+    case 25: cmd_select_all(ed); cmd_copy(ed); ed->doc_->selecting_ = false; break;
     }
 }
 
@@ -239,33 +239,33 @@ int main(void) {
                 // repainted. Without it the fuzz reaches states the editor
                 // never has -- a window emptied down to one byte with the rest
                 // of the document still in the store -- and reports them.
-                tb_settle(&ed.doc_.buf_);
+                tb_settle(&ed.doc_->buf_);
                 ran++;
-                read_doc(&ed.doc_.buf_);     // once, for both checks below
-                if (line_disagrees(&ed.doc_.buf_) && line_bad == 0) {
+                read_doc(&ed.doc_->buf_);     // once, for both checks below
+                if (line_disagrees(&ed.doc_->buf_) && line_bad == 0) {
                     line_bad = 1;
                     {
-                        const split_line cl = tb_curr_line(&ed.doc_.buf_);
+                        const split_line cl = tb_curr_line(&ed.doc_->buf_);
                         fprintf(stderr,
                             "      doc %d seed %d op %d: ypos says line %d of "
                             "%d, and its line reads [%.*s%.*s]\n",
-                            d, s, i, tb_ypos(&ed.doc_.buf_), tb_ymax(&ed.doc_.buf_),
+                            d, s, i, tb_ypos(&ed.doc_->buf_), tb_ymax(&ed.doc_->buf_),
                             cl.psz_, cl.prefix_ ? cl.prefix_ : "",
                             cl.ssz_, cl.suffix_ ? cl.suffix_ : "");
                     }
                 }
-                if (count_disagrees(&ed.doc_.buf_) && count_bad == 0) {
+                if (count_disagrees(&ed.doc_->buf_) && count_bad == 0) {
                     count_bad = 1;
                     fprintf(stderr,
                             "      doc %d seed %d op %d: tb_ymax says %d\n",
-                            d, s, i, tb_ymax(&ed.doc_.buf_));
+                            d, s, i, tb_ymax(&ed.doc_->buf_));
                 }
-                if (sum_disagrees(&ed.doc_.buf_) && sum_bad == 0) {
+                if (sum_disagrees(&ed.doc_->buf_) && sum_bad == 0) {
                     sum_bad = 1;
                     fprintf(stderr,
                             "      doc %d seed %d op %d: the buffer holds %d "
                             "bytes and the index adds to something else\n",
-                            d, s, i, tb_used(&ed.doc_.buf_));
+                            d, s, i, tb_used(&ed.doc_->buf_));
                 }
             }
 
@@ -309,7 +309,7 @@ int main(void) {
             for (int u = 0; u < ops * 4; u++) {
                 cmd_undo(&ed);
             }
-            read_doc(&ed.doc_.buf_);
+            read_doc(&ed.doc_->buf_);
 
             /* Against the original as it streams, not as it was handed in: a
              * range gives back CRLF whatever the document keeps, so a bare

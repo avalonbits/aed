@@ -184,8 +184,8 @@ int main(void) {
         check("the loop ran from the source until told to leave", sc.at, 3);
         check("  giving the program its turns there too", sc.idles, 6);
         const tb_pos top = { .line = 1, .x = 0 };
-        tb_seek(&ed.doc_.buf_, top);
-        const split_line sl = tb_curr_line(&ed.doc_.buf_);
+        tb_seek(&ed.doc_->buf_, top);
+        const split_line sl = tb_curr_line(&ed.doc_->buf_);
         check("  and the key it read is in the document",
               sl.ssz_ >= 4 && memcmp(sl.suffix_, "xone", 4) == 0 ? 1 : 0, 1);
         ed_destroy(&ed);

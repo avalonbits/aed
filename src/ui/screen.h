@@ -184,6 +184,10 @@ screen* scr_init(screen* scr, char cursor);
 // so it must outlive its use; a font or mode change lays out whole_ again and
 // leaves any other view to its owner.
 void scr_set_view(screen* scr, view* v);
+
+// A view of the whole screen's text area, with its cursor and scroll at the
+// start: what a document opened full-screen is shown in.
+void scr_view_init(screen* scr, view* v);
 // Tells the VDP how many frames to pause for when a line wraps while CTRL is
 // held. Its own default is 3, which is what makes CTRL with an arrow key drag
 // once a line reaches the right-hand edge; 0 turns it off.

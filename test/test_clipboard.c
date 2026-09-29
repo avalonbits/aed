@@ -108,9 +108,9 @@ static void restart(void) {
 
 /* Selects from a to b and leaves the cursor at b, the way shift+motion would. */
 static void select_from(tb_pos a, tb_pos b) {
-    ed.doc_.anchor_ = a;
-    ed.doc_.selecting_ = true;
-    tb_seek(&ed.doc_.buf_, b);
+    ed.doc_->anchor_ = a;
+    ed.doc_->selecting_ = true;
+    tb_seek(&ed.doc_->buf_, b);
 }
 
 /* What a key means under AED's keymap. */
@@ -387,29 +387,29 @@ int main(void) {
     select_from(at(1, 0), at(1, 3));
     cmd_copy(&ed);
     check("copy takes the selection", clip_size(&ed.clip_), 3);
-    check("  and keeps it selected", ed.doc_.selecting_ ? 1 : 0, 1);
-    check_s("  without changing the document", doc_of(&ed.doc_.buf_), "one/two/three/");
+    check("  and keeps it selected", ed.doc_->selecting_ ? 1 : 0, 1);
+    check_s("  without changing the document", doc_of(&ed.doc_->buf_), "one/two/three/");
 
     restart();
     select_from(at(1, 0), at(1, 3));
     cmd_cut(&ed);
     check("cut takes the selection too", clip_size(&ed.clip_), 3);
-    check_s("  and removes it", doc_of(&ed.doc_.buf_), "/two/three/");
-    check("  leaving nothing selected", ed.doc_.selecting_ ? 1 : 0, 0);
-    check("  with the cursor where it was", tb_ypos(&ed.doc_.buf_), 1);
-    check("  at the start", tb_xpos(&ed.doc_.buf_), 1);
+    check_s("  and removes it", doc_of(&ed.doc_->buf_), "/two/three/");
+    check("  leaving nothing selected", ed.doc_->selecting_ ? 1 : 0, 0);
+    check("  with the cursor where it was", tb_ypos(&ed.doc_->buf_), 1);
+    check("  at the start", tb_xpos(&ed.doc_->buf_), 1);
 
     /* Cut across lines joins what is left of them. */
     restart();
     select_from(at(1, 1), at(2, 2));
     cmd_cut(&ed);
-    check_s("cut across a line break joins them", doc_of(&ed.doc_.buf_), "oo/three/");
+    check_s("cut across a line break joins them", doc_of(&ed.doc_->buf_), "oo/three/");
     check("  and the clipboard holds the break", clip_lines(&ed.clip_), 1);
 
     /* Paste puts it back. */
-    tb_seek(&ed.doc_.buf_, at(2, 5));
+    tb_seek(&ed.doc_->buf_, at(2, 5));
     cmd_paste(&ed);
-    check_s("paste puts it back", doc_of(&ed.doc_.buf_), "oo/threene/tw/");
+    check_s("paste puts it back", doc_of(&ed.doc_->buf_), "oo/threene/tw/");
 
     /* Pasting with a selection live replaces it, the same way typing does. */
     restart();
@@ -417,8 +417,8 @@ int main(void) {
     cmd_copy(&ed);
     select_from(at(3, 0), at(3, 5));      /* "three" */
     cmd_paste(&ed);
-    check_s("paste replaces the selection", doc_of(&ed.doc_.buf_), "one/two/one/");
-    check("  and nothing is selected afterwards", ed.doc_.selecting_ ? 1 : 0, 0);
+    check_s("paste replaces the selection", doc_of(&ed.doc_->buf_), "one/two/one/");
+    check("  and nothing is selected afterwards", ed.doc_->selecting_ ? 1 : 0, 0);
 
     /* --- what a paste costs to undo --- */
     {
@@ -440,27 +440,27 @@ int main(void) {
         restart();
         select_from(at(1, 0), at(1, 3));        /* "one", no break in it */
         cmd_copy(&ed);
-        ed.doc_.selecting_ = false;                  /* copy leaves it live */
-        tb_seek(&ed.doc_.buf_, at(3, 5));
+        ed.doc_->selecting_ = false;                  /* copy leaves it live */
+        tb_seek(&ed.doc_->buf_, at(3, 5));
         cmd_paste(&ed);
-        check_s("a paste with no break in it", doc_of(&ed.doc_.buf_),
+        check_s("a paste with no break in it", doc_of(&ed.doc_->buf_),
                 "one/two/threeone/");
         cmd_undo(&ed);
-        check_s("  costs one undo", doc_of(&ed.doc_.buf_), "one/two/three/");
+        check_s("  costs one undo", doc_of(&ed.doc_->buf_), "one/two/three/");
 
         restart();
         select_from(at(1, 0), at(2, 3));        /* "one\ntwo" */
         cmd_copy(&ed);
-        ed.doc_.selecting_ = false;
-        tb_seek(&ed.doc_.buf_, at(3, 5));
+        ed.doc_->selecting_ = false;
+        tb_seek(&ed.doc_->buf_, at(3, 5));
         cmd_paste(&ed);
-        check_s("a paste of two lines", doc_of(&ed.doc_.buf_),
+        check_s("a paste of two lines", doc_of(&ed.doc_->buf_),
                 "one/two/threeone/two/");
         cmd_undo(&ed);
-        check_s("  is not taken back by one undo", doc_of(&ed.doc_.buf_),
+        check_s("  is not taken back by one undo", doc_of(&ed.doc_->buf_),
                 "one/two/threeone//");
         cmd_undo(&ed);
-        check_s("    and takes two", doc_of(&ed.doc_.buf_), "one/two/three/");
+        check_s("    and takes two", doc_of(&ed.doc_->buf_), "one/two/three/");
     }
 
     /* Paste with nothing copied does nothing at all. */
@@ -468,17 +468,17 @@ int main(void) {
     check("paste with an empty clipboard does nothing",
           clip_has(&ed.clip_) ? 1 : 0, 0);
     cmd_paste(&ed);
-    check_s("  and changes nothing", doc_of(&ed.doc_.buf_), "one/two/three/");
+    check_s("  and changes nothing", doc_of(&ed.doc_->buf_), "one/two/three/");
 
     /* Copy with nothing selected is not a command that does something odd. */
     restart();
-    ed.doc_.selecting_ = false;
+    ed.doc_->selecting_ = false;
     cmd_copy(&ed);
     check("copy with no selection copies nothing",
           clip_has(&ed.clip_) ? 1 : 0, 0);
     cmd_cut(&ed);
     check_s("cut with no selection changes nothing",
-            doc_of(&ed.doc_.buf_), "one/two/three/");
+            doc_of(&ed.doc_->buf_), "one/two/three/");
 
     /* --- copy, then open another file, then paste --- */
     /* The clipboard belongs to the session, not the document. This is the case
@@ -503,11 +503,11 @@ int main(void) {
     stub_set_keys(keys, n);
     cmd_open(&ed);
     stub_set_keys(NULL, 0);
-    check_s("opened another document", doc_of(&ed.doc_.buf_), "zzz/");
+    check_s("opened another document", doc_of(&ed.doc_->buf_), "zzz/");
     check("  and the clipboard survived", clip_size(&ed.clip_), 8);
-    tb_seek(&ed.doc_.buf_, at(1, 3));
+    tb_seek(&ed.doc_->buf_, at(1, 3));
     cmd_paste(&ed);
-    check_s("  so it pastes into the new one", doc_of(&ed.doc_.buf_), "zzzone/two/");
+    check_s("  so it pastes into the new one", doc_of(&ed.doc_->buf_), "zzzone/two/");
 
     /* --- select all --- */
     /* A document whose last line has text on it: with a trailing newline the
@@ -519,27 +519,27 @@ int main(void) {
     ed_destroy(&ed);
     ed_init(&ed, 8, "noeol.txt");
     cmd_select_all(&ed);
-    check("select all reaches the last line", tb_ypos(&ed.doc_.buf_), 3);
-    check("  and the end of its text", tb_xpos(&ed.doc_.buf_), 6);
+    check("select all reaches the last line", tb_ypos(&ed.doc_->buf_), 3);
+    check("  and the end of its text", tb_xpos(&ed.doc_->buf_), 6);
     cmd_copy(&ed);
     check("  so the copy is the whole document",
           clip_size(&ed.clip_), (int) sizeof(NOEOL) - 1);
 
     restart();
     cmd_select_all(&ed);
-    check("select all is selecting", ed.doc_.selecting_ ? 1 : 0, 1);
-    check("  anchored at the very start", ed.doc_.anchor_.line, 1);
-    check("  at its first byte", ed.doc_.anchor_.x, 0);
-    check("  with the cursor on the last line", tb_ypos(&ed.doc_.buf_), tb_ymax(&ed.doc_.buf_));
+    check("select all is selecting", ed.doc_->selecting_ ? 1 : 0, 1);
+    check("  anchored at the very start", ed.doc_->anchor_.line, 1);
+    check("  at its first byte", ed.doc_->anchor_.x, 0);
+    check("  with the cursor on the last line", tb_ypos(&ed.doc_->buf_), tb_ymax(&ed.doc_->buf_));
     cmd_copy(&ed);
     check("  and it copies the whole document",
           clip_size(&ed.clip_), (int) sizeof(DOC) - 1);
 
     cmd_select_all(&ed);
     cmd_cut(&ed);
-    check_s("select all then cut empties it", doc_of(&ed.doc_.buf_), "");
+    check_s("select all then cut empties it", doc_of(&ed.doc_->buf_), "");
     cmd_paste(&ed);
-    check_s("  and pasting puts it all back", doc_of(&ed.doc_.buf_), "one/two/three/");
+    check_s("  and pasting puts it all back", doc_of(&ed.doc_->buf_), "one/two/three/");
 
     /* --- cutting more than memory holds --- */
     /* A selection larger than the clipboard is no longer a wall: it spills to
@@ -554,13 +554,13 @@ int main(void) {
     check("a document larger than the clipboard",
           ed_init(&ed, 32, "big.txt") != NULL, 1);
     started = true;
-    check("  which it is", tb_used(&ed.doc_.buf_) > clip_capacity(&ed.clip_), 1);
+    check("  which it is", tb_used(&ed.doc_->buf_) > clip_capacity(&ed.clip_), 1);
 
-    const int before = tb_used(&ed.doc_.buf_);
+    const int before = tb_used(&ed.doc_->buf_);
     stub_file_reset();
     cmd_select_all(&ed);
     cmd_cut(&ed);
-    check("a cut larger than memory still cuts", tb_used(&ed.doc_.buf_), 0);
+    check("a cut larger than memory still cuts", tb_used(&ed.doc_->buf_), 0);
     check("  holding all of it", clip_size(&ed.clip_), before);
     check("  in a file beside the document",
           strcmp(clip_path(&ed.clip_), "big.txt.scratch"), 0);
@@ -571,13 +571,13 @@ int main(void) {
     stub_file_set_content(big, (int) sizeof(big));
     ed_destroy(&ed);
     ed_init(&ed, 32, "big.txt");
-    const int before2 = tb_used(&ed.doc_.buf_);
+    const int before2 = tb_used(&ed.doc_->buf_);
     stub_file_reset();
     stub_file_fail_open(1);
     cmd_select_all(&ed);
     cmd_cut(&ed);
     check("a cut that cannot be written deletes nothing",
-          tb_used(&ed.doc_.buf_), before2);
+          tb_used(&ed.doc_->buf_), before2);
     check("  and leaves nothing on the clipboard",
           clip_has(&ed.clip_) ? 1 : 0, 0);
 
@@ -603,27 +603,27 @@ int main(void) {
     /* Pasting it again needs as much room as the document already takes, and
      * there is not that much left. */
     check("  and there is not room for it twice",
-          tb_available(&ed.doc_.buf_) < clip_size(&ed.clip_), 1);
+          tb_available(&ed.doc_->buf_) < clip_size(&ed.clip_), 1);
 
     /* Select a few characters and paste over them. The selection is far smaller
      * than the clipboard, so the paste cannot fit even once they are gone. */
     select_from(at(1, 0), at(1, 10));
-    const int used_before = tb_used(&ed.doc_.buf_);
+    const int used_before = tb_used(&ed.doc_->buf_);
     cmd_paste(&ed);
-    check("a paste with no room changes nothing", tb_used(&ed.doc_.buf_), used_before);
-    check("  and the selection is still there", ed.doc_.selecting_ ? 1 : 0, 1);
-    check("  with its anchor intact", ed.doc_.anchor_.x, 0);
+    check("a paste with no room changes nothing", tb_used(&ed.doc_->buf_), used_before);
+    check("  and the selection is still there", ed.doc_->selecting_ ? 1 : 0, 1);
+    check("  with its anchor intact", ed.doc_->anchor_.x, 0);
 
     /* One that does fit still goes in, so the check is not simply refusing. */
     clipboard small;
     clip_init(&small, 64);
-    clip_copy(&small, &ed.doc_.buf_, at(1, 0), at(1, 4));
+    clip_copy(&small, &ed.doc_->buf_, at(1, 0), at(1, 4));
     clip_destroy(&ed.clip_);
     ed.clip_ = small;
     select_from(at(1, 0), at(1, 10));
     cmd_paste(&ed);
     check("a paste that fits replaces the selection",
-          tb_used(&ed.doc_.buf_), used_before - 10 + 4);
+          tb_used(&ed.doc_->buf_), used_before - 10 + 4);
 
     /* ...and one that fits only *because* the selection is going. The document
      * is filled to within a few bytes of the buffer, so the paste has nowhere
@@ -640,17 +640,17 @@ int main(void) {
 
     clipboard fifty;
     clip_init(&fifty, 128);
-    clip_copy(&fifty, &ed.doc_.buf_, at(1, 0), at(1, 50));
+    clip_copy(&fifty, &ed.doc_->buf_, at(1, 0), at(1, 50));
     clip_destroy(&ed.clip_);
     ed.clip_ = fifty;
     check("  with less room left than the clipboard holds",
-          tb_available(&ed.doc_.buf_) < clip_size(&ed.clip_), 1);
+          tb_available(&ed.doc_->buf_) < clip_size(&ed.clip_), 1);
 
-    const int full_before = tb_used(&ed.doc_.buf_);
+    const int full_before = tb_used(&ed.doc_->buf_);
     select_from(at(1, 0), at(1, 100));
     cmd_paste(&ed);
     check("a paste fits when the selection it replaces makes room",
-          tb_used(&ed.doc_.buf_), full_before - 100 + 50);
+          tb_used(&ed.doc_->buf_), full_before - 100 + 50);
 
     /* --- the line index is budgeted too, not just the characters --- */
     /* A document of short lines fills the line index long before the
@@ -668,12 +668,12 @@ int main(void) {
     ed_destroy(&ed);
     check("a document of short lines", ed_init(&ed, 8, "lines.txt") != NULL, 1);
     started = true;
-    ed.doc_.selecting_ = false;
+    ed.doc_->selecting_ = false;
 
-    const int slots = lb_avai(&ed.doc_.buf_.lb_);
+    const int slots = lb_avai(&ed.doc_->buf_.lb_);
     check("  with the line index nearly full", slots > 1 && slots < 60, 1);
     check("  and plenty of characters left",
-          tb_available(&ed.doc_.buf_) > slots * 8, 1);
+          tb_available(&ed.doc_->buf_) > slots * 8, 1);
 
     /* With a selection live, the line budget is the one that decides it, and
      * asking after the deletion is too late: tb_insert would refuse, but the
@@ -681,25 +681,25 @@ int main(void) {
      * take even once the selection has given its slots back. */
     clipboard breaks;
     clip_init(&breaks, 2048);
-    clip_copy(&breaks, &ed.doc_.buf_, at(1, 0), at(1 + slots + 3, 0));
+    clip_copy(&breaks, &ed.doc_->buf_, at(1, 0), at(1 + slots + 3, 0));
     clip_destroy(&ed.clip_);
     ed.clip_ = breaks;
     check("a clipboard with more breaks than the index can take",
           clip_lines(&ed.clip_), slots + 3);
 
-    const int lines_before = tb_used(&ed.doc_.buf_);
+    const int lines_before = tb_used(&ed.doc_->buf_);
     select_from(at(1, 0), at(4, 0));      /* three lines, so three slots freed */
     cmd_paste(&ed);
     check("a paste with nowhere to put its lines changes nothing",
-          tb_used(&ed.doc_.buf_), lines_before);
-    check("  and does not eat the selection first", ed.doc_.selecting_ ? 1 : 0, 1);
+          tb_used(&ed.doc_->buf_), lines_before);
+    check("  and does not eat the selection first", ed.doc_->selecting_ ? 1 : 0, 1);
 
     /* And the slots the selection gives back do count: this one fits only
      * because they do. As many breaks as there are free slots, replacing a
      * selection that spans one line, needs exactly the spare that frees. */
     clipboard justfits;
     clip_init(&justfits, 2048);
-    clip_copy(&justfits, &ed.doc_.buf_, at(1, 0), at(1 + slots, 0));
+    clip_copy(&justfits, &ed.doc_->buf_, at(1, 0), at(1 + slots, 0));
     clip_destroy(&ed.clip_);
     ed.clip_ = justfits;
     check("a clipboard with exactly as many breaks as slots",
@@ -707,7 +707,7 @@ int main(void) {
     select_from(at(1, 0), at(2, 0));      /* one line, one slot back */
     cmd_paste(&ed);
     check("  fits once the selection gives its slot back",
-          tb_used(&ed.doc_.buf_) > lines_before, 1);
+          tb_used(&ed.doc_->buf_) > lines_before, 1);
 
     /* --- a spill that would land on an existing file asks first --- */
     /* The scratch name is worked out from the document name, so it can collide
@@ -768,13 +768,13 @@ int main(void) {
         started = true;
         stub_file_reset();
         stub_file_set_content(blob, 16);   /* cut.txt.scratch is already there */
-        const int cut_before = tb_used(&ed.doc_.buf_);
+        const int cut_before = tb_used(&ed.doc_->buf_);
         stub_key cutno[] = { { .ch = 'n', .vk = VK_n } };
         stub_set_keys(cutno, 1);
         cmd_select_all(&ed);
         cmd_cut(&ed);
         stub_set_keys(NULL, 0);
-        check("a cut answered no deletes nothing", tb_used(&ed.doc_.buf_), cut_before);
+        check("a cut answered no deletes nothing", tb_used(&ed.doc_->buf_), cut_before);
         check("  and writes nothing", stub_file_opens_for_write(), 0);
     }
 
@@ -800,12 +800,12 @@ int main(void) {
 
         /* Now the file is gone: nothing to read back at all. */
         stub_file_reset();
-        const int kept = tb_used(&ed.doc_.buf_);
+        const int kept = tb_used(&ed.doc_->buf_);
         select_from(at(1, 0), at(1, 20));
         cmd_paste(&ed);
         check("a paste whose file has gone changes nothing",
-              tb_used(&ed.doc_.buf_), kept);
-        check("  and leaves the selection alone", ed.doc_.selecting_ ? 1 : 0, 1);
+              tb_used(&ed.doc_->buf_), kept);
+        check("  and leaves the selection alone", ed.doc_->selecting_ ? 1 : 0, 1);
 
         /* And one that opens but has been truncated -- which the open cannot
          * tell you, only reading it through can. */
@@ -814,9 +814,9 @@ int main(void) {
         select_from(at(1, 0), at(1, 20));
         cmd_paste(&ed);
         check("a paste whose file is short changes nothing",
-              tb_used(&ed.doc_.buf_), kept);
+              tb_used(&ed.doc_->buf_), kept);
         check("  and leaves that selection alone too",
-              ed.doc_.selecting_ ? 1 : 0, 1);
+              ed.doc_->selecting_ ? 1 : 0, 1);
     }
 
     /* And a read that stops part way takes back what it managed to insert. */
@@ -894,7 +894,7 @@ int main(void) {
         cmd_open(&ed);
         stub_set_keys(NULL, 0);
 
-        check("after opening another file", strcmp(tb_fname(&ed.doc_.buf_), "second.txt"), 0);
+        check("after opening another file", strcmp(tb_fname(&ed.doc_->buf_), "second.txt"), 0);
         check("  the scratch path is the one it was written under",
               strcmp(clip_path(&ed.clip_), "first.txt.scratch"), 0);
         check("  and the copy is still there", clip_size(&ed.clip_) > 0, 1);
@@ -925,24 +925,24 @@ int main(void) {
     select_from(at(1, 0), at(1, 3));
     check("a printable key replaces the selection",
           ed_selection_for(&ed, keyed(VK_a, 'a', 0)), SEL_REPLACE);
-    check("  and the selection is still there to delete", ed.doc_.selecting_ ? 1 : 0, 1);
+    check("  and the selection is still there to delete", ed.doc_->selecting_ ? 1 : 0, 1);
     cmd_delete_selection(&ed);
-    check_s("  which deleting removes", doc_of(&ed.doc_.buf_), "/two/three/");
-    check("  and clears", ed.doc_.selecting_ ? 1 : 0, 0);
+    check_s("  which deleting removes", doc_of(&ed.doc_->buf_), "/two/three/");
+    check("  and clears", ed.doc_->selecting_ ? 1 : 0, 0);
 
     /* The commands that act on the selection do not end it. */
     restart();
     select_from(at(1, 0), at(1, 3));
     check("copy does not end the selection",
           ed_selection_for(&ed, keyed(VK_c, 0, MOD_CTRL)), SEL_NONE);
-    check("  still selecting", ed.doc_.selecting_ ? 1 : 0, 1);
+    check("  still selecting", ed.doc_->selecting_ ? 1 : 0, 1);
     check("cut does not either",
           ed_selection_for(&ed, keyed(VK_x, 0, MOD_CTRL)), SEL_NONE);
     check("paste does not either",
           ed_selection_for(&ed, keyed(VK_v, 0, MOD_CTRL)), SEL_NONE);
     check("nor does select all",
           ed_selection_for(&ed, keyed(VK_a, 0, MOD_CTRL)), SEL_NONE);
-    check("  and the selection is still live", ed.doc_.selecting_ ? 1 : 0, 1);
+    check("  and the selection is still live", ed.doc_->selecting_ ? 1 : 0, 1);
 
     /* --- the bindings --- */
     key_command kc;

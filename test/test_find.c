@@ -107,7 +107,7 @@ int main(void) {
     stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
     editor ed;
     check("an editor to search in", ed_init(&ed, 8, "f.txt") != NULL, 1);
-    text_buffer* tb = &ed.doc_.buf_;
+    text_buffer* tb = &ed.doc_->buf_;
 
     tb_pos at;
     const tb_pos top = {1, 0};
@@ -220,18 +220,18 @@ int main(void) {
         e.find_[0] = 0;
         strcpy(e.find_, "line 060");
         e.findsz_ = 8;
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 0});
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 0});
         cmd_find_next(&e);
         check("a match is centred", s->v_->currY_, middle);
-        check("  on the line it was found on", tb_ypos(&e.doc_.buf_), 60);
+        check("  on the line it was found on", tb_ypos(&e.doc_->buf_), 60);
 
         /* And it is selected, from the start of the match to its end -- the
          * cursor sits past it, which is also what makes the next search move
          * on rather than finding the same one. */
-        check("  and selected", e.doc_.selecting_ ? 1 : 0, 1);
-        check("  anchored at the match", e.doc_.anchor_.x, 0);
-        check("  on the match's line", e.doc_.anchor_.line, 60);
-        check("  with the cursor at its end", tb_xpos(&e.doc_.buf_) - 1, 8);
+        check("  and selected", e.doc_->selecting_ ? 1 : 0, 1);
+        check("  anchored at the match", e.doc_->anchor_.x, 0);
+        check("  on the match's line", e.doc_->anchor_.line, 60);
+        check("  with the cursor at its end", tb_xpos(&e.doc_->buf_) - 1, 8);
 
         /* Repeating moves on rather than finding the same match. Started well
          * down the document so both matches have room above them to centre
@@ -239,11 +239,11 @@ int main(void) {
          * centred and would be testing the clamp instead. */
         strcpy(e.find_, "alpha");
         e.findsz_ = 5;
-        tb_seek(&e.doc_.buf_, (tb_pos){50, 0});
+        tb_seek(&e.doc_->buf_, (tb_pos){50, 0});
         cmd_find_next(&e);
-        const int first = tb_ypos(&e.doc_.buf_);
+        const int first = tb_ypos(&e.doc_->buf_);
         cmd_find_next(&e);
-        check("repeating finds the next one", tb_ypos(&e.doc_.buf_) > first, 1);
+        check("repeating finds the next one", tb_ypos(&e.doc_->buf_) > first, 1);
         check("  still centred", s->v_->currY_, middle);
 
         /* Near the top there is not enough document above to centre against,
@@ -251,11 +251,11 @@ int main(void) {
          * start of the file. */
         strcpy(e.find_, "line 002");
         e.findsz_ = 8;
-        tb_seek(&e.doc_.buf_, (tb_pos){1, 0});
+        tb_seek(&e.doc_->buf_, (tb_pos){1, 0});
         cmd_find_next(&e);
         check("near the top it cannot centre", s->v_->currY_, s->v_->topY_ + 1);
         check("  and shows the document from line 1",
-              tb_ypos(&e.doc_.buf_) - (s->v_->currY_ - s->v_->topY_), 1);
+              tb_ypos(&e.doc_->buf_) - (s->v_->currY_ - s->v_->topY_), 1);
 
         /* And it looks selected, not merely is. The state above says the editor
          * thinks there is a selection; this says the match reaches the screen
@@ -264,7 +264,7 @@ int main(void) {
          * every assertion above and show nothing. */
         strcpy(e.find_, "alpha");
         e.findsz_ = 5;
-        tb_seek(&e.doc_.buf_, (tb_pos){50, 0});
+        tb_seek(&e.doc_->buf_, (tb_pos){50, 0});
         // Distinct colours, or the test cannot tell the schemes apart: the
         // stub's default leaves fg_ and bg_ equal and every column reads as
         // reversed.
@@ -315,7 +315,7 @@ int main(void) {
         e.findsz_ = 5;
         cmd_find_next(&e);
         check("a failed search clears the selection",
-              e.doc_.selecting_ ? 1 : 0, 0);
+              e.doc_->selecting_ ? 1 : 0, 0);
 
         ed_destroy(&e);
     }
@@ -343,12 +343,12 @@ int main(void) {
         cmd_find_next(&ed);
         cmd_find_next(&ed);
         cmd_find_next(&ed);
-        check("forward reaches the last match", tb_ypos(&ed.doc_.buf_), 3);
+        check("forward reaches the last match", tb_ypos(&ed.doc_->buf_), 3);
 
         cmd_find_prev(&ed);
-        check("and back goes to the one before it", tb_ypos(&ed.doc_.buf_), 2);
+        check("and back goes to the one before it", tb_ypos(&ed.doc_->buf_), 2);
         cmd_find_prev(&ed);
-        check("and the one before that", tb_ypos(&ed.doc_.buf_), 1);
+        check("and the one before that", tb_ypos(&ed.doc_->buf_), 1);
         ed_destroy(&ed);
     }
 
@@ -381,16 +381,16 @@ int main(void) {
 
         editor ped;
         check("an editor on a paged document", ed_init(&ped, 64, "big.txt") != NULL, 1);
-        check("  which really is paged", tb_used(&ped.doc_.buf_) < (int) sizeof(fp), 1);
+        check("  which really is paged", tb_used(&ped.doc_->buf_) < (int) sizeof(fp), 1);
         strcpy(ped.find_, "target");
         ped.findsz_ = 6;
 
         cmd_find_next(&ped);
-        check("CTRL+F finds the first", tb_ypos(&ped.doc_.buf_), 10);
+        check("CTRL+F finds the first", tb_ypos(&ped.doc_->buf_), 10);
         cmd_find_next(&ped);
-        check("CTRL+N the second", tb_ypos(&ped.doc_.buf_), 2000);
+        check("CTRL+N the second", tb_ypos(&ped.doc_->buf_), 2000);
         cmd_find_next(&ped);
-        check("  and the third", tb_ypos(&ped.doc_.buf_), 3900);
+        check("  and the third", tb_ypos(&ped.doc_->buf_), 3900);
 
         /* Through what the editor loop does to a keystroke, not straight into
          * the command. ed_selection_for runs first, and a key whose binding
@@ -403,18 +403,18 @@ int main(void) {
             const key_command kc = ed_translate(&AED_KEYS, ctrl_p);
             check("CTRL+P is find-previous", kc.cmd == cmd_find_prev, 1);
             check("  and the find left a selection to measure from",
-                  ped.doc_.selecting_ ? 1 : 0, 1);
+                  ped.doc_->selecting_ ? 1 : 0, 1);
             (void) ed_selection_for(&ped, kc);
             check("  which the loop must not take away",
-                  ped.doc_.selecting_ ? 1 : 0, 1);
+                  ped.doc_->selecting_ ? 1 : 0, 1);
         }
 
         cmd_find_prev(&ped);
-        check("CTRL+P goes back to the second", tb_ypos(&ped.doc_.buf_), 2000);
+        check("CTRL+P goes back to the second", tb_ypos(&ped.doc_->buf_), 2000);
         cmd_find_prev(&ped);
-        check("  and the first", tb_ypos(&ped.doc_.buf_), 10);
+        check("  and the first", tb_ypos(&ped.doc_->buf_), 10);
         cmd_find_prev(&ped);
-        check("  and wraps round to the last", tb_ypos(&ped.doc_.buf_), 3900);
+        check("  and wraps round to the last", tb_ypos(&ped.doc_->buf_), 3900);
         ed_destroy(&ped);
     }
 

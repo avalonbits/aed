@@ -48,8 +48,8 @@ typedef enum _ed_built {
 
 static editor* ed_failed(editor* ed, ed_built built) {
     if (built >= ED_UNDO) {
-        tb_set_undo(&ed->doc_.buf_, NULL);
-        undo_destroy(&ed->doc_.undo_);
+        tb_set_undo(&ed->home_.buf_, NULL);
+        undo_destroy(&ed->home_.undo_);
     }
     if (built >= ED_CLIP) {
         clip_destroy(&ed->clip_);
@@ -58,7 +58,7 @@ static editor* ed_failed(editor* ed, ed_built built) {
         scr_destroy(&ed->scr_);
     }
     if (built >= ED_BUF) {
-        tb_destroy(&ed->doc_.buf_);
+        tb_destroy(&ed->home_.buf_);
     }
 
     return NULL;
@@ -205,45 +205,22 @@ static bool theme_for(theme* t, int bg) {
 // The fewest colours a mode needs before a document is highlighted in it.
 #define SYN_MIN_COLOURS 16
 
-void ed_pick_syntax(editor* ed) {
-    if (ed == NULL) {
-        return;
-    }
-    // What was worked out belongs to the document that was there before this.
-    ed->doc_.synFirst_ = 0;
-    ed->doc_.synKnown_ = 0;
-    ed->scr_.v_->synTop_ = 1;
-    syn_clear(&ed->doc_.syn_);
+/*
+ * The theme for the document now current, by its grammar and the background in
+ * force: cleared with the user's own colours put back when there is no grammar
+ * or no theme for it, and set on the screen when there is. A grammar with no
+ * theme to colour it by would divide the line into tokens and paint every one
+ * of them the same, which is the work without the result, so it goes too.
+ */
+static void pick_theme(editor* ed) {
     theme_clear(&ed->theme_);
     scr_set_theme(&ed->scr_, NULL);
     scr_base_restore(&ed->scr_);
-
-    /*
-     * Only where the screen has the colours to say it with.
-     *
-     * A theme names colours out of the sixteen every Agon mode of that depth
-     * has, and a mode with fewer shows the index modulo what it has. In a two
-     * colour mode that sends most of a C file to colour 0 -- black on a black
-     * background, so the document vanishes as it is coloured. Four colours is
-     * no better in kind: a theme's choices collide with the background
-     * unpredictably. So below sixteen there is no highlighting, and the
-     * document is drawn in the reader's own pair as a file with no grammar is.
-     */
-    if (ed->scr_.colors_ < SYN_MIN_COLOURS) {
-        return;
-    }
-    const char* fname = tb_fname(&ed->doc_.buf_);
-    if (fname == NULL || fname[0] == 0) {
-        return;                 // a document with no name has no extension
-    }
-    if (!grammar_for(&ed->doc_.syn_, fname)) {
+    if (!ed->doc_->syn_.loaded) {
         return;
     }
     if (!theme_for(&ed->theme_, scr_base_bg(&ed->scr_))) {
-        // A grammar with no theme to colour it by would divide the line into
-        // tokens and paint every one of them the same, which is the work
-        // without the result.
-        syn_clear(&ed->doc_.syn_);
+        syn_clear(&ed->doc_->syn_);
 
         return;
     }
@@ -261,11 +238,100 @@ void ed_pick_syntax(editor* ed) {
     scr_theme_scheme(&ed->scr_, ed->theme_.fg, ed->theme_.bg);
 }
 
+void ed_pick_syntax(editor* ed) {
+    if (ed == NULL) {
+        return;
+    }
+    // What was worked out belongs to the document that was there before this.
+    ed->doc_->synFirst_ = 0;
+    ed->doc_->synKnown_ = 0;
+    ed->scr_.v_->synTop_ = 1;
+    syn_clear(&ed->doc_->syn_);
+
+    /*
+     * Only where the screen has the colours to say it with.
+     *
+     * A theme names colours out of the sixteen every Agon mode of that depth
+     * has, and a mode with fewer shows the index modulo what it has. In a two
+     * colour mode that sends most of a C file to colour 0 -- black on a black
+     * background, so the document vanishes as it is coloured. Four colours is
+     * no better in kind: a theme's choices collide with the background
+     * unpredictably. So below sixteen there is no highlighting, and the
+     * document is drawn in the reader's own pair as a file with no grammar is.
+     */
+    const char* fname = tb_fname(&ed->doc_->buf_);
+    if (ed->scr_.colors_ >= SYN_MIN_COLOURS
+            && fname != NULL && fname[0] != 0) {   // no name, no extension
+        grammar_for(&ed->doc_->syn_, fname);
+    }
+    pick_theme(ed);
+}
+
+tb_result ed_doc_open(editor* ed, document* doc, view* v, int mem_kb,
+                      const char* fname) {
+    doc->selecting_ = false;
+    doc->anchor_.line = 1;
+    doc->anchor_.x = 0;
+    doc->synFirst_ = 0;
+    doc->synKnown_ = 0;
+    syn_clear(&doc->syn_);
+
+    // No room for another document is reported as one that will not fit,
+    // which from where the reader stands is what it is.
+    if (tb_init(&doc->buf_, mem_kb, NULL) == NULL) {
+        return TB_TOO_LARGE;
+    }
+    if (fname != NULL) {
+        const tb_result why = tb_load(&doc->buf_, fname);
+        if (why != TB_OK) {
+            tb_destroy(&doc->buf_);
+
+            return why;
+        }
+    }
+    // After the load, for the reason ed_init_for gives: tb_load normalises
+    // line endings through the same primitives an edit uses.
+    if (undo_init(&doc->undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS) == NULL) {
+        tb_destroy(&doc->buf_);
+
+        return TB_TOO_LARGE;
+    }
+    tb_set_undo(&doc->buf_, &doc->undo_);
+
+    // Made current, with a fresh view of the whole text area, and shown from
+    // the top -- the same reset opening a file into the current document gets.
+    ed->doc_ = doc;
+    scr_view_init(&ed->scr_, v);
+    scr_set_view(&ed->scr_, v);
+    ed_pick_syntax(ed);
+    scr_clear(&ed->scr_);
+    cmd_show(ed);
+
+    return TB_OK;
+}
+
+void ed_doc_show(editor* ed, document* doc, view* v) {
+    ed->doc_ = doc;
+    scr_set_view(&ed->scr_, v);
+    // Its grammar is its own and still loaded; the theme is the screen's, and
+    // the background may have changed since this document was last shown.
+    pick_theme(ed);
+    cmd_restore_after_modal(ed, false);
+}
+
+void ed_doc_close(document* doc) {
+    tb_set_undo(&doc->buf_, NULL);
+    undo_destroy(&doc->undo_);
+    tb_destroy(&doc->buf_);
+    syn_clear(&doc->syn_);
+}
+
 editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
                     const ed_program* prog) {
     // First, because everything below may ask the core where the program's
     // files are.
     app_set(prog->app);
+    ed->doc_ = &ed->home_;
 
     scr_init(&ed->scr_, DEFAULT_CURSOR);
 
@@ -273,20 +339,20 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     // many rows there are.
     const char* say = prog->settings != NULL ? prog->settings(ed) : NULL;
 
-    ed->doc_.selecting_ = false;
-    ed->doc_.anchor_.line = 1;
-    ed->doc_.anchor_.x = 0;
+    ed->doc_->selecting_ = false;
+    ed->doc_->anchor_.line = 1;
+    ed->doc_->anchor_.x = 0;
     if (clip_init(&ed->clip_, CLIP_SIZE) == NULL) {
         return ed_failed(ed, ED_SCREEN);
     }
 
     // Made empty and loaded separately, so that a file that will not load can
     // be reported by name and by reason -- tb_init only says whether it worked.
-    if (tb_init(&ed->doc_.buf_, mem_kb, NULL) == NULL) {
+    if (tb_init(&ed->doc_->buf_, mem_kb, NULL) == NULL) {
         return ed_failed(ed, ED_CLIP);
     }
     if (fname != NULL) {
-        const tb_result why = tb_load(&ed->doc_.buf_, fname);
+        const tb_result why = tb_load(&ed->doc_->buf_, fname);
         if (why != TB_OK) {
             ed_failed(ed, ED_BUF);
             ed_say(why == TB_TOO_LARGE ? "file too large" : "invalid file");
@@ -310,10 +376,10 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     ed->find_[0] = 0;
     ed->findsz_ = 0;
 
-    if (undo_init(&ed->doc_.undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS) == NULL) {
+    if (undo_init(&ed->doc_->undo_, UNDO_TEXT_BYTES, UNDO_MAX_RECS) == NULL) {
         return ed_failed(ed, ED_BUF);
     }
-    tb_set_undo(&ed->doc_.buf_, &ed->doc_.undo_);
+    tb_set_undo(&ed->doc_->buf_, &ed->doc_->undo_);
     if (!ui_init(&ed->ui_, 256, ed->scr_.v_->bottomY_, ed->scr_.v_->cols_)) {
         return ed_failed(ed, ED_UNDO);
     }
@@ -335,7 +401,7 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     ed->banner_ = false;
     ed->keys_ = prog->keys;
     ed->leaving_ = false;
-    if (tb_used(&ed->doc_.buf_) > 0) {
+    if (tb_used(&ed->doc_->buf_) > 0) {
         cmd_show(ed);
     } else {
         // Nothing to show, so say what this is and where the commands are.
@@ -346,7 +412,7 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
             prog->banner(&ed->ui_, &ed->scr_);
             ed->banner_ = true;
         }
-        scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_.buf_));
+        scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_->buf_));
     }
 
 
@@ -358,12 +424,12 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
 
 void ed_destroy(editor* ed) {
     keys_close();
-    tb_set_undo(&ed->doc_.buf_, NULL);
-    undo_destroy(&ed->doc_.undo_);
+    tb_set_undo(&ed->home_.buf_, NULL);
+    undo_destroy(&ed->home_.undo_);
     clip_destroy(&ed->clip_);
     ui_destroy(&ed->ui_);
     scr_destroy(&ed->scr_);
-    tb_destroy(&ed->doc_.buf_);
+    tb_destroy(&ed->home_.buf_);
 }
 
 // Shift with a motion key starts a selection if there is none and extends it if
@@ -392,14 +458,14 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
         return SEL_NONE;
     }
     if ((kc.mods & MOD_SHFT) && ed_is_motion(kc.k.vkey)) {
-        if (!ed->doc_.selecting_) {
-            ed->doc_.anchor_ = tb_tell(&ed->doc_.buf_);
-            ed->doc_.selecting_ = true;
+        if (!ed->doc_->selecting_) {
+            ed->doc_->anchor_ = tb_tell(&ed->doc_->buf_);
+            ed->doc_->selecting_ = true;
         }
 
         return SEL_EXTEND;
     }
-    if (ed->doc_.selecting_) {
+    if (ed->doc_->selecting_) {
         // A key that puts something in the document or takes something out
         // replaces the selection rather than acting next to it. selecting_ is
         // left set so the caller can still see what to delete; deleting it is
@@ -407,7 +473,7 @@ sel_action ed_selection_for(editor* ed, key_command kc) {
         if (kc.flags & KC_EDITS) {
             return SEL_REPLACE;
         }
-        ed->doc_.selecting_ = false;
+        ed->doc_->selecting_ = false;
 
         return SEL_DROP;
     }
@@ -422,7 +488,7 @@ void ed_selection_repaint(editor* ed, sel_action act, char y_before,
     }
 
     screen* scr = &ed->scr_;
-    text_buffer* tb = &ed->doc_.buf_;
+    text_buffer* tb = &ed->doc_->buf_;
     const int top_after = tb_ypos(tb) - (scr->v_->currY_ - scr->v_->topY_);
 
     // The whole text area whenever the view moved under the text. Dropping a
@@ -506,7 +572,7 @@ bool ed_is_motion(VKey vkey) {
 }
 
 bool ed_handle(editor* ed, key_command kc) {
-    text_buffer* buf = &ed->doc_.buf_;
+    text_buffer* buf = &ed->doc_->buf_;
     screen* scr = &ed->scr_;
 
     ed_clear_banner(ed);
@@ -558,7 +624,7 @@ bool ed_handle(editor* ed, key_command kc) {
 }
 
 void ed_run(editor* ed) {
-    text_buffer* buf = &ed->doc_.buf_;
+    text_buffer* buf = &ed->doc_->buf_;
 
     do {
         // Not while a chord is held down. The footer sits on the bottom row,
@@ -598,7 +664,7 @@ void ed_clear_banner(editor* ed) {
     }
     ed->banner_ = false;
     scr_clear_textarea(&ed->scr_, ed->scr_.v_->topY_, (char) (ed->scr_.v_->bottomY_ - 1));
-    scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_.buf_));
+    scr_show_cursor_ch(&ed->scr_, tb_peek(&ed->doc_->buf_));
 }
 
 void ed_cmd_save(editor* ed) {

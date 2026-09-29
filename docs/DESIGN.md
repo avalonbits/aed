@@ -105,8 +105,10 @@ There is no global state. Everything hangs off one
 [`editor`](../src/ui/editor.h#L35), which `main` owns and passes down by address;
 nothing reaches it any other way. What belongs to the open file rather than the
 screen -- its text, undo log, grammar, syntax window and selection --
-is the editor's [`document`](../src/core/document.h), the part of it the core knows
-about.
+is a [`document`](../src/core/document.h), the part of it the core knows about.
+The editor works on the one its `doc_` points at: its own, `home_`, which is the
+only one AED ever has. A program with several open keeps them and a view for
+each, and switches with `ed_doc_open` and `ed_doc_show`.
 
 It is a `static` local rather than an ordinary one, which is a placement rather
 than a change of ownership -- no other translation unit can name it. The editor
@@ -136,11 +138,11 @@ flowchart TD
 
 [`main()`](../src/main.c#L24) ·
 [`ed_init()`](../src/aed.c#L263) ·
-[`ed_init_for()`](../src/ui/editor.c#L264) ·
-[`ed_run()`](../src/ui/editor.c#L560) ·
-[`ed_translate()`](../src/ui/editor.c#L675) ·
-[`ed_handle()`](../src/ui/editor.c#L508) ·
-[`ed_selection_for()`](../src/ui/editor.c#L375) ·
+[`ed_init_for()`](../src/ui/editor.c#L329) ·
+[`ed_run()`](../src/ui/editor.c#L626) ·
+[`ed_translate()`](../src/ui/editor.c#L741) ·
+[`ed_handle()`](../src/ui/editor.c#L574) ·
+[`ed_selection_for()`](../src/ui/editor.c#L441) ·
 [`cmd_repaint_rows()`](../src/ui/cmd_ops.c#L870)
 
 `main` asks for **72 KiB** — [`TB_DOC_KB`](../src/core/text_buffer.h#L172) — and that
@@ -179,13 +181,13 @@ command. [`ED_KEYS`](../src/ui/editor.c) is the editor's own -- moving,
 editing, selecting, the clipboard, finding, undo -- and a program puts its keys
 in front of it through the keymap's `next`: [`AED_KEYS`](../src/aed.c) is
 AED's files, leaving, help and settings, followed by `ED_KEYS`.
-[`ed_translate()`](../src/ui/editor.c#L675) reads a key through the chain, so a
+[`ed_translate()`](../src/ui/editor.c#L741) reads a key through the chain, so a
 test can assert a binding. **A command nothing can reach is not a feature; a
 command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/ui/editor.c#L375) decides what a keystroke does to
+[`ed_selection_for()`](../src/ui/editor.c#L441) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.
