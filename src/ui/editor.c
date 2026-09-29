@@ -334,6 +334,8 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     ed->doc_ = &ed->home_;
 
     scr_init(&ed->scr_, DEFAULT_CURSOR);
+    // Before settings, which may clear the screen and so draw the header.
+    scr_set_title(&ed->scr_, prog->title);
 
     // Before anything is sized: settings can change the font, and with it how
     // many rows there are.

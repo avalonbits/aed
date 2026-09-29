@@ -98,6 +98,26 @@ static void viewport(const unsigned char* buf, int n, int* l, int* b, int* r,
     }
 }
 
+static int hooked;
+
+/* Whether `want` was sent: a byte search, since the stream carries zeros. */
+static int has(const unsigned char* buf, int n, const char* want) {
+    const int w = (int) strlen(want);
+    for (int i = 0; i + w <= n; i++) {
+        if (memcmp(buf + i, want, (size_t) w) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/* A program's own header: a word where the title would be. */
+static void header_hook(screen* scr, void* ctx) {
+    (*(int*) ctx)++;
+    scr_bar_line(scr, 0, "MENUBAR", 7);
+}
+
 int main(void) {
     if (freopen("/tmp/aed_view_capture", "w+", stdout) == NULL) {
         return 2;
@@ -304,6 +324,57 @@ int main(void) {
         check("the banner is centred on the whole screen", x > 0 && x < 40, 1);
         check("  and puts the right view back", scr.v_ == &right ? 1 : 0, 1);
         ui_destroy(&ui);
+    }
+
+    /* --- the header row is the program's --- */
+    {
+        scr_set_view(&scr, NULL);
+        scr_set_title(&scr, "PROGRAM TITLE");
+        cap_start();
+        scr_clear(&scr);
+        int n = cap_read(got, sizeof(got));
+        check("a clear draws the program's title", has(got, n, "PROGRAM TITLE"), 1);
+
+        scr_set_title(&scr, NULL);
+        cap_start();
+        scr_clear(&scr);
+        n = cap_read(got, sizeof(got));
+        check("  and with none, only the rule", !has(got, n, "PROGRAM TITLE")
+              && has(got, n, "------"), 1);
+
+        scr_set_title(&scr, "PROGRAM TITLE");
+        scr_set_header(&scr, header_hook, &hooked);
+        cap_start();
+        scr_clear(&scr);
+        n = cap_read(got, sizeof(got));
+        check("a header of its own is drawn in the title's place",
+              has(got, n, "MENUBAR") && !has(got, n, "PROGRAM TITLE"), 1);
+        check("  once", hooked, 1);
+
+        scr.v_->currX_ = 4;
+        scr.v_->currY_ = 7;
+        cap_start();
+        scr_header_draw(&scr);
+        n = cap_read(got, sizeof(got));
+        check("drawing the header again calls it again", hooked, 2);
+        check("  without clearing the screen", memchr(got, 12, (size_t) n) == NULL, 1);
+        int x = -1, y = -1;
+        for (int i = n - 3; i >= 0; i--) {
+            if (got[i] == 31) {
+                x = got[i + 1];
+                y = got[i + 2];
+                break;
+            }
+        }
+        check("  and puts the cursor back", x * 100 + y,
+              (scr.v_->textX_ + 4) * 100 + 7);
+
+        scr_set_header(&scr, NULL, NULL);
+        cap_start();
+        scr_clear(&scr);
+        n = cap_read(got, sizeof(got));
+        check("giving the row back brings the title back",
+              has(got, n, "PROGRAM TITLE") && hooked == 2, 1);
     }
 
     /* --- NULL goes back to the whole screen --- */

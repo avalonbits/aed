@@ -103,7 +103,7 @@ check "a program starting an editor builds against it" "$(build withui '-ledui -
 #include "app.h"
 #include "editor.h"
 static const app_context APP = { .name = "check" };
-static const ed_program PROG = { &APP, NULL, NULL, NULL };
+static const ed_program PROG = { &APP, NULL, NULL, NULL, NULL };
 int main(void) {
     static editor ed;
     if (ed_init_for(&ed, 8, NULL, &PROG) == NULL) {

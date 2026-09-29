@@ -72,10 +72,10 @@ static void mine_banner(user_input* ui, screen* scr) {
 }
 
 static const ed_program MINE = {
-    &MINE_APP, &MINE_KEYS, mine_settings, mine_banner,
+    &MINE_APP, &MINE_KEYS, mine_settings, mine_banner, "MINE: its own title",
 };
 
-static const ed_program BARE = { &MINE_APP, NULL, NULL, NULL };
+static const ed_program BARE = { &MINE_APP, NULL, NULL, NULL, NULL };
 
 /* A report waits for a key, so whether one was shown is whether the key
  * scripted here was taken. */
@@ -104,6 +104,9 @@ int main(void) {
         check("  with that program's files in force",
               app_get() == &MINE_APP ? 1 : 0, 1);
         check("  and its keys", ed.keys_ == &MINE_KEYS ? 1 : 0, 1);
+        check("  and its title on the header row",
+              ed.scr_.title_ != NULL && strcmp(ed.scr_.title_, "MINE: its own title") == 0
+              ? 1 : 0, 1);
         check("its settings run first", settings_at, 1);
         check("  once the screen exists", settings_rows, 25);
         check("  before the prompts do", settings_ui_cols, 0);
@@ -173,6 +176,9 @@ int main(void) {
         check("AED with a font that will not load starts",
               ed_init(&ed, 8, NULL) != NULL, 1);
         check("  and says so, waiting for a key", stub_keys_read(), 1);
+        check("  under AED's own title",
+              ed.scr_.title_ != NULL
+              && strcmp(ed.scr_.title_, "AED: Another Text Editor") == 0 ? 1 : 0, 1);
         ed_destroy(&ed);
 
         reset();

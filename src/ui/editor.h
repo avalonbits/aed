@@ -91,6 +91,8 @@ typedef struct _ed_program {
     const struct _keymap* keys;
     const char* (*settings)(editor* ed);
     void (*banner)(user_input* ui, screen* scr);
+    // The title on the header row, or NULL for none; see scr_set_title.
+    const char* title;
 } ed_program;
 
 /*

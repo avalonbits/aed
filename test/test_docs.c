@@ -40,7 +40,7 @@ static const unsigned DIR_SIZES[] = { 1, 1 };
 static const app_context APP = {
     .name = "docs", .syntax_dir = "/g", .theme_dir = "/t", .font_dir = "/f",
 };
-static const ed_program PROG = { &APP, &ED_KEYS, NULL, NULL };
+static const ed_program PROG = { &APP, &ED_KEYS, NULL, NULL, NULL };
 
 static editor ed;
 
