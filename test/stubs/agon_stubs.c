@@ -350,7 +350,7 @@ uint8_t getsysvar_scrColours(void) { return (uint8_t) stub_scr_colours; }
  * read what was saved that way and none of them care which file it went to.
  */
 #define STUB_FILE_CAP (512 * 1024)
-#define STUB_FILES     8
+#define STUB_FILES     16
 #define STUB_HANDLES   8
 #define STUB_NAME_MAX  80
 

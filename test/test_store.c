@@ -111,6 +111,32 @@ int main(void) {
         app_set(&ADE);
     }
 
+    /* --- one file's scratch files belong to one store --- */
+    {
+        /* A second store on the same file would create its files afresh --
+         * emptying the first's -- and closing either would delete both. */
+        stub_file_reset();
+        doc_store first;
+        doc_store second;
+        check("a store on a file opens", store_init(&first, "/doc.txt") ? 1 : 0, 1);
+        store_tail_append(&first, DOC, DOC_LEN);
+        check("a second store on the same file is refused",
+              store_init(&second, "/doc.txt") ? 1 : 0, 0);
+        check("  in any case of its name, as FAT sees it",
+              store_init(&second, "/DOC.TXT") ? 1 : 0, 0);
+        check("  and the first keeps what it holds", store_tail_bytes(&first), DOC_LEN);
+        check("  its files untouched", stub_file_exists("/doc.txt.aedt"), 1);
+        check("a store on another file opens beside it",
+              store_init(&second, "/other.txt") ? 1 : 0, 1);
+        store_destroy(&second);
+        check("the other one's closing leaves the first's files",
+              stub_file_exists("/doc.txt.aedh") && stub_file_exists("/doc.txt.aedt"), 1);
+        store_destroy(&first);
+        check("once the first is closed, the name is free again",
+              store_init(&second, "/doc.txt") ? 1 : 0, 1);
+        store_destroy(&second);
+    }
+
     /* --- building the tail at open --- */
     {
         check("a document goes into the tail", filled(&st), 1);

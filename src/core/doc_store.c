@@ -106,6 +106,75 @@ static bool name_with(char* out, const char* base, const char* suffix) {
     return true;
 }
 
+/*
+ * The stores with their files open right now.
+ *
+ * A store's files are named after its document, so two stores on one file
+ * would share them -- and store_init creates them afresh, so the second would
+ * empty the first's, and closing either would delete both. The part of a
+ * document that is not in memory lives only there. So a name already in use
+ * is refused, and the files are the card's, which is the program's: this list
+ * is too. Two stores hold four of the seven handles MOS gives a program, so
+ * no more than three can be open at once; this is room for all of them.
+ */
+#define STORE_LIVE_MAX 4
+
+static const doc_store* live[STORE_LIVE_MAX];
+
+// Case-blind, as FAT names are: A.TXT and a.txt are one file.
+static bool same_name(const char* a, const char* b) {
+    for (;; a++, b++) {
+        char x = *a;
+        char y = *b;
+        if (x >= 'a' && x <= 'z') {
+            x = (char) (x - 'a' + 'A');
+        }
+        if (y >= 'a' && y <= 'z') {
+            y = (char) (y - 'a' + 'A');
+        }
+        if (x != y) {
+            return false;
+        }
+        if (x == 0) {
+            return true;
+        }
+    }
+}
+
+bool store_live(const char* base, const doc_store* except) {
+    static char head[STORE_PATH_MAX];
+    if (!name_with(head, base, STORE_HEAD_SUFFIX)) {
+        return false;
+    }
+    for (int i = 0; i < STORE_LIVE_MAX; i++) {
+        if (live[i] != NULL && live[i] != except && same_name(live[i]->head_, head)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool live_add(const doc_store* st) {
+    for (int i = 0; i < STORE_LIVE_MAX; i++) {
+        if (live[i] == NULL) {
+            live[i] = st;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void live_remove(const doc_store* st) {
+    for (int i = 0; i < STORE_LIVE_MAX; i++) {
+        if (live[i] == st) {
+            live[i] = NULL;
+        }
+    }
+}
+
 bool store_init(doc_store* st, const char* base) {
     if (st == NULL) {
         return false;
@@ -119,6 +188,10 @@ bool store_init(doc_store* st, const char* base) {
 
     if (!name_with(st->head_, base, STORE_HEAD_SUFFIX)
             || !name_with(st->tail_, base, STORE_TAIL_SUFFIX)) {
+        return false;
+    }
+    // Another store's files: see live above.
+    if (store_live(base, NULL)) {
         return false;
     }
 
@@ -176,6 +249,7 @@ bool store_init(doc_store* st, const char* base) {
     }
 
     st->open_ = true;
+    live_add(st);
 
     return true;
 }
@@ -197,6 +271,7 @@ void store_destroy(doc_store* st) {
     }
     mos_del(st->head_);
     mos_del(st->tail_);
+    live_remove(st);
     st->open_ = false;
     st->head_len_ = 0;
     st->tail_start_ = STORE_HEADROOM;

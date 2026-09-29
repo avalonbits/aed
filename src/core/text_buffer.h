@@ -243,6 +243,7 @@ typedef enum _tb_result {
     TB_OK = 0,
     TB_NO_FILE,     // could not be opened, and could not be created either
     TB_TOO_LARGE,   // will not fit in the buffer, whatever is in there now
+    TB_IN_USE,      // too big for memory, and paged by another document already
 } tb_result;
 
 tb_result tb_load(text_buffer* tb, const char* fname);

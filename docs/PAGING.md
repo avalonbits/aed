@@ -62,12 +62,20 @@ flowchart LR
 
 [`doc_store`](../src/core/doc_store.h#L69) owns the two scratch files and offers four
 operations — push and pop at each end — plus a read for saving.
-[`store_init`](../src/core/doc_store.c#L109) creates them;
-[`store_head_push`](../src/core/doc_store.c#L225) and
-[`store_tail_pop`](../src/core/doc_store.c#L262) are the pair a downward slide uses.
+[`store_init`](../src/core/doc_store.c#L178) creates them;
+[`store_head_push`](../src/core/doc_store.c#L300) and
+[`store_tail_pop`](../src/core/doc_store.c#L337) are the pair a downward slide uses.
 
 Two files rather than one, because the two ends grow independently and a single
 file would need the middle moved every time either did.
+
+Named after the document, they belong to it alone. Two documents paging one
+file would share them, and since a store creates its files afresh, the second
+would empty the first's. So a file one document already pages is refused to
+another as `TB_IN_USE`: `doc_store` keeps the few stores that are open and
+answers [`store_live`](../src/core/doc_store.c#L144) from them, `tb_load` asks
+before paging, and `tb_open` asks before clearing anything, counting the
+document's own store as free.
 
 TAIL carries [`STORE_HEADROOM`](../src/core/doc_store.h#L67) — 64 KB of dead space in
 front of its text — so that text pushed back down has somewhere to go. That
@@ -247,7 +255,7 @@ flag, `tb_destroy` included, which would otherwise hand the original's memory
 back while the cursor that owns it is still reading.
 
 **Streaming** is for everything that has to see text outside the window.
-[`tbi_doc_stream()`](../src/core/text_buffer_io.c#L780) walks HEAD, then memory, then
+[`tbi_doc_stream()`](../src/core/text_buffer_io.c#L796) walks HEAD, then memory, then
 what is left of TAIL, feeding a sink. It reads only, so the window and the
 cursor stay where they are. Saving, searching, and measuring or copying a range
 all go through it.
@@ -265,7 +273,7 @@ Deleting a range is the exception. It is a mutation, so it settles as it goes.
 |---|---|---|
 | longest line | `TB_CHUNK` bytes, its line break included | a slide moves whole lines and can carry a whole chunk of them, so the longest line that fits is one whose break is the chunk's last byte |
 | largest file | 8 MB | `objsize` is 32 bits and this machine's `int` is 24, so a larger file narrows to a small or negative number and walks past a signed comparison |
-| open documents | one | the store is per document; a second would cost a second pair of scratch files and a second window |
+| open documents | AED one; a program three | each paged document holds two of the seven file handles MOS gives a program, plus its own window of memory; a file can be paged by only one of them at a time |
 
 The limit is the chunk rather than the window, and the difference is large: at
 the shipped size the window is 71,424 bytes and a slide carries 2,048, so a line
@@ -274,7 +282,7 @@ over. That follows from section 4 — a slide moves whole lines, and a chunk is
 all it moves.
 
 The check is at the front of the file, in
-[`tb_open`](../src/core/text_buffer_io.c#L633), because everything after it discards
+[`tb_open`](../src/core/text_buffer_io.c#L641), because everything after it discards
 what is on screen and a file that cannot be opened must leave the editor as it
 was. That catches the file that is one line from end to end, which is what a
 minified anything looks like. A long line further in gets past it, and the load

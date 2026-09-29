@@ -49,15 +49,19 @@ static void type(char ch, VKey vkey) {
     ed_handle(&ed, ed_translate(ed.keys_, kp));
 }
 
-/* Whether line 1 of `doc` starts with `want`. */
+/* Whether line 1 of `doc` starts with `want`. Compared before the cursor goes
+ * back: on a paged document going back can slide the window, and the line
+ * read is a pointer into it. */
 static int starts(document* doc, const char* want) {
     const tb_pos was = tb_tell(&doc->buf_);
     tb_seek(&doc->buf_, (tb_pos) { .line = 1, .x = 0 });
+    tb_settle(&doc->buf_);
     const split_line sl = tb_curr_line(&doc->buf_);
-    tb_seek(&doc->buf_, was);
     const int n = (int) strlen(want);
+    const int same = sl.ssz_ >= n && memcmp(sl.suffix_, want, (size_t) n) == 0;
+    tb_seek(&doc->buf_, was);
 
-    return sl.ssz_ >= n && memcmp(sl.suffix_, want, (size_t) n) == 0;
+    return same;
 }
 
 int main(void) {
@@ -152,6 +156,85 @@ int main(void) {
         check("closing it takes them away",
               stub_file_exists("big.txt.aedh") || stub_file_exists("big.txt.aedt"), 0);
         check("  and leaves the others open", starts(&b, "xint b;"), 1);
+    }
+
+    /* --- one large file in two documents --- */
+    {
+        /* Paged, its text past memory lives in scratch files named after it,
+         * so a second document on it would take those files from the first.
+         * The second is refused, and the first keeps every line and saves
+         * whole. */
+        static char big[20000];
+        int n = 0;
+        int lines = 0;
+        while (n + 40 < (int) sizeof(big)) {
+            n += sprintf(big + n, "line %04d of a big file, again\r\n", ++lines);
+        }
+        stub_file_add("same.txt", big, n);
+        static document s1;
+        static document s2;
+        static view v1;
+        static view v2;
+        check("a big file opens in one document",
+              ed_doc_open(&ed, &s1, &v1, 4, "same.txt"), TB_OK);
+        check("the same file in a second is refused",
+              ed_doc_open(&ed, &s2, &v2, 4, "same.txt"), TB_IN_USE);
+        check("  and the first is still current", ed.doc_ == &s1 ? 1 : 0, 1);
+
+        char want[40];
+        sprintf(want, "line %04d", lines);
+        tb_seek(&s1.buf_, (tb_pos) { .line = lines, .x = 0 });
+        tb_settle(&s1.buf_);
+        split_line sl = tb_curr_line(&s1.buf_);
+        check("  its last line is still there",
+              sl.ssz_ >= 9 && memcmp(sl.suffix_, want, 9) == 0 ? 1 : 0, 1);
+        check("  and its first", starts(&s1, "line 0001"), 1);
+
+        /* Opening it over another document is refused too, before anything
+         * of that document is cleared; over its own, it is only a reload. */
+        check("the same file opened over another document is refused",
+              tb_open(&b.buf_, "same.txt", 8), TB_IN_USE);
+        check("  leaving that document as it was", starts(&b, "xint b;"), 1);
+        check("  but over its own document it reloads",
+              tb_open(&s1.buf_, "same.txt", 8), TB_OK);
+        check("  still whole", starts(&s1, "line 0001"), 1);
+
+        /* CTRL+O says so rather than clearing the document it was asked
+         * over: b has unsaved work, so it is asked about that first ("n"),
+         * then the prefilled name is cleared and the busy one typed. */
+        ed_doc_show(&ed, &b, &vb);
+        static stub_key script[16];
+        int k = 0;
+        script[k++] = (stub_key) { 'n', 49, 0, 0 };
+        for (int i = 0; i < 3; i++) {
+            script[k++] = (stub_key) { 0x7F, VK_BACKSPACE, 0, 0 };
+        }
+        for (const char* c = "same.txt"; *c != 0; c++) {
+            script[k++] = (stub_key) { *c, 1, 0, 0 };
+        }
+        script[k++] = (stub_key) { 13, VK_RETURN, 0, 0 };
+        script[k++] = (stub_key) { 'm', 34, 0, 0 };  /* for the message */
+        stub_set_keys(script, k);
+        cmd_open(&ed);
+        check("CTRL+O on the busy file says so, waiting for a key",
+              stub_keys_read(), k);
+        check("CTRL+O on the busy file leaves the document as it was",
+              starts(&b, "xint b;"), 1);
+        check("  named as before", strcmp(tb_fname(&b.buf_), "b.c"), 0);
+        ed_doc_show(&ed, &s1, &v1);
+
+        /* And it saves the whole file, the part past memory with it. */
+        tb_seek(&s1.buf_, (tb_pos) { .line = 1, .x = 0 });
+        tb_put(&s1.buf_, '#');
+        check("it saves", tb_save(&s1.buf_) ? 1 : 0, 1);
+        int len = 0;
+        const char* saved = stub_file_content("same.txt", &len);
+        check("  every byte of it, with the edit",
+              len == n + 1 && saved != NULL && saved[0] == '#'
+              && memcmp(saved + 1, big, (size_t) n) == 0 ? 1 : 0, 1);
+
+        ed_doc_show(&ed, &b, &vb);
+        ed_doc_close(&s1);
     }
 
     /* Taken down with another document current: the editor takes its own

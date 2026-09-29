@@ -1530,6 +1530,9 @@ void cmd_open(editor* ed) {
         case TB_NO_FILE:
             ui_message(ui, scr, "Cannot open file");
             return;
+        case TB_IN_USE:
+            ui_message(ui, scr, "Already open in another document");
+            return;
         case TB_OK:
             break;
     }
