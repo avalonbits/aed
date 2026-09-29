@@ -387,6 +387,9 @@ screen *scr_init(screen* scr, char cursor) {
     scr->footerDrawn_ = false;
     scr->selFrom_ = 0;
     scr->selTo_ = 0;
+    scr->title_ = NULL;
+    scr->header_ = NULL;
+    scr->headerCtx_ = NULL;
     scr->theme_ = NULL;
     scr->colour_ = NULL;
     scr->cellColour_ = NULL;
@@ -1060,28 +1063,61 @@ void scr_footer(screen* scr, char* fname, bool dirty, int x, int y) {
     scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
 }
 
-char* title = "AED: Another Text Editor";
-void scr_clear(screen* scr) {
-    // The footer goes with everything else, so it has to be drawn again.
-    scr->footerDrawn_ = false;
-    vdp_clear_screen();
-    vdp_cursor_home();
-    vdp_cursor_tab(0,0);
+void scr_set_title(screen* scr, const char* title) {
+    scr->title_ = title;
+}
+
+void scr_set_header(screen* scr, void (*draw)(screen* scr, void* ctx), void* ctx) {
+    scr->header_ = draw;
+    scr->headerCtx_ = ctx;
+}
+
+/*
+ * The header row, drawn from column 0: the program's own, when it has given
+ * one, or its title centred in a rule. The cursor is wherever this leaves it,
+ * which the callers put right.
+ */
+static void draw_header(screen* scr) {
+    vdp_cursor_tab(0, 0);
+    if (scr->header_ != NULL) {
+        scr->header_(scr, scr->headerCtx_);
+        out_flush();
+        set_colours(scr->fg_, scr->bg_);
+
+        return;
+    }
     // Split the remainder rather than halving it twice: an odd number of spare
     // columns would otherwise lose one, leaving the header a column short of
     // the bar it is supposed to span -- and now that the text area reaches the
     // column before the bar's last, that shortfall is visible as text sticking
     // out past the rule above it.
-    const int len = strlen(title);
+    const char* title = scr->title_ != NULL ? scr->title_ : "";
+    int len = (int) strlen(title);
+    if (len > scr->barW_) {
+        len = scr->barW_;
+    }
     const int spare = scr->barW_ - len;
     const int left = spare / 2;
     const int right = spare - left;
     out_run('-', left);
     set_colours(scr->bg_, scr->fg_);
-    out_str(title, strlen(title));
+    out_str(title, len);
     set_colours(scr->fg_, scr->bg_);
     out_run('-', right);
     out_flush();
+}
+
+void scr_header_draw(screen* scr) {
+    draw_header(scr);
+    scr_tab(scr, scr->v_->currX_, scr->v_->currY_);
+}
+
+void scr_clear(screen* scr) {
+    // The footer goes with everything else, so it has to be drawn again.
+    scr->footerDrawn_ = false;
+    vdp_clear_screen();
+    vdp_cursor_home();
+    draw_header(scr);
     scr->v_->currX_ = 0;
     scr->v_->currY_ = scr->v_->topY_;
     scr->v_->originX_ = 0;

@@ -258,6 +258,7 @@ static const char* aed_apply_settings(editor* ed) {
 
 static const ed_program AED_PROGRAM = {
     &AED_APP, &AED_KEYS, aed_apply_settings, aed_banner,
+    "AED: Another Text Editor",
 };
 
 editor* ed_init(editor* ed, int mem_kb, const char* fname) {

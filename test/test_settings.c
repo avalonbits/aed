@@ -326,6 +326,7 @@ int main(void) {
         stub_set_screen(80, 60);
         stub_set_cell(8, 8);
         scr_init(&scr, 32);
+        scr_set_title(&scr, "AED: Another Text Editor");    /* as AED's is */
         ui_init(&ui, 256, scr.v_->bottomY_, scr.v_->cols_);
         stub_set_dir(DIR_NAMES, DIR_SIZES, 5);
 

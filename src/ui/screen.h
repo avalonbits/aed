@@ -118,6 +118,12 @@ typedef struct _screen {
 
     char tab_size_;
 
+    // What the header row says: the program's title, centred in a rule, or
+    // what the program draws there itself -- see scr_set_header.
+    const char* title_;
+    void (*header_)(struct _screen* scr, void* ctx);
+    void* headerCtx_;
+
     // The view the screen paints into: its rectangle, cursor and scroll. It
     // starts as whole_, the text area of the whole screen, laid out from the
     // mode and font. A front end showing more than one view points it at each
@@ -184,6 +190,23 @@ screen* scr_init(screen* scr, char cursor);
 // so it must outlive its use; a font or mode change lays out whole_ again and
 // leaves any other view to its owner.
 void scr_set_view(screen* scr, view* v);
+
+/*
+ * The header row, the first on the screen, is the program's.
+ *
+ * scr_set_title gives it a title, drawn centred in a rule each time the screen
+ * is cleared; NULL leaves the rule on its own. scr_set_header hands the row
+ * over instead: `draw` is called with the text cursor at column 0 of it, to
+ * write barW_ columns of its own -- a menu bar, say -- and is called in place
+ * of the title from then on; NULL gives the row back to the title. Neither is
+ * copied, so both must outlive their use.
+ *
+ * scr_header_draw draws the row again now, without clearing anything, and
+ * puts the cursor back where it was: for a program whose header has changed.
+ */
+void scr_set_title(screen* scr, const char* title);
+void scr_set_header(screen* scr, void (*draw)(screen* scr, void* ctx), void* ctx);
+void scr_header_draw(screen* scr);
 
 // A view of the whole screen's text area, with its cursor and scroll at the
 // start: what a document opened full-screen is shown in.
