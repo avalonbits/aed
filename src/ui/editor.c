@@ -611,6 +611,67 @@ void ed_cmd_quit(editor* ed) {
     }
 }
 
+#define C MOD_CTRL
+#define OWN KC_OWNS_SEL
+
+// Both cases of a letter: MOS reports the shifted one when SHIFT is held.
+#define LETTER(lo, up, mods, flags, cmd) \
+    { lo, mods, flags, cmd }, { up, mods, flags, cmd }
+
+static const key_binding ED_BINDINGS[] = {
+    // With CTRL.
+    { VK_LEFT,      C, 0, cmd_w_left },
+    { VK_KP_LEFT,   C, 0, cmd_w_left },
+    { VK_RIGHT,     C, 0, cmd_w_right },
+    { VK_KP_RIGHT,  C, 0, cmd_w_right },
+    { VK_DELETE,    C, 0, cmd_del_line },
+    { VK_KP_DELETE, C, 0, cmd_del_line },
+    LETTER(VK_d, VK_D, C, 0, cmd_del_line),
+    { VK_HOME,      C, 0, cmd_doc_top },
+    { VK_KP_HOME,   C, 0, cmd_doc_top },
+    { VK_END,       C, 0, cmd_doc_end },
+    { VK_KP_END,    C, 0, cmd_doc_end },
+    LETTER(VK_c, VK_C, C, OWN, cmd_copy),
+    LETTER(VK_g, VK_G, C, 0, cmd_goto),
+    LETTER(VK_a, VK_A, C, OWN, cmd_select_all),
+    LETTER(VK_x, VK_X, C, OWN, cmd_cut),
+    LETTER(VK_f, VK_F, C, OWN, cmd_find),
+    LETTER(VK_n, VK_N, C, OWN, cmd_find_next),
+    LETTER(VK_p, VK_P, C, OWN, cmd_find_prev),
+    LETTER(VK_z, VK_Z, C, 0, cmd_undo),
+    LETTER(VK_y, VK_Y, C, 0, cmd_redo),
+    LETTER(VK_v, VK_V, C, OWN, cmd_paste),
+
+    // Without it.
+    { VK_LEFT,      0, 0, cmd_left },
+    { VK_KP_LEFT,   0, 0, cmd_left },
+    { VK_RIGHT,     0, 0, cmd_right },
+    { VK_KP_RIGHT,  0, 0, cmd_right },
+    { VK_BACKSPACE, 0, 0, cmd_bksp },
+    { VK_DELETE,    0, 0, cmd_del },
+    { VK_KP_DELETE, 0, 0, cmd_del },
+    { VK_HOME,      0, 0, cmd_home },
+    { VK_KP_HOME,   0, 0, cmd_home },
+    { VK_END,       0, 0, cmd_end },
+    { VK_KP_END,    0, 0, cmd_end },
+    { VK_RETURN,    0, 0, cmd_newl },
+    { VK_KP_ENTER,  0, 0, cmd_newl },
+    { VK_UP,        0, 0, cmd_up },
+    { VK_KP_UP,     0, 0, cmd_up },
+    { VK_DOWN,      0, 0, cmd_down },
+    { VK_KP_DOWN,   0, 0, cmd_down },
+    { VK_PAGEUP,    0, 0, cmd_page_up },
+    { VK_PAGEDOWN,  0, 0, cmd_page_down },
+};
+
+#undef LETTER
+#undef OWN
+#undef C
+
+const keymap ED_KEYS = {
+    ED_BINDINGS, (int) (sizeof(ED_BINDINGS) / sizeof(ED_BINDINGS[0])), NULL,
+};
+
 key_command ed_translate(const keymap* km, key_press kp) {
     key_command kc = {NULL, {'\0', VK_NONE}, 0, 0};
 

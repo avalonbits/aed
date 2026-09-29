@@ -162,12 +162,22 @@ typedef struct _keymap {
     const key_binding* keys;
     int n;
     // Asked when nothing here matches, so a program can put a few keys of its
-    // own in front of AED_KEYS rather than copying it. NULL ends the chain.
+    // own in front of ED_KEYS rather than copying it. NULL ends the chain.
     const struct _keymap* next;
 } keymap;
 
-// Two of AED's commands, bound in AED_KEYS: saving, and leaving -- which
-// asks about unsaved changes and, if the answer is to go, stops the loop.
+/*
+ * The editor's own keys: moving by character, word, line, page and document,
+ * editing, deleting a line, selecting, the clipboard, finding, going to a line,
+ * undo and redo. A program puts its keys in front of these with its keymap's
+ * `next` -- AED's are its files, leaving, help and settings -- and gets
+ * everything else as AED has it.
+ */
+extern const keymap ED_KEYS;
+
+// Saving, and leaving -- which asks about unsaved changes and, if the answer
+// is to go, stops the loop. ED_KEYS binds neither: which keys save and quit is
+// the program's choice. AED's are CTRL+S and CTRL+Q.
 void ed_cmd_save(editor* ed);
 void ed_cmd_quit(editor* ed);
 

@@ -178,6 +178,25 @@ int main(void) {
         ed.keys_ = &AED_KEYS;
     }
 
+    /* --- AED's keys in front of the editor's --- */
+    {
+        /* AED's own table holds its files, leaving, help and settings, both
+         * cases of each, and hands everything else to ED_KEYS. */
+        check("AED's own table holds its six keys, in both cases", AED_KEYS.n, 12);
+        check("  and goes on to the editor's", AED_KEYS.next == &ED_KEYS ? 1 : 0, 1);
+
+        /* Every key the editor binds means the same through AED's keys: none
+         * of AED's own is in the way of one. */
+        int same = 0;
+        for (int i = 0; i < ED_KEYS.n; i++) {
+            const key_binding* b = &ED_KEYS.keys[i];
+            const key_command via = meaning(&AED_KEYS, 0, b->vkey, b->mods);
+            same += via.cmd == b->cmd && (via.flags & KC_OWNS_SEL)
+                                         == (b->flags & KC_OWNS_SEL);
+        }
+        check("every editor key means the same through AED's", same, ED_KEYS.n);
+    }
+
     /* --- leaving --- */
     {
         /* The document has changed, so CTRL+Q asks first. ESC is cancel. */
