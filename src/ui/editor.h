@@ -123,6 +123,10 @@ void ed_doc_show(editor* ed, document* doc, view* v);
  * sideways to show the column. Nothing is drawn, so a program restoring
  * several documents places each and then shows one, with one paint. Showing
  * the document with ed_doc_show then paints it where it was put.
+ *
+ * Placing the document on screen moves its cursor and scroll the same way,
+ * and still draws nothing: the screen shows the old place until the caller
+ * repaints -- ed_doc_show, or cmd_restore_after_modal.
  */
 void ed_doc_place(editor* ed, document* doc, view* v, int line, int x);
 void ed_doc_close(document* doc);
