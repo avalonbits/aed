@@ -1148,14 +1148,40 @@ void cmd_undo(editor* ed) {
 // instead of hunting the screen for a cursor that could be anywhere. Near the
 // top of a document there is not enough above it to centre against, and then it
 // sits as low as the lines available allow.
+//
+// The row is worked out here, for the view on screen and for one that is not
+// -- ed_doc_place -- so the two cannot come to disagree.
+static char centre_row(const view* v, int line) {
+    int y = v->topY_ + (v->bottomY_ - v->topY_) / 2;
+    if (y - v->topY_ > line - 1) {
+        y = v->topY_ + line - 1;
+    }
+
+    return (char) y;
+}
+
 static void centre_line(editor* ed, int line) {
     SCR(ed);
 
-    int y = scr->v_->topY_ + (scr->v_->bottomY_ - scr->v_->topY_) / 2;
-    if (y - scr->v_->topY_ > line - 1) {
-        y = scr->v_->topY_ + line - 1;
-    }
-    scr->v_->currY_ = (char) y;
+    scr->v_->currY_ = centre_row(scr->v_, line);
+}
+
+void ed_doc_place(editor* ed, document* doc, view* v, int line, int x) {
+    SCR(ed);
+    text_buffer* tb = &doc->buf_;
+
+    tb_seek(tb, (tb_pos) { .line = line, .x = x });
+    tb_settle(tb);
+
+    // The screen's cursor arithmetic works on the view it points at, so it
+    // points at this one for as long as that takes. Nothing is drawn.
+    view* was = scr->v_;
+    scr_set_view(scr, v);
+    v->currY_ = centre_row(v, tb_ypos(tb));
+    int psz = 0;
+    char* prefix = tb_prefix(tb, &psz);
+    scr_place_cursor(scr, prefix, psz);
+    scr_set_view(scr, was);
 }
 
 // Jumps to a match, centres it, and leaves it selected.
@@ -1572,10 +1598,15 @@ void cmd_restore_after_modal(editor* ed, bool moved) {
 
     const char currX = scr->v_->currX_;
     const char currY = scr->v_->currY_;
+    // The sideways scroll goes back with the cursor's column, which is counted
+    // from it: the clear resets it to the start of the line, and a column kept
+    // without it puts the cursor over the wrong character of a long line.
+    const int originX = scr->v_->originX_;
     const char ch = tb_peek(tb);
 
     scr_clear(scr);
     scr->v_->currX_ = currX;
+    scr->v_->originX_ = originX;
     if (moved) {
         centre_line(ed, tb_ypos(tb));
     } else {
