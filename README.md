@@ -187,12 +187,14 @@ font = /config/aed/unscii8x10.bin
 
 | file | cell | screen | |
 |---|---|---|---|
-| `unscii8.bin` | 8x8 | 80x60 | unscii as published: better letterforms than the stock font, but the lines still touch |
+| `unscii8.bin` | 8x8 | 80x60 | unscii: better letterforms than the stock font, but the lines still touch |
 | `unscii8x10.bin` | 8x10 | 80x48 | the same with two blank rows added, so the lines do not touch |
 | `unscii16.bin` | 8x16 | 80x30 | unscii-16, drawn at sixteen rows, with the gap already in it |
 
-unscii is by Viznut and is public domain. See `fonts/README.md` for how the
-padded one is produced and why it exists.
+All three hold the same characters in the same places as the stock font --
+line drawing, blocks, the euro and the rest -- so text written for the stock
+font reads the same in any of them. unscii is by Viznut and is public domain.
+See `fonts/README.md` for how they are built and why the padded one exists.
 
 The file is a raw bitmap and has no header: 256 glyphs, 8 pixels wide, one byte
 per row, lowest character first. **The height is the file size divided by 256**,

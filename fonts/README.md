@@ -14,7 +14,7 @@ main README.
 
 | file | cell | screen | |
 |---|---|---|---|
-| `unscii8.bin` | 8x8 | 80x60 | unscii as published. Better letterforms than the stock font, but the lines still touch. |
+| `unscii8.bin` | 8x8 | 80x60 | unscii, laid out like the stock font. Better letterforms than the stock font, but the lines still touch. |
 | `unscii8x10.bin` | 8x10 | 80x48 | the same, with two blank rows added. Two rows of gap between lines. |
 | `unscii16.bin` | 8x16 | 80x30 | unscii-16, drawn at sixteen rows. Needs no padding: descenders end on row 15 and capitals start on row 2, so the gap is already there. |
 
@@ -42,10 +42,24 @@ python3 pad.py unscii8.bin unscii8x10.bin 2
 unscii, by Viznut, from <http://viznut.fi/unscii/>. **Public domain (CC0)**,
 stated in the font sources themselves.
 
-These are the first 256 code points of `unscii-8.hex` and `unscii-16.hex`,
-converted to the raw form the VDP wants: 256 glyphs, 8 pixels wide, one byte per
-row, no header, lowest character first. The height is the file size divided by
-256, which is how AED works it out -- there is nothing in the file to say.
+The sources, `src/unscii-8.hex` and `src/unscii-16.hex`, are as published.
+`build.py` turns each into the raw form the VDP wants: 256 glyphs, 8 pixels
+wide, one byte per row, no header, lowest character first. The height is the
+file size divided by 256, which is how AED works it out -- there is nothing in
+the file to say.
+
+```
+python3 build.py src/unscii-8.hex unscii8.bin
+python3 build.py src/unscii-16.hex unscii16.bin
+```
+
+unscii is indexed by Unicode, and the Agon's stock font is not, so each byte
+gets unscii's glyph for the character the stock font draws there: Windows-1252
+in 128-255, the teletext block, arrows and double bar in the five slots
+Windows-1252 leaves empty, a copyright sign at 127, and box drawing, shades and
+card suits in 0-31. Text written for the stock font then reads the same in any
+of these. unscii has no low or single angle quotes, so `build.py` makes those
+four from its comma, closing quotes and double angle quotes.
 
 `unscii-8-tall.hex` is deliberately not here. It is `unscii-8` with every row
 emitted twice -- verified byte for byte, all 256 glyphs -- so it is 8x16 in cell
