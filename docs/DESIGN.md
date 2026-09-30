@@ -86,9 +86,10 @@ sections below follow them:
 | [`undo.c`](../src/core/undo.c) | the record log | 7 |
 | [`clipboard.c`](../src/core/clipboard.c) | copy, cut, paste, and spilling to a file | 7 |
 | [`config.c`](../src/core/config.c) | the settings engine: any program's INI settings, by schema | 8 |
-| [`aed_config.c`](../src/aed_config.c) | AED's settings, and how a fresh file reads | 8 |
+| [`settings.c`](../src/ui/settings.c) | the editor's settings: applying them, their screen, a fresh file | 8 |
+| [`aed_config.c`](../src/aed_config.c) | AED's settings schema, naming AED in a fresh file | 8 |
 | [`aed.c`](../src/aed.c) | AED's files, keys, start-up, and its help and settings commands | 1, 8 |
-| [`aed_ui.c`](../src/aed_ui.c) | AED's help screen, banner and settings modal | 2, 8 |
+| [`aed_ui.c`](../src/aed_ui.c) | AED's help screen and banner | 2, 8 |
 | [`ini.c`](../src/core/ini.c) | the INI reader the settings, grammars and themes share | 8 |
 | [`bootfont.c`](../src/ui/bootfont.c) | which font the machine booted into | 8 |
 | [`conv.c`](../src/ui/conv.c) | character conversions | — |
@@ -137,7 +138,7 @@ flowchart TD
 ```
 
 [`main()`](../src/main.c#L24) ·
-[`ed_init()`](../src/aed.c#L264) ·
+[`ed_init()`](../src/aed.c#L114) ·
 [`ed_init_for()`](../src/ui/editor.c#L329) ·
 [`ed_run()`](../src/ui/editor.c#L628) ·
 [`ed_translate()`](../src/ui/editor.c#L743) ·
@@ -471,9 +472,15 @@ copying between files works.
 does not recognise are skipped and preserved, so the file stays readable by
 older and newer versions alike. Which settings there are is a schema the program
 hands it: each setting's section and name, and where its value lives in the
-program's own struct, with a function that writes a fresh file. AED's is
-[`aed_config.c`](../src/aed_config.c), so the engine names nothing of AED's
-and another program brings its own.
+program's own struct, with a function that writes a fresh file.
+
+The settings themselves -- tab width, colours, a font, the VDP's pause on a
+wrapped line -- are the editor's, so any program built on it has them:
+[`settings.c`](../src/ui/settings.c) in libedui holds the list, a fresh file,
+applying them at start-up and the screen that changes them. A program makes a
+schema from that list with a render that names it, and hands it over; AED's is
+[`aed_config.c`](../src/aed_config.c). Neither the engine nor the library names
+anything of AED's, and each program writes its own file.
 
 Fonts are the awkward part. The VDP's font API arrived in Console8 VDP 2.8.0 and
 MOS cannot report the VDP version, so **uncommenting the setting is the
