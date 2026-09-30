@@ -44,6 +44,7 @@ typedef enum _tok_class {
     TOK_PREPROC,        // keyword.control.preprocessor
     TOK_LABEL,          // entity.name.*
     TOK_OPERATOR,       // keyword.operator, punctuation.*
+    TOK_VARIABLE,       // variable.*
     TOK_N               // how many there are; not a class
 } tok_class;
 
@@ -223,6 +224,10 @@ typedef struct _syntax {
     char exts[SYN_EXTS_MAX];    // ".c .h autoexec.txt", as written
     char wordchars[SYN_WORDCHARS_MAX];
     bool nocase;
+    // The class of a word no rule claims -- a label name, a variable -- from
+    // the grammar's `other` rule, or TOK_TEXT when it has none. A word, so it
+    // leaves the spaces and brackets around it the document's own colour.
+    char other;
     syn_rule rules[SYN_MAX_RULES];
     int nrules;
     char words[SYN_WORDS_MAX];  // every word set, packed and NUL-terminated

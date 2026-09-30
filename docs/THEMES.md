@@ -86,6 +86,7 @@ either way loads.
 | `preproc` | preprocessor directives |
 | `label` | labels and other declared names |
 | `operator` | operators and punctuation |
+| `variable` | words a grammar's `other` rule claims: names, labels jumped to |
 
 Each value is an Agon colour number. **A name AED does not recognise is
 skipped**, and so is a value that is not a number, so a theme written for a
@@ -173,7 +174,7 @@ tried. That is deliberate — there is nowhere useful to report to on this machi
    See [`SYNTAX.md`](SYNTAX.md).
 
 A theme that loads but colours nothing usually has its colour names wrong — they
-are the nine in section 4, not scope names like `comment.line`.
+are the ten in section 4, not scope names like `comment.line`.
 
 ## 8. The limits
 
@@ -182,5 +183,5 @@ are the nine in section 4, not scope names like `comment.line`.
 | file size | 1,024 bytes, comments included |
 | `name` | 15 characters |
 | `covers` | 16 backgrounds, each 0 to 63 |
-| classes | the nine in section 4 |
+| classes | the ten in section 4 |
 | themes in the directory | no limit; the first match wins |

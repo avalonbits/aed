@@ -363,6 +363,16 @@ bool syn_covers(const syntax* g, const char* fname) {
     return false;
 }
 
+// How long the verb at the start of a value is: `span "/*" "*/"` gives 4.
+static int verb_len(const char* v, int len) {
+    int n = 0;
+    while (n < len && v[n] != ' ' && v[n] != '\t') {
+        n++;
+    }
+
+    return n;
+}
+
 // The rest of a value after the verb, trimmed. `eol //` leaves `//`.
 static int after_verb(const char* v, int len, int at) {
     while (at < len && (v[at] == ' ' || v[at] == '\t')) {
@@ -610,6 +620,19 @@ bool syn_load(syntax* g, const char* path) {
                     }
                 }
             } else if (ln.kind == LINE_SETTING && in_match && pass == 1) {
+                /*
+                 * `other` is a rule about the words every other rule passed
+                 * over, so it is no rule at all: it would have to lose to each
+                 * of them wherever it sat in the list. It is kept as the
+                 * grammar's answer for a word nothing claimed instead, and
+                 * spends none of the rules' bits -- nor counts against them.
+                 */
+                if (ini_name_is(ln.value, verb_len(ln.value, ln.valuelen),
+                                "other")) {
+                    g2.other = (char) syn_class_of(ln.name, ln.namelen);
+                    at = end + 1;
+                    continue;
+                }
                 if (g2.nrules >= SYN_MAX_RULES) {
                     at = end + 1;
                     continue;
@@ -618,13 +641,10 @@ bool syn_load(syntax* g, const char* path) {
                 memset(r, 0, sizeof(*r));
                 r->cls = (char) syn_class_of(ln.name, ln.namelen);
 
-                int vat = 0;
-                while (vat < ln.valuelen && ln.value[vat] != ' '
-                       && ln.value[vat] != '\t') {
-                    vat++;
-                }
+                int vat = verb_len(ln.value, ln.valuelen);
                 int found = -1;
-                for (int k = 0; k < 6; k++) {
+                for (int k = 0; k < (int) (sizeof(VERBS) / sizeof(VERBS[0]));
+                     k++) {
                     if (ini_name_is(ln.value, vat, VERBS[k].name)) {
                         found = k;
                         break;
@@ -862,8 +882,13 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
             // Nothing claimed this byte. A whole word goes at once so that the
             // next position is a boundary again, which is what lets the word
             // rules trust `is_word(g, line[at - 1])`.
+            cls = TOK_TEXT;
             if (wstart) {
                 took = wend - at;
+                // Unless it is the digits of a number the grammar gave no rule.
+                if (!is_digit(c0)) {
+                    cls = (tok_class) g->other;
+                }
             } else {
                 /*
                  * Neither a word nor a byte any rule could begin at, and
@@ -887,7 +912,6 @@ int syn_lex(const syntax* g, const char* line, int len, int in,
                 }
                 took = e - at;
             }
-            cls = TOK_TEXT;
         }
         if (c0 != ' ' && c0 != '\t') {
             at_line_start = false;
