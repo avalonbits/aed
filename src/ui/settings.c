@@ -41,7 +41,8 @@ const cfg_setting ED_SETTINGS[] = {
     { "editor",  "font", CFG_STR, offsetof(ed_settings, font), CFG_FONT_MAX,
       offsetof(ed_settings, font_none) },
 };
-_Static_assert(sizeof(ED_SETTINGS) / sizeof(ED_SETTINGS[0]) == ED_SETTINGS_COUNT,
+_Static_assert(sizeof(ED_SETTINGS) / sizeof(ED_SETTINGS[0])
+               == ED_SETTINGS_COUNT,
                "ED_SETTINGS_COUNT is how many settings there are");
 
 /*
@@ -52,20 +53,23 @@ _Static_assert(sizeof(ED_SETTINGS) / sizeof(ED_SETTINGS[0]) == ED_SETTINGS_COUNT
  * and that example name the program, which is the only thing that differs
  * from one program's file to another's.
  */
-int ed_settings_render(const void* values, const char* name, const char* font_dir,
-                       char* buf, int max) {
+int ed_settings_render(const void* values, const char* name,
+                       const char* font_dir, char* buf, int max) {
     const ed_settings* cfg = (const ed_settings*) values;
     int at = cfg_put_text(buf, 0, max, "# ");
     at = cfg_put_text(buf, at, max, name);
     at = cfg_put_text(buf, at, max,
         " settings.\r\n"
         "#\r\n"
-        "# An INI file: [section] headings, then name = value lines. Blank lines\r\n"
-        "# are ignored and '#' or ';' starts a comment. Sections and settings ");
+        "# An INI file: [section] headings, then name = value lines. "
+        "Blank lines\r\n"
+        "# are ignored and '#' or ';' starts a comment. "
+        "Sections and settings ");
     at = cfg_put_text(buf, at, max, name);
     at = cfg_put_text(buf, at, max,
         "\r\n"
-        "# does not recognise are skipped, so this file stays readable by older and\r\n"
+        "# does not recognise are skipped, so this file stays readable "
+        "by older and\r\n"
         "# newer versions alike. Edit and restart ");
     at = cfg_put_text(buf, at, max, name);
     at = cfg_put_text(buf, at, max, " to apply.\r\n");
@@ -138,9 +142,9 @@ const char* ed_settings_apply(editor* ed, const cfg_schema* sc) {
     // range values, so a bad number in the file falls back rather than
     // rejecting the file -- there is nowhere useful to report an error to.
     //
-    // On first run there is no file. Write one holding what the editor is starting
-    // with, including the colours it just measured off the Agon, so the user
-    // has something to edit instead of a format to guess at.
+    // On first run there is no file. Write one holding what the editor is
+    // starting with, including the colours it just measured off the Agon, so
+    // the user has something to edit instead of a format to guess at.
     const char* say = NULL;
 
     ed_settings cfg;
@@ -240,13 +244,13 @@ static bool ask_number(user_input* ui, screen* scr, char* title, int cur,
     return true;
 }
 
-static RESPONSE settings_modal(user_input* ui, screen* scr, const cfg_schema* sc,
-                               ed_settings* cfg) {
-    // What the editor is using now, which is what the rows show until something is
-    // changed. `cfg` itself is left holding only the changes: it is written
-    // back with cfg_update, which copies through every setting it is not told
-    // about, and telling it about one the reader never touched would rewrite a
-    // line they had left alone.
+static RESPONSE settings_modal(user_input* ui, screen* scr,
+                               const cfg_schema* sc, ed_settings* cfg) {
+    // What the editor is using now, which is what the rows show until
+    // something is changed. `cfg` itself is left holding only the changes: it
+    // is written back with cfg_update, which copies through every setting it
+    // is not told about, and telling it about one the reader never touched
+    // would rewrite a line they had left alone.
     const int tab_now = scr_tab_size(scr);
     const int fg_now = scr_base_fg(scr);
     const int bg_now = scr_base_bg(scr);

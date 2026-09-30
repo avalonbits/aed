@@ -84,9 +84,13 @@ extern const cfg_setting ED_SETTINGS[];
 
 // A fresh settings file for `values`, an ed_settings, into buf: a header
 // naming the program as `name`, then each section with what it is for. The
-// font is shown as a commented example in `font_dir`. For a schema's render.
-int ed_settings_render(const void* values, const char* name, const char* font_dir,
-                       char* buf, int max);
+// font is shown as a commented example in `font_dir`, which should be the
+// program's app_context.font_dir: it is passed rather than read from the app
+// so that a render needs nothing set up to run -- a schema's render takes no
+// editor, and the golden test renders with no app at all. For a schema's
+// render.
+int ed_settings_render(const void* values, const char* name,
+                       const char* font_dir, char* buf, int max);
 
 /*
  * The settings, read from the program's file and applied as soon as the
