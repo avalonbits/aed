@@ -108,7 +108,9 @@ screen -- its text, undo log, grammar, syntax window and selection --
 is a [`document`](../src/core/document.h), the part of it the core knows about.
 The editor works on the one its `doc_` points at: its own, `home_`, which is the
 only one AED ever has. A program with several open keeps them and a view for
-each, and switches with `ed_doc_open` and `ed_doc_show`.
+each, and switches with `ed_doc_open` and `ed_doc_show`; `ed_doc_place`
+puts a document's cursor and view somewhere without drawing, so several can be
+set and only the one shown is painted.
 
 It is a `static` local rather than an ordinary one, which is a placement rather
 than a change of ownership -- no other translation unit can name it. The editor
