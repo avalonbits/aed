@@ -13,13 +13,14 @@ format is what it is.
 
 * [1. The shortest grammar that works](#1-the-shortest-grammar-that-works)
 * [2. `[syntax]`](#2-syntax)
-* [3. `[match]`, and the six verbs](#3-match-and-the-six-verbs)
+* [3. `[match]`, and the seven verbs](#3-match-and-the-seven-verbs)
     * [3a. `eol`](#3a-eol)
     * [3b. `span`](#3b-span)
     * [3c. `words`](#3c-words)
     * [3d. `bol`](#3d-bol)
     * [3e. `number`](#3e-number)
     * [3f. `label`](#3f-label)
+    * [3g. `other`](#3g-other)
 * [4. Order matters](#4-order-matters)
 * [5. Scope names](#5-scope-names)
 * [6. Case, and what a word is](#6-case-and-what-a-word-is)
@@ -85,7 +86,7 @@ them the extension and not the other.
 A file with no extension is claimed only by name, and a dot in a directory name
 is never an extension.
 
-## 3. `[match]`, and the six verbs
+## 3. `[match]`, and the seven verbs
 
 Every line in `[match]` is one rule:
 
@@ -175,6 +176,24 @@ A word at the very start of a line — no literal, and no argument. Assembly put
 labels in the first column and nothing else, so this is the whole rule. A line
 starting with a digit is not a label.
 
+### 3g. `other`
+
+```ini
+variable.other = other
+```
+
+Every word that no other rule claimed: the label names a `GOTO` jumps to, the
+variables, anything the grammar does not list. Without it they stay in the
+document's own colour, the same as the spaces and brackets around them — and a
+theme's `text` colour would move those too. `other` colours the words alone.
+
+It never competes with the other rules, so it can sit anywhere in `[match]`
+and does not count towards the limit of 12. A word starting with a digit is left
+alone, since that is a number without a `number` rule. Any scope will do:
+`variable.other` takes the theme's `variable` colour, and `entity.name.label =
+other` would give the words the label colour instead. A grammar with two
+`other` lines uses the last.
+
 ## 4. Order matters
 
 **Rules are tried in order, and the first to match at a position wins.**
@@ -197,7 +216,7 @@ as a keyword in the middle of a comment.
 ## 5. Scope names
 
 The name on the left of each rule is a **TextMate scope name** — the same
-vocabulary TextMate, VS Code and Sublime use. AED collapses it onto one of nine
+vocabulary TextMate, VS Code and Sublime use. AED collapses it onto one of ten
 classes by its **first component**, so you do not have to know AED's list to
 write a rule that works:
 
@@ -211,6 +230,7 @@ write a rule that works:
 | `support.` | type | `type` |
 | `entity.` | label | `label` |
 | `punctuation.` | operator | `operator` |
+| `variable.` | variable | `variable` |
 | anything else | text | `text` |
 
 One exception: **`keyword.control.preprocessor` exactly** becomes `preproc`,
@@ -328,7 +348,7 @@ If the file loads but a particular rule does nothing:
 | | |
 |---|---|
 | file size | 4,096 bytes, comments included |
-| rules | 12 |
+| rules | 12, plus an `other` |
 | all `words` text | 1,024 bytes, packed |
 | words in total | 224 |
 | a literal | 4 characters |

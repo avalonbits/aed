@@ -7,7 +7,7 @@
  *
  * The map in these tests is one letter a byte, from the class each column ended
  * up in -- T text, C comment, S string, N number, K keyword, Y type, P
- * preprocessor, L label, O operator. It reads like the line under it, which is
+ * preprocessor, L label, O operator, V variable. It reads like the line under it, which is
  * what makes a wrong answer obvious rather than arithmetic.
  */
 
@@ -30,7 +30,7 @@ static void check(const char* name, int got, int want) {
 }
 
 /* One letter a byte, from the class each column landed in. */
-static const char CLS[] = "TCSNKYPLO";
+static const char CLS[] = "TCSNKYPLOV";
 
 static const char* lexed(const syntax* g, const char* line) {
     static tok_run runs[96];
@@ -872,6 +872,62 @@ int main(void) {
               syn_class_of("support.function", 16), TOK_TYPE);
         check("  and an unknown head is still plain text",
               syn_class_of("meta.nonsense", 13), TOK_TEXT);
+    }
+
+    /* --- the words no rule claims, coloured by the grammar --- */
+    {
+        /*
+         * Asked for by a language whose programs are mostly keywords and the
+         * label names they jump to. Without this the names are the document's
+         * own colour, the same as everything else nothing claimed, and a
+         * theme's `text` would colour the spaces and punctuation with them.
+         */
+        static const char KISS[] =
+            "[syntax]\nname = kiss\nextensions = .kiss\ncase = insensitive\n"
+            "[match]\n"
+            "variable.other  = other\n"
+            "comment.line    = eol '#'\n"
+            "keyword.control = words LABEL GOTO PRINT\n"
+            "constant.numeric = number\n";
+        check("a grammar with an `other` rule loads",
+              load_from(&g, KISS) ? 1 : 0, 1);
+        check("  and spends none of its rules on it", g.nrules, 3);
+        check_lex("LABEL startgame", &g, "KKKKKTVVVVVVVVV");
+        check_lex("goto startgame", &g, "KKKKTVVVVVVVVV");
+        check_lex("x=1+y2", &g, "VTNTVV");
+        check_lex("(a, b)", &g, "TVTTVT");
+        check_lex("# GOTO x", &g, "CCCCCCCC");
+
+        /* A word of digits with no number rule to claim it stays plain. */
+        check("one with no number rule", load_from(&g,
+              "[syntax]\nname = t\nextensions = .t\n[match]\n"
+              "keyword.control = words GOTO\nvariable.other = other\n")
+              ? 1 : 0, 1);
+        check_lex("GOTO 12ab x", &g, "KKKKTTTTTTV");
+
+        /* Any scope will do: this one takes the label colour. */
+        check("`other` under a label scope", load_from(&g,
+              "[syntax]\nname = t\nextensions = .t\n[match]\n"
+              "keyword.control = words GOTO\nentity.name.label = other\n")
+              ? 1 : 0, 1);
+        check_lex("GOTO start", &g, "KKKKTLLLLL");
+
+        /* And without one, a name is text as it always was. */
+        check("a grammar without one", load_from(&g,
+              "[syntax]\nname = t\nextensions = .t\n[match]\n"
+              "keyword.control = words GOTO\n") ? 1 : 0, 1);
+        check_lex("GOTO start", &g, "KKKKTTTTTT");
+
+        /* A grammar already holding all the rules it can still has room. */
+        static char full[1024];
+        int at = sprintf(full, "[syntax]\nname = t\nextensions = .t\n[match]\n");
+        for (int i = 0; i < SYN_MAX_RULES; i++) {
+            at += sprintf(full + at, "keyword.control = words K%d\n", i);
+        }
+        sprintf(full + at, "variable.other = other\n");
+        check("a full grammar with `other` last loads",
+              load_from(&g, full) ? 1 : 0, 1);
+        check_lex("K3 name", &g, "KKTVVVV");
     }
 
     /* --- the INI grammar AED ships --- */

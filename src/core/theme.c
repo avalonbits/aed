@@ -28,7 +28,7 @@
 // are hundreds of them.
 static const char* CLASS_NAME[TOK_N] = {
     "text", "comment", "string", "number", "keyword",
-    "type", "preproc", "label", "operator",
+    "type", "preproc", "label", "operator", "variable",
 };
 
 const char* syn_class_name(tok_class c) {
@@ -58,6 +58,7 @@ tok_class syn_class_of(const char* scope, int len) {
         { "storage",     TOK_TYPE     },
         { "entity",      TOK_LABEL    },
         { "punctuation", TOK_OPERATOR },
+        { "variable",    TOK_VARIABLE },
         // BASIC's built-in functions are `support.function` in TextMate's
         // vocabulary, and a language with no types of its own leaves the type
         // colour free for them.

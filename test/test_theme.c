@@ -263,11 +263,12 @@ int main(void) {
             { "entity.name.label",           TOK_LABEL    },
             { "punctuation.separator",       TOK_OPERATOR },
             { "keyword.control.preprocessor", TOK_PREPROC },
+            { "variable.other",              TOK_VARIABLE },
             { "meta.function.nobody.knows",  TOK_TEXT     },
             { "",                            TOK_TEXT     },
         };
         int wrong = 0;
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < (int) (sizeof(CASES) / sizeof(CASES[0])); i++) {
             if (syn_class_of(CASES[i].scope, (int) strlen(CASES[i].scope))
                     != CASES[i].want) {
                 wrong = i + 1;
@@ -295,7 +296,8 @@ int main(void) {
             "comment  = 8    ; dim\n"
             "string   = 10\n"
             "keyword  = 14\n"
-            "number   = 13\n";
+            "number   = 13\n"
+            "variable = 3\n";
         stub_file_reset();
         stub_file_add("/t/dark.cfg", DARK, (int) sizeof(DARK) - 1);
 
@@ -312,6 +314,10 @@ int main(void) {
         check("  comments are dim", theme_colour(&th, TOK_COMMENT), 8);
         check("  strings are green", theme_colour(&th, TOK_STRING), 10);
         check("  keywords stand out", theme_colour(&th, TOK_KEYWORD), 14);
+        check("  the words a grammar gave no other colour",
+              theme_colour(&th, TOK_VARIABLE), 3);
+        check("    by the name a theme file uses for them",
+              strcmp(syn_class_name(TOK_VARIABLE), "variable") == 0 ? 1 : 0, 1);
         check("  a class the theme says nothing about falls back to text",
               theme_colour(&th, TOK_OPERATOR), 15);
     }
