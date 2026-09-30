@@ -39,13 +39,60 @@ done
 if command -v python3 >/dev/null; then
     tmp=$(mktemp)
     trap 'rm -f "$tmp"' EXIT
-    python3 fonts/pad.py fonts/unscii8.bin "$tmp" 2 >/dev/null
-    if cmp -s "$tmp" fonts/unscii8x10.bin; then
-        printf 'PASS  %-52s %s\n' "unscii8x10.bin is pad.py's output" "identical"
-    else
-        printf 'FAIL  %-52s %s\n' "unscii8x10.bin is pad.py's output" "differs"
-        status=1
-    fi
+    same() {
+        if cmp -s "$tmp" "fonts/$2"; then
+            printf 'PASS  %-52s %s\n' "$2 is $1's output" "identical"
+        else
+            printf 'FAIL  %-52s %s\n' "$2 is $1's output" "differs"
+            status=1
+        fi
+    }
+    for v in "" "-latin1"; do
+        python3 fonts/pad.py "fonts/unscii8$v.bin" "$tmp" 2 >/dev/null
+        same pad.py "unscii8x10$v.bin"
+    done
+
+    # Likewise the unpadded fonts and build.py, from the unscii sources.
+    for pair in "unscii-8.hex unscii8" "unscii-16.hex unscii16"; do
+        set -- $pair
+        python3 fonts/build.py "fonts/src/$1" "$tmp" >/dev/null
+        same build.py "$2.bin"
+        python3 fonts/build.py --latin1 "fonts/src/$1" "$tmp" >/dev/null
+        same "build.py --latin1" "$2-latin1.bin"
+    done
+
+    # A font swaps for the stock one only if every byte means the same
+    # character in both. These are slots where Latin-1 -- unscii's own order --
+    # and the stock font disagree, plus one where they agree.
+    PYTHONDONTWRITEBYTECODE=1 python3 - <<'EOF' || status=1
+import sys
+sys.path.insert(0, "fonts")
+from build import charmap
+
+want = {
+    0x12: 0x250C,  # box drawing, a control code in Latin-1
+    0x1C: 0x2588,  # full block
+    0x7F: 0x00A9,  # copyright sign, delete in Latin-1
+    0x80: 0x20AC,  # euro
+    0x81: 0x25A0,  # teletext block, unassigned in Windows-1252
+    0x84: 0x201E,  # double low quote
+    0x97: 0x2014,  # em dash
+    0x9D: 0x2016,  # teletext double bar
+    0xC4: 0x00C4,  # A diaeresis, the same in both
+}
+cps = charmap()
+bad = {f"{s:#04x}": f"U+{cps[s]:04X}" for s, cp in want.items() if cps[s] != cp}
+if len(cps) != 256 or bad:
+    print(f"FAIL  {'the fonts follow the stock character map':52} {len(cps)} slots, wrong: {bad}")
+    sys.exit(1)
+print(f"PASS  {'the fonts follow the stock character map':52} {len(want)} slots")
+
+# The -latin1 fonts are unscii's own order: every slot is its code point.
+if charmap(latin1=True) != list(range(256)):
+    print(f"FAIL  {'the -latin1 fonts follow Latin-1':52} differs")
+    sys.exit(1)
+print(f"PASS  {'the -latin1 fonts follow Latin-1':52} 256 slots")
+EOF
 fi
 
 exit $status

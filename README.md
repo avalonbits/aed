@@ -54,9 +54,10 @@ The editor and the fonts land where they belong:
 
 ```
 bin/aed.bin                 the editor -- MOS searches /bin, so `aed` runs it
-config/aed/unscii8.bin      the three fonts, where the settings file expects them
+config/aed/unscii8.bin      the fonts, where the settings file expects them
 config/aed/unscii8x10.bin
 config/aed/unscii16.bin
+config/aed/unscii*-latin1.bin  the same three, laid out as Latin-1
 config/aed/syntax/asm.cfg   a grammar per language, read when a file is opened
 config/aed/syntax/bas.cfg
 config/aed/syntax/c.cfg
@@ -178,7 +179,7 @@ Take any 8x8 font, add a blank ninth row to every glyph, and the text lines
 separate without a single column being given up: 80 columns still, 53 rows
 instead of 60. A 16-row font works the same way and gives 30 rows.
 
-Three fonts come with AED, in `fonts/`. Copy one to the card and name it:
+Six fonts come with AED, in `fonts/`. Copy one to the card and name it:
 
 ```ini
 [editor]
@@ -187,12 +188,16 @@ font = /config/aed/unscii8x10.bin
 
 | file | cell | screen | |
 |---|---|---|---|
-| `unscii8.bin` | 8x8 | 80x60 | unscii as published: better letterforms than the stock font, but the lines still touch |
+| `unscii8.bin` | 8x8 | 80x60 | unscii: better letterforms than the stock font, but the lines still touch |
 | `unscii8x10.bin` | 8x10 | 80x48 | the same with two blank rows added, so the lines do not touch |
 | `unscii16.bin` | 8x16 | 80x30 | unscii-16, drawn at sixteen rows, with the gap already in it |
 
-unscii is by Viznut and is public domain. See `fonts/README.md` for how the
-padded one is produced and why it exists.
+The three above hold the same characters in the same places as the stock font --
+line drawing, blocks, the euro and the rest -- so text written for the stock
+font reads the same in any of them. Each also comes as a `-latin1` file
+(`unscii8-latin1.bin` and so on), which puts Latin-1 in 128-255 instead, for
+text in that encoding. unscii is by Viznut and is public domain.
+See `fonts/README.md` for how they are built and why the padded one exists.
 
 The file is a raw bitmap and has no header: 256 glyphs, 8 pixels wide, one byte
 per row, lowest character first. **The height is the file size divided by 256**,
