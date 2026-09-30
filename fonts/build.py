@@ -15,6 +15,11 @@ in that slot, and the result swaps for the stock font char for char:
     build.py src/unscii-8.hex unscii8.bin
     build.py src/unscii-16.hex unscii16.bin
 
+`--latin1` builds the other layout instead, unscii's own first 256 code
+points, for text that is Latin-1 rather than written for the stock font:
+
+    build.py --latin1 src/unscii-8.hex unscii8-latin1.bin
+
 The height comes from the source: 8x8 glyphs are 16 hex digits, 8x16 are 32.
 Double-width glyphs are skipped; the VDP font is 8 pixels wide.
 """
@@ -69,8 +74,11 @@ DERIVED = {
 }
 
 
-def charmap() -> list[int]:
-    """The Unicode code point the stock font draws in each of the 256 slots."""
+def charmap(latin1: bool = False) -> list[int]:
+    """The Unicode code point each of the 256 slots draws: the stock font's
+    character, or with `latin1`, the slot's own number."""
+    if latin1:
+        return list(range(GLYPHS))
     cps = list(LOW)
     for b in range(32, GLYPHS):
         if b in OVERRIDES:
@@ -93,12 +101,14 @@ def load(path: str) -> dict[int, bytes]:
     return glyphs
 
 
-def build(glyphs: dict[int, bytes]) -> bytes:
+def build(glyphs: dict[int, bytes], latin1: bool = False) -> bytes:
     # The narrow glyphs all have the same length; the wide ones are twice it.
     height = min(len(g) for g in glyphs.values())
     out = bytearray()
-    for slot, cp in enumerate(charmap()):
+    for slot, cp in enumerate(charmap(latin1)):
         g = glyphs.get(cp)
+        if latin1 and cp == 0 and (g is None or len(g) != height):
+            g = bytes(height)   # unscii draws NUL double width; it is blank
         if g is None or len(g) != height:
             raise SystemExit(f"slot {slot:#04x}: no {height}-row glyph for U+{cp:04X}")
         out += g
@@ -107,12 +117,16 @@ def build(glyphs: dict[int, bytes]) -> bytes:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit(f"usage: {sys.argv[0]} <unscii.hex> <out.bin>")
-    out = build(load(sys.argv[1]))
-    with open(sys.argv[2], "wb") as f:
+    args = sys.argv[1:]
+    latin1 = args[:1] == ["--latin1"]
+    if latin1:
+        args = args[1:]
+    if len(args) != 2:
+        raise SystemExit(f"usage: {sys.argv[0]} [--latin1] <unscii.hex> <out.bin>")
+    out = build(load(args[0]), latin1)
+    with open(args[1], "wb") as f:
         f.write(out)
-    print(f"{sys.argv[2]}: {len(out)} bytes, {len(out) // GLYPHS} rows per glyph")
+    print(f"{args[1]}: {len(out)} bytes, {len(out) // GLYPHS} rows per glyph")
 
 
 if __name__ == "__main__":

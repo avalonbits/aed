@@ -18,6 +18,11 @@ main README.
 | `unscii8x10.bin` | 8x10 | 80x48 | the same, with two blank rows added. Two rows of gap between lines. |
 | `unscii16.bin` | 8x16 | 80x30 | unscii-16, drawn at sixteen rows. Needs no padding: descenders end on row 15 and capitals start on row 2, so the gap is already there. |
 
+Each has a `-latin1` twin, `unscii8-latin1.bin` and so on: the same glyphs in
+unscii's own order, which is Latin-1 -- control codes in 128-159 and nothing in
+0-31. Use those for text in Latin-1; the plain ones for text written for the
+Agon's stock font.
+
 ## Why the padded one exists
 
 An 8x8 font has nowhere to put a gap. Descenders land on the last row, so `p`
@@ -59,7 +64,14 @@ in 128-255, the teletext block, arrows and double bar in the five slots
 Windows-1252 leaves empty, a copyright sign at 127, and box drawing, shades and
 card suits in 0-31. Text written for the stock font then reads the same in any
 of these. unscii has no low or single angle quotes, so `build.py` makes those
-four from its comma, closing quotes and double angle quotes.
+four from its comma, closing quotes and double angle quotes. `--latin1` builds
+the twins, taking every slot's glyph from the code point with its own number:
+
+```
+python3 build.py --latin1 src/unscii-8.hex unscii8-latin1.bin
+python3 build.py --latin1 src/unscii-16.hex unscii16-latin1.bin
+python3 pad.py unscii8-latin1.bin unscii8x10-latin1.bin 2
+```
 
 `unscii-8-tall.hex` is deliberately not here. It is `unscii-8` with every row
 emitted twice -- verified byte for byte, all 256 glyphs -- so it is 8x16 in cell

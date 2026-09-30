@@ -5,8 +5,8 @@
 #
 #   bin/aed.bin              MOS searches /bin, so `aed` works as a command
 #   config/aed/unscii8.bin   the three fonts, where the README's example
-#   config/aed/unscii8x10.bin  settings file points at them
-#   config/aed/unscii16.bin
+#   config/aed/unscii8x10.bin  settings file points at them, and each one's
+#   config/aed/unscii16.bin    -latin1 twin
 #   config/aed/syntax/*.cfg  a grammar per language, read when a file is opened
 #   config/aed/themes/*.cfg  a theme per background, read with the grammar
 #
@@ -61,7 +61,7 @@ trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/bin" "$STAGE/config/aed"
 cp bin/aed.bin "$STAGE/bin/"
-cp fonts/unscii8.bin fonts/unscii8x10.bin fonts/unscii16.bin "$STAGE/config/aed/"
+cp fonts/unscii*.bin "$STAGE/config/aed/"
 
 # Grammars and themes. Unlike the fonts these are not inert: AED looks in these
 # two directories every time a file is opened, so leaving them out of the zip
@@ -84,7 +84,6 @@ LIBS=$(./mklibs.sh "$VERSION")
 # still the one to point people at.
 echo
 echo "attach all of these to the release:"
-for f in "$OUT" bin/aed.bin fonts/unscii8.bin fonts/unscii8x10.bin fonts/unscii16.bin \
-         "$LIBS"; do
+for f in "$OUT" bin/aed.bin fonts/unscii*.bin "$LIBS"; do
     echo "  $f"
 done
