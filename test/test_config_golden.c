@@ -69,6 +69,31 @@ int main(void) {
               same_as("render", buf, n), 1);
     }
 
+    /* --- another program's fresh file --- */
+    {
+        /* The same settings named by another program: every AED in AED's
+         * file, and nothing else, becomes that program's name. */
+        static char want[2048];
+        FILE* f = fopen("test/fixtures/config/render", "rb");
+        const int wn = f != NULL ? (int) fread(want, 1, sizeof(want) - 1, f) : 0;
+        if (f != NULL) {
+            fclose(f);
+        }
+        want[wn] = 0;
+        for (char* at = strstr(want, "AED"); at != NULL; at = strstr(at, "AED")) {
+            memcpy(at, "ade", 3);
+        }
+
+        config c;
+        cfg_defaults(&AED_CONFIG, &c);
+        c.tab_size = 4;
+        c.fg = 15;
+        c.bg = 0;
+        const int n = ed_settings_render(&c, "ade", CFG_DIR "/aed", buf, (int) sizeof(buf));
+        check("another program's name goes where AED's does, and only there",
+              wn > 0 && n == wn && memcmp(buf, want, (size_t) n) == 0, 1);
+    }
+
     /* --- merges and parses --- */
     for (int i = 0; i < 5; i++) {
         char name[16];
