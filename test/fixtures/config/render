@@ -11,12 +11,12 @@ tab = 4
 
 # A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,
 # one byte per row. Its height is the file size divided by 256, so a
-# 2304-byte file is 9 rows -- an 8-row font with a blank row added, which
+# 2560-byte file is 10 rows -- an 8-row font with two blank rows added, which
 # separates the text lines without costing a column.
 #
 # Needs a VDP with the font API (Console8 2.8.0+). AED cannot check, so
 # uncommenting this is what says yours has it.
-#font = /config/aed/unscii8x9.bin
+#font = /config/aed/unscii8x10.bin
 
 [colours]
 # Text and background colour, as Agon colour numbers. These were
