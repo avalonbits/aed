@@ -42,7 +42,7 @@
  */
 
 // Longest font path the settings file can name. A font lives beside the other
-// per-application files, so `/config/aed/unscii8x9.bin` is the shape of it;
+// per-application files, so `/config/aed/unscii8x10.bin` is the shape of it;
 // this leaves room for a deeper directory without inviting a path that no
 // longer fits on the footer.
 #define CFG_FONT_MAX 64
