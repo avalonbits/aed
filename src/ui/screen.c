@@ -259,10 +259,11 @@ static void derive_geometry(screen* scr) {
     scr->barW_ = cols - 1;
 
     // The whole screen's text area: one column in from each side, between the
-    // header row and the footer on the last row.
+    // header row -- and the program's row under it, if it has one -- and the
+    // footer on the last row.
     scr->whole_.textX_ = 1;
     scr->whole_.cols_ = scr->barW_ - 1;
-    scr->whole_.topY_ = 1;
+    scr->whole_.topY_ = scr->sub_ != NULL ? 2 : 1;
     scr->whole_.bottomY_ = rows - 1;
 
     // Cell size for the VDU 23,7 movement byte, derived rather than assumed.
@@ -389,6 +390,8 @@ screen *scr_init(screen* scr, char cursor) {
     scr->selTo_ = 0;
     scr->title_ = NULL;
     scr->header_ = NULL;
+    scr->sub_ = NULL;
+    scr->subCtx_ = NULL;
     scr->headerCtx_ = NULL;
     scr->theme_ = NULL;
     scr->colour_ = NULL;
@@ -1111,10 +1114,22 @@ void scr_set_header(screen* scr, void (*draw)(screen* scr, void* ctx), void* ctx
     scr->headerCtx_ = ctx;
 }
 
+void scr_set_subheader(screen* scr, void (*draw)(screen* scr, void* ctx), void* ctx) {
+    scr->sub_ = draw;
+    scr->subCtx_ = ctx;
+    scr->whole_.topY_ = draw != NULL ? 2 : 1;
+    if (scr->whole_.currY_ < scr->whole_.topY_) {
+        scr->whole_.currY_ = scr->whole_.topY_;
+    }
+}
+
+static void draw_title(screen* scr);
+
 /*
  * The header row, drawn from column 0: the program's own, when it has given
- * one, or its title centred in a rule. The cursor is wherever this leaves it,
- * which the callers put right.
+ * one, or its title centred in a rule -- and the program's row under it, when
+ * it has given that. The cursor is wherever this leaves it, which the callers
+ * put right.
  */
 static void draw_header(screen* scr) {
     vdp_cursor_tab(0, 0);
@@ -1122,9 +1137,19 @@ static void draw_header(screen* scr) {
         scr->header_(scr, scr->headerCtx_);
         out_flush();
         set_colours(scr->fg_, scr->bg_);
-
-        return;
+    } else {
+        draw_title(scr);
     }
+    if (scr->sub_ != NULL) {
+        vdp_cursor_tab(0, 1);
+        scr->sub_(scr, scr->subCtx_);
+        out_flush();
+        set_colours(scr->fg_, scr->bg_);
+    }
+}
+
+// The title centred in a rule across the header row.
+static void draw_title(screen* scr) {
     // Split the remainder rather than halving it twice: an odd number of spare
     // columns would otherwise lose one, leaving the header a column short of
     // the bar it is supposed to span -- and now that the text area reaches the
