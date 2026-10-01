@@ -392,6 +392,7 @@ screen *scr_init(screen* scr, char cursor) {
     scr->header_ = NULL;
     scr->sub_ = NULL;
     scr->subCtx_ = NULL;
+    scr->cursorFlash_ = false;
     scr->headerCtx_ = NULL;
     scr->theme_ = NULL;
     scr->colour_ = NULL;

@@ -135,6 +135,10 @@ A freshly written file looks like this:
 # How wide a tab renders, in columns. 1 to 16.
 tab = 4
 
+# Whether the cursor flashes, as the MOS prompt's does: 1 to flash,
+# 0 for a steady one.
+cursor_flash = 0
+
 # A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,
 # one byte per row. Its height is the file size divided by 256, so a
 # 2560-byte file is 10 rows -- an 8-row font with two blank rows added, which
@@ -155,6 +159,7 @@ bg = 0
 |---|---|---|
 | `[editor]` | `tab` | how wide a tab renders, in columns. Values outside 1-16 are pinned to the nearest allowed width. |
 | `[editor]` | `font` | path to a font to load at startup. Commented out by default -- see below. |
+| `[editor]` | `cursor_flash` | `1` for a cursor that flashes as the MOS prompt's does, `0` for a steady one. |
 
 The settings can also be edited from inside AED with **CTRL+E**, which writes
 them back to the file. It changes only what you change: every other line is
@@ -515,10 +520,11 @@ clears it too.
 `CTRL+Q` will save the buffer to the specified file on startup (or `/aed.txt` of none was specified) and exit the editor.
 If no file was specified on startup, it will prompt for a file name to save the text buffer.
 
-`CTRL+E` opens the settings: tab width, colours, and font. `UP/DOWN` chooses a row and
-`RETURN` changes it; `ESC` closes. Choosing the colours row shows the picker at the
-bottom of the screen, where `UP/DOWN` selects the foreground colour and `LEFT/RIGHT`
-the background.
+`CTRL+E` opens the settings: tab width, colours, font, and whether the cursor
+flashes. `UP/DOWN` chooses a row and `RETURN` changes it -- on the cursor row it
+switches between steady and flashing; `ESC` closes. Choosing the colours row
+shows the picker at the bottom of the screen, where `UP/DOWN` selects the
+foreground colour and `LEFT/RIGHT` the background.
 
 # Building on AED's libraries
 AED is built from two libraries that another Agon program can use as well:

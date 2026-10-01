@@ -129,6 +129,11 @@ typedef struct _screen {
     void (*sub_)(struct _screen* scr, void* ctx);
     void* subCtx_;
 
+    // Whether the cursor flashes while the editor waits for a key: the VDP's
+    // own cursor, shown over the editor's. Off until the program or the
+    // settings say otherwise; see ed_set_cursor_flash.
+    bool cursorFlash_;
+
     // The view the screen paints into: its rectangle, cursor and scroll. It
     // starts as whole_, the text area of the whole screen, laid out from the
     // mode and font. A front end showing more than one view points it at each

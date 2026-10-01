@@ -408,7 +408,6 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     ed->banner_ = false;
     ed->keys_ = prog->keys;
     ed->leaving_ = false;
-    ed->flash_ = false;
     if (tb_used(&ed->doc_->buf_) > 0) {
         cmd_show(ed);
     } else {
@@ -632,7 +631,7 @@ bool ed_handle(editor* ed, key_command kc) {
 }
 
 void ed_set_cursor_flash(editor* ed, bool on) {
-    ed->flash_ = on;
+    ed->scr_.cursorFlash_ = on;
 }
 
 void ed_run(editor* ed) {
@@ -663,11 +662,11 @@ void ed_run(editor* ed) {
         // Everything that answers a key -- a prompt, a modal, the paint after
         // an edit -- runs with it hidden again, so it is never left flashing
         // at the end of whatever was drawn last.
-        if (ed->flash_) {
+        if (ed->scr_.cursorFlash_) {
             scr_cursor_flash(&ed->scr_, true);
         }
         const key_press kp = ks_wait(ed->ui_.keys_);
-        if (ed->flash_) {
+        if (ed->scr_.cursorFlash_) {
             scr_cursor_flash(&ed->scr_, false);
         }
         if (!ed_handle(ed, ed_translate(ed->keys_, kp))) {

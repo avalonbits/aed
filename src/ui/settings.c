@@ -40,6 +40,8 @@ const cfg_setting ED_SETTINGS[] = {
       offsetof(ed_settings, ctrl_pause), 0, -1 },
     { "editor",  "font", CFG_STR, offsetof(ed_settings, font), CFG_FONT_MAX,
       offsetof(ed_settings, font_none) },
+    { "editor",  "cursor_flash", CFG_INT,
+      offsetof(ed_settings, cursor_flash), 0, -1 },
 };
 _Static_assert(sizeof(ED_SETTINGS) / sizeof(ED_SETTINGS[0])
                == ED_SETTINGS_COUNT,
@@ -77,6 +79,11 @@ int ed_settings_render(const void* values, const char* name,
         "\r\n[editor]\r\n"
         "# How wide a tab renders, in columns. 1 to 16.\r\n");
     at = cfg_put_setting(buf, at, max, "tab", cfg->tab_size);
+    at = cfg_put_text(buf, at, max,
+        "\r\n# Whether the cursor flashes, as the MOS prompt's does: 1 to flash,\r\n"
+        "# 0 for a steady one.\r\n");
+    at = cfg_put_setting(buf, at, max, "cursor_flash",
+                         cfg->cursor_flash > 0 ? 1 : 0);
     at = cfg_put_text(buf, at, max,
         "\r\n# A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,\r\n"
         "# one byte per row. Its height is the file size divided by 256, so a\r\n"
@@ -161,6 +168,9 @@ const char* ed_settings_apply(editor* ed, const cfg_schema* sc) {
         if (cfg.ctrl_pause >= 0) {
             scr_set_ctrl_pause_frames(scr, cfg.ctrl_pause);
         }
+        if (cfg.cursor_flash >= 0) {
+            ed_set_cursor_flash(ed, cfg.cursor_flash != 0);
+        }
         // Before the colours and before anything is drawn: a font changes how
         // many rows there are, and everything below is sized in rows. Only when
         // the file asks for it, for the same reason as the line above -- see
@@ -179,6 +189,7 @@ const char* ed_settings_apply(editor* ed, const cfg_schema* sc) {
         }
     } else if (moved) {
         cfg.tab_size = scr_tab_size(scr);
+        cfg.cursor_flash = scr->cursorFlash_ ? 1 : 0;
         // The user's pair, so a theme in force when the settings are written
         // does not become the user's setting.
         cfg.fg = scr_base_fg(scr);
@@ -208,6 +219,7 @@ typedef enum _setting_row {
     ROW_TAB = 0,
     ROW_COLOURS,
     ROW_FONT,
+    ROW_FLASH,
     ROW_COUNT,
 } setting_row;
 
@@ -252,6 +264,7 @@ static RESPONSE settings_modal(user_input* ui, screen* scr,
     // is not told about, and telling it about one the reader never touched
     // would rewrite a line they had left alone.
     const int tab_now = scr_tab_size(scr);
+    const int flash_now = scr->cursorFlash_ ? 1 : 0;
     const int fg_now = scr_base_fg(scr);
     const int bg_now = scr_base_bg(scr);
 
@@ -274,6 +287,7 @@ static RESPONSE settings_modal(user_input* ui, screen* scr,
 
     for (;;) {
         int tab = cfg->tab_size >= 0 ? cfg->tab_size : tab_now;
+        const int flash = cfg->cursor_flash >= 0 ? cfg->cursor_flash : flash_now;
         int fg = cfg->fg >= 0 ? cfg->fg : fg_now;
         int bg = cfg->bg >= 0 ? cfg->bg : bg_now;
         // Three states, not two: a path that was chosen, no font asked for,
@@ -309,6 +323,11 @@ static RESPONSE settings_modal(user_input* ui, screen* scr,
                     k = ui_pad_to(line, k, width, 24);
                     k = ui_put_at(line, k, width,
                                font[0] != 0 ? font : "(the machine's own)");
+                    break;
+                case ROW_FLASH:
+                    k = ui_put_at(line, k, width, "cursor");
+                    k = ui_pad_to(line, k, width, 24);
+                    k = ui_put_at(line, k, width, flash ? "flashing" : "steady");
                     break;
                 default:
                     break;
@@ -379,6 +398,13 @@ static RESPONSE settings_modal(user_input* ui, screen* scr,
                     changed = true;
                 }
             } break;
+            case ROW_FLASH:
+                // Two answers, so RETURN is the answer: it turns one into the
+                // other. Shown now, the way a new tab width is.
+                cfg->cursor_flash = flash ? 0 : 1;
+                scr->cursorFlash_ = cfg->cursor_flash != 0;
+                changed = true;
+                break;
             default:
                 break;
         }

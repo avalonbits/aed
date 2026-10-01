@@ -16,7 +16,9 @@
 
 #include "app.h"
 #include "editor.h"
+#include "config.h"
 #include "keys.h"
+#include "settings.h"
 #include "user_input.h"
 
 static int failures = 0;
@@ -99,6 +101,20 @@ static const key_binding QUIT[] = { { VK_q, MOD_CTRL, 0, ed_cmd_quit } };
 static const keymap KEYMAP = { QUIT, 1, &ED_KEYS };
 static const ed_program PROG = { &APP, &KEYMAP, NULL, NULL, " FLASH " };
 
+/* A program with settings of its own, the editor's, in /flash.ini. */
+static int render(const void* v, char* buf, int max) {
+    return ed_settings_render(v, "FLASH", "/f", buf, max);
+}
+static const cfg_schema SCHEMA = { ED_SETTINGS, ED_SETTINGS_COUNT, render };
+static const char* settings(editor* e) {
+    return ed_settings_apply(e, &SCHEMA);
+}
+static const app_context SET_APP = {
+    .name = "flash", .cfg_path = "/flash.ini", .syntax_dir = "/g",
+    .theme_dir = "/t", .font_dir = "/f",
+};
+static const ed_program SET_PROG = { &SET_APP, &KEYMAP, settings, NULL, " FLASH " };
+
 static editor ed;
 static unsigned char got[65536];
 
@@ -157,6 +173,28 @@ int main(void) {
     check("the save question is asked", nask, 1);
     check("  while the cursor is hidden",
           nask == 1 && noff == 2 && asks[0] > offs[1], 1);
+
+    /* --- from the settings file --- */
+    stub_file_reset();
+    stub_file_add("doc.txt", "hello\r\n", 7);
+    static const char INI[] = "[editor]\r\ncursor_flash = 1\r\n";
+    stub_file_add("/flash.ini", INI, (int) sizeof(INI) - 1);
+    check("a program with settings starts", ed_init_for(&ed, 8, "doc.txt", &SET_PROG) != NULL, 1);
+    check("  and cursor_flash = 1 makes its cursor flash", ed.scr_.cursorFlash_, 1);
+    ed_destroy(&ed);
+
+    /* With no file, the one written holds the setting, steady. */
+    stub_file_reset();
+    stub_file_add("doc.txt", "hello\r\n", 7);
+    check("a first run starts", ed_init_for(&ed, 8, "doc.txt", &SET_PROG) != NULL, 1);
+    check("  steady", ed.scr_.cursorFlash_, 0);
+    {
+        int len = 0;
+        const char* ini = stub_file_content("/flash.ini", &len);
+        check("  and the file it writes says so",
+              ini != NULL && strstr(ini, "cursor_flash = 0") != NULL, 1);
+    }
+    ed_destroy(&ed);
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);

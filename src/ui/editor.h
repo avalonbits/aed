@@ -67,10 +67,6 @@ typedef struct _editor {
     const struct _keymap* keys_;
     bool leaving_;
 
-    // Whether the cursor flashes while the editor waits for a key, as MOS's
-    // does. Off unless the program asks: see ed_set_cursor_flash.
-    bool flash_;
-
     clipboard clip_;
     // What was last searched for, so CTRL+N and CTRL+P have something to
     // repeat. Session state, like the clipboard.
@@ -183,6 +179,8 @@ void ed_run(editor* ed);
  * own cursor, shown over the editor's while the document waits for a key and
  * hidden again as soon as one arrives -- so a prompt or a modal, which run
  * while a key is being handled, never shows it somewhere it does not belong.
+ * The settings' cursor_flash sets the same thing, so a program with settings
+ * gets it from the file without calling this.
  */
 void ed_set_cursor_flash(editor* ed, bool on);
 
