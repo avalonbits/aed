@@ -334,8 +334,13 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     ed->doc_ = &ed->home_;
 
     scr_init(&ed->scr_, DEFAULT_CURSOR);
-    // Before settings, which may clear the screen and so draw the header.
+    // scr_init has drawn the header already, with no title in it -- there was
+    // none to give it -- so it is drawn again with one. Settings would do that
+    // as a side effect of clearing the screen, but only when the program has a
+    // settings step and the file sets a colour; a program without one started
+    // with an empty title bar until something else cleared the screen.
     scr_set_title(&ed->scr_, prog->title);
+    scr_header_draw(&ed->scr_);
 
     // Before anything is sized: settings can change the font, and with it how
     // many rows there are.
