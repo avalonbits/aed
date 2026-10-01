@@ -603,6 +603,45 @@ void scr_system_font(screen* scr) {
     scr_clear(scr);
 }
 
+void scr_resume(screen* scr) {
+    // The same byte scr_init sends; see there. A mode change clears it with
+    // the rest of the cursor behaviour.
+    static char enable_scroll_protect[4] = {23, 16, 1, 0};
+    VDP_PUTS(enable_scroll_protect);
+    vdp_cursor_enable(false);
+
+    // The font goes back before the geometry is read, since the geometry is
+    // the font's. A mode change selects the system font, but the buffer the
+    // editor's font was made from survives it, so selecting it again is all
+    // it takes; the machine's boot font, if the editor was running in that,
+    // is put back the same way.
+    int font = -1;
+    if (scr->fontLoaded_) {
+        font = scr->bootFont_ == FONT_BUFFER ? FONT_BUFFER_ALT : FONT_BUFFER;
+    } else if (scr->bootFont_ >= 0) {
+        font = scr->bootFont_;
+    }
+    if (font >= 0) {
+        char select[sizeof(SYSTEM_FONT)];
+        memcpy(select, SYSTEM_FONT, sizeof(select));
+        select[4] = (char) (font & 0xFF);
+        select[5] = (char) ((font >> 8) & 0xFF);
+        volatile uint8_t* sysvar = mos_sysvars();
+        sysvar[sysvar_vdp_pflags] = 0;
+        font_put(select, sizeof(select));
+        wait_mode_packet(FONT_MODE_FRAMES);
+    }
+    derive_geometry(scr);
+
+    // The colours were reset to the mode's defaults, and nothing here knows
+    // it: what the editor last sent is still what it believes is set, so the
+    // next row in the same colours would send nothing and be drawn in white on
+    // black. Sent outright, and recorded as sent.
+    set_colours(scr->fg_, scr->bg_);
+    scr->curFg_ = scr->fg_;
+    scr->curBg_ = scr->bg_;
+}
+
 bool scr_load_font(screen* scr, const char* path) {
     if (path == NULL || path[0] == 0) {
         return false;
