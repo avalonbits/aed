@@ -98,8 +98,12 @@ The scope name on the left says *what kind of thing this is* and decides its
 colour (section 5). The verb on the right says *how to recognise it*.
 
 A literal is written bare, or in single or double quotes when it contains a
-space or a quote of the other kind. **A literal is at most 4 characters** —
-which covers every comment and string marker in practice.
+space or a quote of the other kind. **Quote `#` and `;` always**: the grammar is
+an INI file, and a bare one starts a comment there, so `eol #` is read as `eol`
+with no literal and the rule is dropped without a word. `eol '#'` is the rule.
+
+**A literal is at most 4 characters** — which covers every comment and string
+marker in practice.
 
 ### 3a. `eol`
 
@@ -340,6 +344,9 @@ If the file loads but a particular rule does nothing:
 * **A rule above it matched first.** See section 4.
 * **A `words` rule with no words**, or an `eol`, `bol` or `span` missing its
   literal, is skipped the same way.
+* **A bare `#` or `;` in the rule** starts a comment, so everything from it on
+  is gone: `eol #` has lost its literal and `words GOTO ;x` its last word.
+  Quote them (section 3).
 * **More than 12 rules**: the ones past the twelfth are ignored. Merge rules
   that share a colour — two `words` lines with the same scope can be one line.
 
