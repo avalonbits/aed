@@ -129,6 +129,15 @@ void ed_doc_show(editor* ed, document* doc, view* v);
  * repaints -- ed_doc_show, or cmd_restore_after_modal.
  */
 void ed_doc_place(editor* ed, document* doc, view* v, int line, int x);
+/*
+ * Puts the screen back after the program has handed it to something else --
+ * a program it ran, say -- that may have changed the screen mode. A mode
+ * change resets the VDP's colours, font and scroll protection even when the
+ * mode is the same one, and the editor would otherwise go on drawing as if
+ * they were still its own: a title bar in two sets of colours and a black
+ * border round the text. Sends them again and repaints the whole screen.
+ */
+void ed_resume(editor* ed);
 void ed_doc_close(document* doc);
 
 // Sets up an editor for `prog`, with a document of `mem_kb` holding `fname` --

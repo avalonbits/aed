@@ -239,6 +239,12 @@ bool scr_load_font(screen* scr, const char* path);
 // changed while running. scr_destroy does this too, on the way out.
 void scr_system_font(screen* scr);
 
+// Puts back what the editor set on the VDP, after a program it ran has changed
+// the screen mode -- which resets the colours, the font, and the scroll
+// protection with the rest of the VDP's state, whether or not the mode number
+// changed. Re-derives the geometry; the caller clears and repaints.
+void scr_resume(screen* scr);
+
 void scr_set_tab_size(screen* scr, char tab_size);
 char scr_tab_size(screen* scr);
 
