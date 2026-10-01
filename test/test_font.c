@@ -531,6 +531,69 @@ int main(void) {
         check("and it appears exactly once", fonts, 1);
     }
 
+    /* --- after a program the editor ran changed the screen mode --- */
+    {
+        /*
+         * KISS runs a program and ends it by putting the screen mode back.
+         * Any mode change resets the VDP's colours, font and scroll protection,
+         * and the editor went on as if they were its own: the title bar came
+         * out half white on black, and the clear left a black border round the
+         * text. scr_resume sends them all again.
+         */
+        static const unsigned char protect[] = {23, 16, 1, 0};
+        static const unsigned char select[] = {23, 0, 0x95, 0, 0xED, 0x0A, 0};
+
+        stub_set_screen(80, 60);
+        stub_set_cell(8, 8);
+        scr_init(&scr, 32);
+        scr.bootFont_ = -1;
+        install_font(16, 13);
+        check("a sixteen row font loads before the program runs",
+              scr_load_font(&scr, "/f.bin") ? 1 : 0, 1);
+        check("  thirty rows of it", scr.rows_, 30);
+        scr_set_scheme(&scr, 0, 3);
+
+        /* The mode change: the system font's eight rows, and the colours gone. */
+        stub_set_cell(8, 8);
+        stub_set_screen(80, 60);
+        stub_colours_reset();
+
+        cap_start();
+        scr_resume(&scr);
+        n = cap_read(got, sizeof(got));
+        check_has("the editor's font is selected again", got, n,
+                  select, sizeof(select));
+        check("  and the rows are the font's again", scr.rows_, 30);
+        check("  so the footer is where the font puts it", scr.whole_.bottomY_, 29);
+        check("the colours are sent again", stub_last_fg(), 0);
+        check("  background too", stub_last_bg(), 3);
+        check_has("scroll protection is back on", got, n, protect, sizeof(protect));
+
+        /* No font of its own, but the machine booted into one: that one. */
+        stub_set_cell(8, 8);
+        stub_set_screen(80, 60);
+        scr_init(&scr, 32);
+        scr.bootFont_ = 100;
+        cap_start();
+        scr_resume(&scr);
+        n = cap_read(got, sizeof(got));
+        static const unsigned char boot[] = {23, 0, 0x95, 0, 100, 0, 0};
+        check_has("the boot font is put back when the editor had no other",
+                  got, n, boot, sizeof(boot));
+
+        /* Neither: the mode change already left the system font in place. */
+        scr.bootFont_ = -1;
+        stub_colours_reset();
+        cap_start();
+        scr_resume(&scr);
+        n = cap_read(got, sizeof(got));
+        static const unsigned char any_select[] = {23, 0, 0x95, 0};
+        check("no font is selected when the editor never changed it",
+              find_seq(got, n, any_select, sizeof(any_select)), -1);
+        check("  the colours are sent all the same",
+              stub_last_bg() == scr.bg_ && stub_last_fg() == scr.fg_, 1);
+    }
+
     fflush(stdout);
 
     return failures == 0 ? 0 : 1;

@@ -1184,6 +1184,20 @@ void ed_doc_place(editor* ed, document* doc, view* v, int line, int x) {
     scr_set_view(scr, was);
 }
 
+void ed_resume(editor* ed) {
+    SCR(ed);
+    UI(ed);
+
+    const int rows = scr->rows_;
+    scr_resume(scr);
+
+    // The same steps as a font change in the settings, for the same reason:
+    // the prompt row is placed from the geometry, and a different row count
+    // can leave the cursor past the bottom unless the line is placed again.
+    ui_resize(ui, scr->v_->bottomY_, scr->v_->cols_);
+    cmd_restore_after_modal(ed, scr->rows_ != rows);
+}
+
 // Jumps to a match, centres it, and leaves it selected.
 //
 // Selected because a bare cursor is hard to pick out: the whole of what was
