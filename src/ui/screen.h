@@ -129,6 +129,11 @@ typedef struct _screen {
     void (*sub_)(struct _screen* scr, void* ctx);
     void* subCtx_;
 
+    // Whether the cursor flashes while the editor waits for a key: the VDP's
+    // own cursor, shown over the editor's. Off until the program or the
+    // settings say otherwise; see ed_set_cursor_flash.
+    bool cursorFlash_;
+
     // The view the screen paints into: its rectangle, cursor and scroll. It
     // starts as whole_, the text area of the whole screen, laid out from the
     // mode and font. A front end showing more than one view points it at each
@@ -254,6 +259,12 @@ bool scr_load_font(screen* scr, const char* path);
 // Puts the machine's own font back and re-derives the geometry, for a font
 // changed while running. scr_destroy does this too, on the way out.
 void scr_system_font(screen* scr);
+
+// Turns the VDP's own text cursor on, flashing, or off again. The editor draws
+// its cursor itself and keeps the VDP's hidden; this shows the VDP's on top of
+// it, on the cell the last write left it on, for a cursor that flashes as the
+// MOS prompt's does.
+void scr_cursor_flash(screen* scr, bool on);
 
 // Puts back what the editor set on the VDP, after a program it ran has changed
 // the screen mode -- which resets the colours, the font, and the scroll

@@ -174,6 +174,17 @@ void ed_destroy(editor* ed);
 void ed_run(editor* ed);
 
 /*
+ * Makes the cursor flash while the editor waits for a key, as the MOS prompt's
+ * does, or holds it steady again. Steady is the default. Flashing is the VDP's
+ * own cursor, shown over the editor's while the document waits for a key and
+ * hidden again as soon as one arrives -- so a prompt or a modal, which run
+ * while a key is being handled, never shows it somewhere it does not belong.
+ * The settings' cursor_flash sets the same thing, so a program with settings
+ * gets it from the file without calling this.
+ */
+void ed_set_cursor_flash(editor* ed, bool on);
+
+/*
  * What a key means: the command it runs and what it says about itself.
  *
  * The flags are what the loop decides from before the command runs, which is

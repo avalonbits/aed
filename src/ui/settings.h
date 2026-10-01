@@ -26,8 +26,8 @@
 #include "user_input.h"
 
 /*
- * The editor's settings -- tab width, colours, a font, the VDP's pause on a
- * wrapped line -- for any program built on the editor: which there are, how a
+ * The editor's settings -- tab width, colours, a font, a flashing cursor, the
+ * VDP's pause on a wrapped line -- for any program built on the editor: which there are, how a
  * fresh file reads, applying them at startup, and the screen that changes
  * them. The file is the program's own, app_get()->cfg_path; the format and the
  * reading and rewriting of it are the engine's, in config.h.
@@ -61,6 +61,10 @@ typedef struct _ed_settings {
     // follow as commands -- one of which clears the screen.
     int ctrl_pause;
 
+    // 1 for a cursor that flashes as the MOS prompt's does, 0 for a steady
+    // one -- see ed_set_cursor_flash.
+    int cursor_flash;
+
     // Path to a font file to load at startup, or an empty string for "not set".
     // Unlike every other setting this one is a string, and unlike every other
     // setting the editor only ever reads it: see ed_settings_render for why it
@@ -80,7 +84,7 @@ typedef struct _ed_settings {
 
 // The settings, for a program's cfg_schema.
 extern const cfg_setting ED_SETTINGS[];
-#define ED_SETTINGS_COUNT 5
+#define ED_SETTINGS_COUNT 6
 
 // A fresh settings file for `values`, an ed_settings, into buf: a header
 // naming the program as `name`, then each section with what it is for. The

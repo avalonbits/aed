@@ -270,7 +270,8 @@ int main(void) {
 
         /* DOWN past the end stops on the last row rather than running off it.
          * Unclamped, the cursor names a row that does not exist and RETURN
-         * opens nothing at all. */
+         * does nothing at all. The last row is the cursor's, and RETURN there
+         * turns flashing on. */
         const stub_key far_down[] = {
             { .ch = 0,  .vk = VK_DOWN },
             { .ch = 0,  .vk = VK_DOWN },
@@ -279,17 +280,28 @@ int main(void) {
             { .ch = 0,  .vk = VK_DOWN },
             { .ch = 13, .vk = VK_RETURN },
             { .ch = 27, .vk = VK_ESCAPE },
-            { .ch = 27, .vk = VK_ESCAPE },
         };
-        stub_set_keys(far_down, 8);
+        stub_set_keys(far_down, 7);
 
         config cfg;
         cfg_defaults(&AED_CONFIG, &cfg);
         cap_start();
-        aed_settings(&ui, &scr, &cfg);
+        check("DOWN stops on the last row, and RETURN there changes it",
+              aed_settings(&ui, &scr, &cfg), YES_OPT);
         cap_read(got, sizeof(got) - 1);
-        check("DOWN stops on the last row, which opens the fonts",
-              strstr(got, "FONTS") != NULL, 1);
+        check("  which is the cursor's, now flashing",
+              strstr(got, "flashing") != NULL && cfg.cursor_flash == 1, 1);
+        check("  and the screen flashes it from now on", scr.cursorFlash_, 1);
+        check("  the row named before it was changed",
+              strstr(got, "steady") != NULL, 1);
+
+        /* And RETURN again holds it steady: two answers, and RETURN is the
+         * other one. */
+        stub_set_keys(far_down, 7);
+        cfg_defaults(&AED_CONFIG, &cfg);
+        aed_settings(&ui, &scr, &cfg);
+        check("RETURN again holds it steady", cfg.cursor_flash, 0);
+        check("  on the screen too", scr.cursorFlash_, 0);
         ui_destroy(&ui);
     }
 

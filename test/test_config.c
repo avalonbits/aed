@@ -203,10 +203,13 @@ int main(void) {
 
     /* --- what first run writes --- */
     config out;
+    cfg_defaults(&AED_CONFIG, &out);
     out.tab_size = 4;
     out.fg = 15;
     out.bg = 0;
-    static char rendered[1024];
+    out.cursor_flash = 1;
+    /* The size cfg_save renders into. */
+    static char rendered[2048];
     const int rn = cfg_render(&AED_CONFIG, &out, rendered, sizeof(rendered));
     check("render produces something", rn > 0, 1);
 
@@ -218,6 +221,7 @@ int main(void) {
     check("round trip: tab", back.tab_size, 4);
     check("round trip: fg", back.fg, 15);
     check("round trip: bg", back.bg, 0);
+    check("round trip: cursor_flash", back.cursor_flash, 1);
 
     /* And it must be a file a person can read. */
     check("the written file explains itself",
