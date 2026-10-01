@@ -405,11 +405,37 @@ static const char options[13] = " [Y/N/ESC]: ";
 
 static const char dismiss[17] = " (press any key)";
 
-void ui_message(user_input* ui, screen* scr, char* msg) {
-    scr_footer_invalidate(scr);
-    const int msz = strlen(msg);
+/*
+ * The prompt row for a message with `suffix` after it -- what to press -- and
+ * the cursor in the cell after that. All of it has to stay inside the bar's
+ * barW_ columns: a character printed past them wraps onto the next row, and
+ * on the bottom row the VDP scrolls the whole screen up a line to make room,
+ * taking the header with it and leaving the document a row out of place. So a
+ * message too long for the row with its suffix is cut, and "..." says where.
+ * `ssz` is the suffix's printed length.
+ */
+static void prompt_row(user_input* ui, screen* scr, const char* msg, int ssz) {
+    // Static: a frame holding it would be past the ix displacement.
+    static char cut[256];
+    int msz = (int) strlen(msg);
+    int room = scr->barW_ - ssz - 1;
+    if (room > (int) sizeof(cut) - 1) {
+        room = (int) sizeof(cut) - 1;
+    }
+    if (msz > room) {
+        const int keep = room > 3 ? room - 3 : 0;
+        memcpy(cut, msg, (size_t) keep);
+        memcpy(cut + keep, "...", (size_t) (room - keep));
+        msz = room > 0 ? room : 0;
+        msg = cut;
+    }
     scr_bar_line(scr, ui->ypos_, msg, msz);
     scr_tab_bar(scr, msz, ui->ypos_);
+}
+
+void ui_message(user_input* ui, screen* scr, char* msg) {
+    scr_footer_invalidate(scr);
+    prompt_row(ui, scr, msg, (int) sizeof(dismiss) - 1);
     VDP_PUTS(dismiss);
     scr_show_cursor_ch(scr, scr->cursor_);
 
@@ -418,9 +444,7 @@ void ui_message(user_input* ui, screen* scr, char* msg) {
 
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg) {
     scr_footer_invalidate(scr);
-    const int msz = strlen(msg);
-    scr_bar_line(scr, ui->ypos_, msg, msz);
-    scr_tab_bar(scr, msz, ui->ypos_);
+    prompt_row(ui, scr, msg, (int) sizeof(options) - 1);
     VDP_PUTS(options);
     scr_show_cursor_ch(scr, scr->cursor_);
 

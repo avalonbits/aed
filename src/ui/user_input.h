@@ -54,12 +54,17 @@ void ui_resize(user_input* ui, char ypos, int cols);
 
 RESPONSE ui_goto(user_input* ui, screen* scr, int* line);
 RESPONSE ui_color_picker(user_input* ui, screen* scr);
+// Asks a yes-or-no question on the prompt row.
 RESPONSE ui_dialog(user_input* ui, screen* scr, char* msg);
 
 // States something and waits for a key. There is no question to answer, but it
 // still has to block: the footer row is repainted at the top of every pass
 // through the main loop, so a message that did not wait would be gone before it
 // could be read.
+//
+// Both keep to the row: a message or question too long to fit beside what to
+// press is cut, ending "...". Printed past the row it would wrap, and the VDP
+// would scroll the whole screen up a line.
 void ui_message(user_input* ui, screen* scr, char* msg);
 
 // What a key means to a list the reader is moving through, with the motion
