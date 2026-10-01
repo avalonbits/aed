@@ -606,6 +606,19 @@ void scr_system_font(screen* scr) {
     scr_clear(scr);
 }
 
+void scr_cursor_flash(screen* scr, bool on) {
+    (void) scr;
+    // Anything buffered goes first, so the cursor appears after it -- on the
+    // cell the last write left the VDP's cursor on.
+    out_flush();
+
+    // VDU 23,1,3 turns the text cursor on and makes it flash, whatever a
+    // program before this one left its flashing set to; VDU 23,1,0 turns it
+    // off. VDP 1.04 reads any non-zero value as on, and flashes by default.
+    char vdu[3] = {23, 1, (char) (on ? 3 : 0)};
+    mos_puts(vdu, sizeof(vdu), 0);
+}
+
 void scr_resume(screen* scr) {
     // The same byte scr_init sends; see there. A mode change clears it with
     // the rest of the cursor behaviour.

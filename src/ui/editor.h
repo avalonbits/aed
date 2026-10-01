@@ -67,6 +67,10 @@ typedef struct _editor {
     const struct _keymap* keys_;
     bool leaving_;
 
+    // Whether the cursor flashes while the editor waits for a key, as MOS's
+    // does. Off unless the program asks: see ed_set_cursor_flash.
+    bool flash_;
+
     clipboard clip_;
     // What was last searched for, so CTRL+N and CTRL+P have something to
     // repeat. Session state, like the clipboard.
@@ -172,6 +176,15 @@ bool ed_is_modifier(VKey vkey);
 void ed_destroy(editor* ed);
 
 void ed_run(editor* ed);
+
+/*
+ * Makes the cursor flash while the editor waits for a key, as the MOS prompt's
+ * does, or holds it steady again. Steady is the default. Flashing is the VDP's
+ * own cursor, shown over the editor's while the document waits for a key and
+ * hidden again as soon as one arrives -- so a prompt or a modal, which run
+ * while a key is being handled, never shows it somewhere it does not belong.
+ */
+void ed_set_cursor_flash(editor* ed, bool on);
 
 /*
  * What a key means: the command it runs and what it says about itself.

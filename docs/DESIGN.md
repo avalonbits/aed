@@ -145,10 +145,10 @@ flowchart TD
 [`main()`](../src/main.c#L24) ·
 [`ed_init()`](../src/aed.c#L114) ·
 [`ed_init_for()`](../src/ui/editor.c#L329) ·
-[`ed_run()`](../src/ui/editor.c#L633) ·
-[`ed_translate()`](../src/ui/editor.c#L748) ·
-[`ed_handle()`](../src/ui/editor.c#L581) ·
-[`ed_selection_for()`](../src/ui/editor.c#L448) ·
+[`ed_run()`](../src/ui/editor.c#L638) ·
+[`ed_translate()`](../src/ui/editor.c#L767) ·
+[`ed_handle()`](../src/ui/editor.c#L582) ·
+[`ed_selection_for()`](../src/ui/editor.c#L449) ·
 [`cmd_repaint_rows()`](../src/ui/cmd_ops.c#L870)
 
 `main` asks for **72 KiB** — [`TB_DOC_KB`](../src/core/text_buffer.h#L172) — and that
@@ -187,13 +187,13 @@ command. [`ED_KEYS`](../src/ui/editor.c) is the editor's own -- moving,
 editing, selecting, the clipboard, finding, undo -- and a program puts its keys
 in front of it through the keymap's `next`: [`AED_KEYS`](../src/aed.c) is
 AED's files, leaving, help and settings, followed by `ED_KEYS`.
-[`ed_translate()`](../src/ui/editor.c#L748) reads a key through the chain, so a
+[`ed_translate()`](../src/ui/editor.c#L767) reads a key through the chain, so a
 test can assert a binding. **A command nothing can reach is not a feature; a
 command that is reachable and does the wrong thing is worse.**
 
 ### 2a. What the loop does before the command
 
-[`ed_selection_for()`](../src/ui/editor.c#L448) decides what a keystroke does to
+[`ed_selection_for()`](../src/ui/editor.c#L449) decides what a keystroke does to
 the selection *before* the command runs. Most keys end a selection; a few own it
 and manage it themselves — copy, cut, paste, select-all, and all three find
 commands.

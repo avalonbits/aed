@@ -255,6 +255,12 @@ bool scr_load_font(screen* scr, const char* path);
 // changed while running. scr_destroy does this too, on the way out.
 void scr_system_font(screen* scr);
 
+// Turns the VDP's own text cursor on, flashing, or off again. The editor draws
+// its cursor itself and keeps the VDP's hidden; this shows the VDP's on top of
+// it, on the cell the last write left it on, for a cursor that flashes as the
+// MOS prompt's does.
+void scr_cursor_flash(screen* scr, bool on);
+
 // Puts back what the editor set on the VDP, after a program it ran has changed
 // the screen mode -- which resets the colours, the font, and the scroll
 // protection with the rest of the VDP's state, whether or not the mode number

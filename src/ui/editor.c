@@ -408,6 +408,7 @@ editor* ed_init_for(editor* ed, int mem_kb, const char* fname,
     ed->banner_ = false;
     ed->keys_ = prog->keys;
     ed->leaving_ = false;
+    ed->flash_ = false;
     if (tb_used(&ed->doc_->buf_) > 0) {
         cmd_show(ed);
     } else {
@@ -630,10 +631,14 @@ bool ed_handle(editor* ed, key_command kc) {
     return true;
 }
 
+void ed_set_cursor_flash(editor* ed, bool on) {
+    ed->flash_ = on;
+}
+
 void ed_run(editor* ed) {
     text_buffer* buf = &ed->doc_->buf_;
 
-    do {
+    for (;;) {
         // Not while a chord is held down. The footer sits on the bottom row,
         // so drawing it means moving the cursor off the text, writing, and
         // moving back -- and doing that between keystrokes is what stops the
@@ -653,8 +658,22 @@ void ed_run(editor* ed) {
             scr_footer(&ed->scr_, tb_fname(buf), tb_changed(buf),
                        tb_xpos(buf), tb_ypos(buf));
         }
-    } while (ed_handle(ed, ed_translate(ed->keys_,
-                                        ks_wait(ed->ui_.keys_))));
+
+        // The VDP's flashing cursor, only for as long as the document waits.
+        // Everything that answers a key -- a prompt, a modal, the paint after
+        // an edit -- runs with it hidden again, so it is never left flashing
+        // at the end of whatever was drawn last.
+        if (ed->flash_) {
+            scr_cursor_flash(&ed->scr_, true);
+        }
+        const key_press kp = ks_wait(ed->ui_.keys_);
+        if (ed->flash_) {
+            scr_cursor_flash(&ed->scr_, false);
+        }
+        if (!ed_handle(ed, ed_translate(ed->keys_, kp))) {
+            break;
+        }
+    }
     // Leaving the screen is scr_destroy's job: it restores the entry colours
     // first, so the clear lands in the user's background rather than AED's.
 }
