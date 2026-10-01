@@ -635,9 +635,13 @@ void ed_set_cursor_flash(editor* ed, bool on) {
 }
 
 void ed_run(editor* ed) {
-    text_buffer* buf = &ed->doc_->buf_;
-
     for (;;) {
+        // The document on screen, asked for on every pass: a program that
+        // keeps more than one switches doc_ while handling a key, and a
+        // footer drawn from the one this loop started on went on naming that
+        // file, at that position, after the switch.
+        text_buffer* buf = &ed->doc_->buf_;
+
         // Not while a chord is held down. The footer sits on the bottom row,
         // so drawing it means moving the cursor off the text, writing, and
         // moving back -- and doing that between keystrokes is what stops the
