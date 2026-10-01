@@ -124,6 +124,11 @@ typedef struct _screen {
     void (*header_)(struct _screen* scr, void* ctx);
     void* headerCtx_;
 
+    // The row under the header, when the program has given one -- see
+    // scr_set_subheader. With it the text area starts a row lower.
+    void (*sub_)(struct _screen* scr, void* ctx);
+    void* subCtx_;
+
     // The view the screen paints into: its rectangle, cursor and scroll. It
     // starts as whole_, the text area of the whole screen, laid out from the
     // mode and font. A front end showing more than one view points it at each
@@ -201,11 +206,22 @@ void scr_set_view(screen* scr, view* v);
  * of the title from then on; NULL gives the row back to the title. Neither is
  * copied, so both must outlive their use.
  *
- * scr_header_draw draws the row again now, without clearing anything, and
- * puts the cursor back where it was: for a program whose header has changed.
+ * scr_set_subheader gives the program a second row, under the header: `draw`
+ * is called with the text cursor at column 0 of row 1, after the header is
+ * drawn, to write barW_ columns of its own -- a menu bar under the title, say.
+ * The text area then starts at row 2, a row shorter, in the whole screen's
+ * view -- whose cursor moves down onto it if it was above -- and in every view
+ * scr_view_init makes from it afterwards. A program sets it before making
+ * its views, and repaints after. NULL gives the row back to the
+ * text. It lasts across font and mode changes, which lay the screen out again.
+ *
+ * scr_header_draw draws the header row -- and the one under it, if there is
+ * one -- again now, without clearing anything, and puts the cursor back where
+ * it was: for a program whose header has changed.
  */
 void scr_set_title(screen* scr, const char* title);
 void scr_set_header(screen* scr, void (*draw)(screen* scr, void* ctx), void* ctx);
+void scr_set_subheader(screen* scr, void (*draw)(screen* scr, void* ctx), void* ctx);
 void scr_header_draw(screen* scr);
 
 // A view of the whole screen's text area, with its cursor and scroll at the
