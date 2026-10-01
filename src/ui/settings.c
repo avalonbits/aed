@@ -80,7 +80,7 @@ int ed_settings_render(const void* values, const char* name,
     at = cfg_put_text(buf, at, max,
         "\r\n# A font to load at startup: a raw bitmap, 256 glyphs, 8 pixels wide,\r\n"
         "# one byte per row. Its height is the file size divided by 256, so a\r\n"
-        "# 2304-byte file is 9 rows -- an 8-row font with a blank row added, which\r\n"
+        "# 2560-byte file is 10 rows -- an 8-row font with two blank rows added, which\r\n"
         "# separates the text lines without costing a column.\r\n"
         "#\r\n"
         "# Needs a VDP with the font API (Console8 2.8.0+). ");
@@ -90,7 +90,7 @@ int ed_settings_render(const void* values, const char* name,
         "# uncommenting this is what says yours has it.\r\n"
         "#font = ");
     at = cfg_put_text(buf, at, max, font_dir);
-    at = cfg_put_text(buf, at, max, "/unscii8x9.bin\r\n");
+    at = cfg_put_text(buf, at, max, "/unscii8x10.bin\r\n");
     at = cfg_put_text(buf, at, max,
         "\r\n[colours]\r\n"
         "# Text and background colour, as Agon colour numbers. These were\r\n"
