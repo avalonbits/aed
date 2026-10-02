@@ -552,9 +552,6 @@ If the build fails, AED comes back with the cursor on the first error and says
 what it is. If the program returns something other than 0, AED says that too.
 Without hub, `CTRL+R` says it needs hub and does nothing else.
 
-One file at a time: a directory with a `project.ini` is a project, and
-projects build with ade.
-
 # Building on AED's libraries
 AED is built from two libraries that another Agon program can use as well:
 `libedcore.a`, the document -- buffers, paging, undo, the clipboard, grammars,
