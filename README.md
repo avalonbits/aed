@@ -536,9 +536,13 @@ foreground colour and `LEFT/RIGHT` the background.
 | `.s`, `.asm` | `zap <file> <name>.bin` | `<name>` |
 | `.bas` | -- | `bbcbasic <file>` |
 
-It needs hub to be running, which needs MOS
-3.0.2, and the tools in `/bin`. AED and the tools load at the same address, so
-AED steps out of the way: hub runs the build and the program, then starts AED
+It needs [hub](https://github.com/avalonbits/hub) to be running: a resident shell
+for MOS 3.0.2. Unzip `hub-<version>.zip` from [hub's
+releases](https://github.com/avalonbits/hub/releases) at the root of the card
+and type `hub`, or make `hub` the last line of `/autoexec.txt`, then start AED
+from hub's prompt. The tools go in `/bin`: `acc`, `zap` and `bbcbasic`.
+
+AED and the tools load at the same address, so AED steps out of the way: hub runs the build and the program, then starts AED
 again on the same file with the cursor where it was. The program runs on hub's
 screen, which waits for a key when it finishes so you can read what it printed.
 A BASIC program hands back with `*BYE`, from the program or from BASIC's
@@ -547,9 +551,6 @@ prompt.
 If the build fails, AED comes back with the cursor on the first error and says
 what it is. If the program returns something other than 0, AED says that too.
 Without hub, `CTRL+R` says it needs hub and does nothing else.
-
-One file at a time: a directory with a `project.ini` is a project, and
-projects build with ade.
 
 # Building on AED's libraries
 AED is built from two libraries that another Agon program can use as well:
