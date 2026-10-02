@@ -42,6 +42,7 @@ your Agon.
 * [Large files, and waiting for them](#large-files-and-waiting-for-them)
 * [Find](#find)
 * [Undo and redo](#undo-and-redo)
+* [Building and running](#building-and-running)
 * [Building on AED's libraries](#building-on-aeds-libraries)
 
 Beyond this file: [writing a grammar](docs/SYNTAX.md), [writing a
@@ -525,6 +526,30 @@ flashes. `UP/DOWN` chooses a row and `RETURN` changes it -- on the cursor row it
 switches between steady and flashing; `ESC` closes. Choosing the colours row
 shows the picker at the bottom of the screen, where `UP/DOWN` selects the
 foreground colour and `LEFT/RIGHT` the background.
+
+# Building and running
+`CTRL+R` saves the file, builds it, runs it, and comes back to it:
+
+| file | built with | then run as |
+|---|---|---|
+| `.c` | `acc <file> -o <name>.bin` | `<name>` |
+| `.s`, `.asm` | `zap <file> <name>.bin` | `<name>` |
+| `.bas` | -- | `bbcbasic <file>` |
+
+It needs hub to be running, which needs MOS
+3.0.2, and the tools in `/bin`. AED and the tools load at the same address, so
+AED steps out of the way: hub runs the build and the program, then starts AED
+again on the same file with the cursor where it was. The program runs on hub's
+screen, which waits for a key when it finishes so you can read what it printed.
+A BASIC program hands back with `*BYE`, from the program or from BASIC's
+prompt.
+
+If the build fails, AED comes back with the cursor on the first error and says
+what it is. If the program returns something other than 0, AED says that too.
+Without hub, `CTRL+R` says it needs hub and does nothing else.
+
+One file at a time: a directory with a `project.ini` is a project, and
+projects build with ade.
 
 # Building on AED's libraries
 AED is built from two libraries that another Agon program can use as well:

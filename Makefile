@@ -54,6 +54,12 @@ CXXFLAGS += -MMD -MP
 # symbol AED needs from the wrong layer shows up here as well as in the tests.
 CFLAGS += -Isrc/core -Isrc/ui -Isrc
 
+# hub's client library, for CTRL+R: its header and libhub.a, copied into
+# third_party so AED builds without a hub checkout. Only AED's own sources use
+# it; the two libraries know nothing of hub.
+HUB := third_party/hub-0.4.1
+CFLAGS += -I$(HUB)/include
+
 CORE_OBJS := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(wildcard $(SRCDIR)/core/*.c)) \
              $(patsubst $(SRCDIR)/%.asm,$(OBJDIR)/%.o,$(wildcard $(SRCDIR)/core/*.asm))
 UI_OBJS   := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(wildcard $(SRCDIR)/ui/*.c))
@@ -87,6 +93,6 @@ lib: libs
 $(LINKBINARY): $(LIBUI) $(LIBCORE)
 OBJS := $(AED_OBJS)
 PROJECTLIBDIR := $(BINDIR)
-LIBS := -ledui -ledcore
+LIBS := -ledui -ledcore $(HUB)/lib/libhub.a
 
 .PHONY: libs

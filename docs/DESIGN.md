@@ -90,6 +90,7 @@ sections below follow them:
 | [`aed_config.c`](../src/aed_config.c) | AED's settings schema, naming AED in a fresh file | 8 |
 | [`aed.c`](../src/aed.c) | AED's files, keys, start-up, and its help and settings commands | 1, 8 |
 | [`aed_ui.c`](../src/aed_ui.c) | AED's help screen and banner | 2, 8 |
+| [`aed_run.c`](../src/aed_run.c) | CTRL+R: a build and a run through hub, and coming back from them | 1 |
 | [`ini.c`](../src/core/ini.c) | the INI reader the settings, grammars and themes share | 8 |
 | [`bootfont.c`](../src/ui/bootfont.c) | which font the machine booted into | 8 |
 | [`conv.c`](../src/ui/conv.c) | character conversions | — |
@@ -142,8 +143,8 @@ flowchart TD
     paint --> loop
 ```
 
-[`main()`](../src/main.c#L24) ·
-[`ed_init()`](../src/aed.c#L114) ·
+[`main()`](../src/main.c#L26) ·
+[`ed_init()`](../src/aed.c#L116) ·
 [`ed_init_for()`](../src/ui/editor.c#L329) ·
 [`ed_run()`](../src/ui/editor.c#L637) ·
 [`ed_translate()`](../src/ui/editor.c#L770) ·

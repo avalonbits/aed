@@ -39,7 +39,7 @@ trap 'rm -rf "$OUT"' EXIT
 # function's buffer in a hot function's frame.
 for f in src/*.c src/core/*.c src/ui/*.c; do
     "$CC" -mllvm -z80-gas-style -mllvm -z80-print-zero-offset -nostdinc \
-          -Iinclude -Isrc/core -Isrc/ui -Isrc \
+          -Iinclude -Isrc/core -Isrc/ui -Isrc -Ithird_party/hub-0.4.1/include \
           -isystem "$TOOLCHAIN/include" -target ez80-none-elf \
           -DAGONDEV -Oz -Wa,-march=ez80+full -fno-threadsafe-statics \
           -S "$f" -o "$OUT/$(basename "$f" .c).s" 2>/dev/null \

@@ -17,6 +17,7 @@
  */
 
 #include "aed.h"
+#include "aed_run.h"
 
 #include "app.h"
 #include "cmd_ops.h"
@@ -85,6 +86,7 @@ static const key_binding AED_BINDINGS[] = {
     LETTER(VK_q, VK_Q, C, 0, ed_cmd_quit),
     LETTER(VK_h, VK_H, C, 0, aed_cmd_help),
     LETTER(VK_e, VK_E, C, 0, aed_cmd_settings),
+    LETTER(VK_r, VK_R, C, 0, aed_cmd_run),
 };
 
 #undef LETTER

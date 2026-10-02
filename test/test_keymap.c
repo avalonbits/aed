@@ -14,6 +14,7 @@
 #include <agon/mos.h>
 
 #include "aed.h"
+#include "aed_run.h"
 #include "editor.h"
 
 static int failures = 0;
@@ -180,9 +181,11 @@ int main(void) {
 
     /* --- AED's keys in front of the editor's --- */
     {
-        /* AED's own table holds its files, leaving, help and settings, both
-         * cases of each, and hands everything else to ED_KEYS. */
-        check("AED's own table holds its six keys, in both cases", AED_KEYS.n, 12);
+        /* AED's own table holds its files, leaving, help, settings and
+         * running, both cases of each, and hands everything else to ED_KEYS. */
+        check("AED's own table holds its seven keys, in both cases", AED_KEYS.n, 14);
+        check("  CTRL+R among them, which builds and runs",
+              meaning(&AED_KEYS, 18, VK_r, MOD_CTRL).cmd == aed_cmd_run ? 1 : 0, 1);
         check("  and goes on to the editor's", AED_KEYS.next == &ED_KEYS ? 1 : 0, 1);
 
         /* Every key the editor binds means the same through AED's keys: none
