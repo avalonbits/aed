@@ -27,3 +27,13 @@ cursor_flash = 0
 # taken from the colours your Agon was already using.
 fg = 15
 bg = 0
+
+[run]
+# What CTRL+R runs, through hub, for each kind of file: %f is the file,
+# %b the file without its extension, %e the error file. c and asm build
+# it, and %b is run after; bas runs the file itself. The build has to
+# write its errors to %e as file:line:column: text for the cursor to go
+# to the first. Leave one out to use the command shown here.
+c = acc %f -o %b.bin -errors %e
+asm = zap %f %b.bin -c -e %e
+bas = bbcbasic %f

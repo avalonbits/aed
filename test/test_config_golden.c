@@ -80,6 +80,12 @@ int main(void) {
             fclose(f);
         }
         want[wn] = 0;
+        /* The editor's part only: [run] is AED's own, after it. */
+        char* run = strstr(want, "\r\n[run]");
+        if (run != NULL) {
+            *run = 0;
+        }
+        const int keep = (int) strlen(want);
         for (char* at = strstr(want, "AED"); at != NULL; at = strstr(at, "AED")) {
             memcpy(at, "ade", 3);
         }
@@ -91,7 +97,7 @@ int main(void) {
         c.bg = 0;
         const int n = ed_settings_render(&c, "ade", CFG_DIR "/aed", buf, (int) sizeof(buf));
         check("another program's name goes where AED's does, and only there",
-              wn > 0 && n == wn && memcmp(buf, want, (size_t) n) == 0, 1);
+              keep > 0 && n == keep && memcmp(buf, want, (size_t) n) == 0, 1);
     }
 
     /* --- merges and parses --- */

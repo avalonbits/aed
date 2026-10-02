@@ -25,6 +25,8 @@
 
 #include <hub/hub.h>
 
+#include "aed_config.h"
+#include "app.h"
 #include "cmd_ops.h"
 #include "user_input.h"
 
@@ -137,6 +139,51 @@ static void program_name(const char* base, char* out) {
     out[n] = 0;
 }
 
+// A [run] command with its placeholders filled in, into `out`: %f the file,
+// %b the file without its extension, %e the error file, %% a %. A % before
+// anything else is kept as it is. -1 when the result does not fit.
+static int expand(const char* tmpl, const char* name, const char* base,
+                  char* out, int max) {
+    int at = 0;
+    out[0] = 0;
+    for (const char* p = tmpl; *p != 0 && at >= 0; p++) {
+        if (p[0] == '%' && p[1] != 0) {
+            const char* with = NULL;
+            switch (p[1]) {
+                case 'f': with = name; break;
+                case 'b': with = base; break;
+                case 'e': with = ERR_FILE; break;
+                case '%': with = "%"; break;
+                default: break;
+            }
+            if (with != NULL) {
+                at = put(out, at, max, with);
+                p++;
+                continue;
+            }
+        }
+        const char one[2] = { *p, 0 };
+        at = put(out, at, max, one);
+    }
+
+    return at;
+}
+
+// The [run] commands, read when CTRL+R is pressed: the settings file can have
+// been edited since AED started, and it is short.
+static aed_run_config run_cfg;
+
+// The command for `kind`, the file's or the default when it sets none.
+static const char* command_for(char kind) {
+    const char* set = kind == KIND_C ? run_cfg.c
+                    : kind == KIND_ASM ? run_cfg.asm_ : run_cfg.bas;
+    if (set[0] != 0) {
+        return set;
+    }
+
+    return kind == KIND_C ? AED_RUN_C : kind == KIND_ASM ? AED_RUN_ASM : AED_RUN_BAS;
+}
+
 void aed_cmd_run(editor* ed) {
     // Before anything is saved or asked: without hub there is nothing CTRL+R
     // can do, and saying so is all it should.
@@ -169,32 +216,23 @@ void aed_cmd_run(editor* ed) {
         return;
     }
 
-    // The commands, as hub runs them from the prompt.
+    // The commands, as hub runs them from the prompt: from [run] in the
+    // settings file, or the defaults.
+    cfg_defaults(&AED_RUN_CONFIG, &run_cfg);
+    cfg_load(&AED_RUN_CONFIG, &run_cfg, app_get()->cfg_path);
     static char build[HUB_CMD_MAX + 1];
     static char run[HUB_CMD_MAX + 1];
     const int max = HUB_CMD_MAX + 1;
     int b = 0;
     int r = 0;
-    if (kind == KIND_C) {
-        b = put(build, 0, max, "acc ");
-        b = put(build, b, max, name);
-        b = put(build, b, max, " -o ");
-        b = put(build, b, max, base);
-        b = put(build, b, max, ".bin -errors " ERR_FILE);
-        r = put(run, 0, max, base);
-    } else if (kind == KIND_ASM) {
-        b = put(build, 0, max, "zap ");
-        b = put(build, b, max, name);
-        b = put(build, b, max, " ");
-        b = put(build, b, max, base);
-        b = put(build, b, max, ".bin -c -e " ERR_FILE);
-        r = put(run, 0, max, base);
+    if (kind == KIND_BAS) {
+        r = expand(command_for(kind), name, base, run, max);
     } else {
-        r = put(run, 0, max, "bbcbasic ");
-        r = put(run, r, max, name);
+        b = expand(command_for(kind), name, base, build, max);
+        r = put(run, 0, max, base);
     }
     if (b < 0 || r < 0) {
-        say(ed, "The file's name is too long for hub to run");
+        say(ed, "The command is too long for hub to run");
         return;
     }
 
