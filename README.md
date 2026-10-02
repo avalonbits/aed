@@ -154,6 +154,16 @@ cursor_flash = 0
 # taken from the colours your Agon was already using.
 fg = 15
 bg = 0
+
+[run]
+# What CTRL+R runs, through hub, for each kind of file: %f is the file,
+# %b the file without its extension, %e the error file. c and asm build
+# it, and %b is run after; bas runs the file itself. The build has to
+# write its errors to %e as file:line:column: text for the cursor to go
+# to the first. Leave one out to use the command shown here.
+c = acc %f -o %b.bin -errors %e
+asm = zap %f %b.bin -c -e %e
+bas = bbcbasic %f
 ```
 
 | Section | Setting | Meaning |
@@ -172,6 +182,7 @@ Set it in the file, having read the section below.
 | `[colours]` | `fg` | text colour, as an Agon colour number. |
 | `[colours]` | `bg` | background colour. |
 | `[vdp]` | `ctrl_pause_frames` | how long the VDP pauses when a line wraps while CTRL is held, in frames. Not written by default -- see below. |
+| `[run]` | `c`, `asm`, `bas` | what `CTRL+R` runs for each kind of file -- see [Building and running](#building-and-running). |
 
 ### `font`
 
@@ -542,15 +553,26 @@ releases](https://github.com/avalonbits/hub/releases) at the root of the card
 and type `hub`, or make `hub` the last line of `/autoexec.txt`, then start AED
 from hub's prompt. The tools go in `/bin`: `acc`, `zap` and `bbcbasic`.
 
-AED and the tools load at the same address, so AED steps out of the way: hub runs the build and the program, then starts AED
-again on the same file with the cursor where it was. The program runs on hub's
+AED and the tools load at the same address, so AED steps out of the way: hub
+runs the build and the program, then starts AED again on the same file with the
+cursor where it was. The program runs on hub's
 screen, which waits for a key when it finishes so you can read what it printed.
 A BASIC program hands back with `*BYE`, from the program or from BASIC's
 prompt.
 
+The commands are in the `[run]` section of `/config/aed.ini`, so another C
+compiler or assembler can take their place: `%f` is the file, `%b` the file
+without its extension, `%e` the error file, and `%%` a `%`. After `c` or `asm`
+builds, `%b` is run. A line left out, or empty, is the command in the table
+above. An `aed.ini` written by an older AED has no `[run]` section, and gets
+those commands.
+
 If the build fails, AED comes back with the cursor on the first error and says
-what it is. If the program returns something other than 0, AED says that too.
-Without hub, `CTRL+R` says it needs hub and does nothing else.
+what it is -- as long as the build writes its errors to `%e` the way acc and
+zap do, one a line as `file:line:column: text`. With any other form, AED shows
+the first line of the error file and leaves the cursor where it was. If the
+program returns something other than 0, AED says that too. Without hub,
+`CTRL+R` says it needs hub and does nothing else.
 
 # Building on AED's libraries
 AED is built from two libraries that another Agon program can use as well:

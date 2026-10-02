@@ -14,6 +14,7 @@
 #include <hub/hub.h>
 
 #include "aed.h"
+#include "aed_config.h"
 #include "aed_run.h"
 #include "hub_stub.h"
 
@@ -281,6 +282,108 @@ int main(void) {
               saved != NULL && len > 0 && saved[0] == 'x' ? 1 : 0, 1);
     }
     ed_destroy(&ed);
+
+    /* --- the commands come from [run] in aed.ini --- */
+    stub_hub_reset(true);
+    stub_file_reset();
+    stub_file_add("prog.c", PROG_C, (int) strlen(PROG_C));
+    static const char RUN_INI[] =
+        "[run]\r\n"
+        "c = mycc %f -o %b.bin --errors=%e -O2\r\n"
+        "asm = ez80asm %f %b.bin\r\n"
+        "bas = bbcbasic24 %f\r\n";
+    stub_file_add("/config/aed.ini", RUN_INI, (int) strlen(RUN_INI));
+    ed_init(&ed, 8, "prog.c");
+    run_it();
+    check_str("[run] c is the build", stub_hub_job(0),
+              "mycc prog.c -o prog.bin --errors=/aed.err -O2");
+    check_str("  and %b is still what runs after", stub_hub_job(1), "prog");
+    ed_destroy(&ed);
+
+    stub_hub_reset(true);
+    stub_file_reset();
+    stub_file_add("game.bas", "10 END\r\n", 8);
+    stub_file_add("/config/aed.ini", RUN_INI, (int) strlen(RUN_INI));
+    ed_init(&ed, 8, "game.bas");
+    run_it();
+    check_str("[run] bas is the run", stub_hub_job(0), "bbcbasic24 game.bas");
+    ed_destroy(&ed);
+
+    /* %% is a %, and a % before anything else stays as it is. */
+    stub_hub_reset(true);
+    stub_file_reset();
+    stub_file_add("boot.s", "    ret\r\n", 9);
+    static const char PCT_INI[] = "[run]\r\nasm = as %b 100%% %x %\r\n";
+    stub_file_add("/config/aed.ini", PCT_INI, (int) strlen(PCT_INI));
+    ed_init(&ed, 8, "boot.s");
+    run_it();
+    check_str("%% gives a %, and %x and a last % are kept", stub_hub_job(0),
+              "as boot 100% %x %");
+    ed_destroy(&ed);
+
+    /* An empty command is the default. */
+    stub_hub_reset(true);
+    stub_file_reset();
+    stub_file_add("prog.c", PROG_C, (int) strlen(PROG_C));
+    static const char EMPTY_INI[] = "[run]\r\nc =\r\n";
+    stub_file_add("/config/aed.ini", EMPTY_INI, (int) strlen(EMPTY_INI));
+    ed_init(&ed, 8, "prog.c");
+    run_it();
+    check_str("an empty c is acc, as by default", stub_hub_job(0),
+              "acc prog.c -o prog.bin -errors /aed.err");
+    ed_destroy(&ed);
+
+    /* Longer than hub takes, once filled in: said, and nothing queued. */
+    stub_hub_reset(true);
+    stub_file_reset();
+    stub_file_add("prog.c", PROG_C, (int) strlen(PROG_C));
+    static const char LONG_INI[] =
+        "[run]\r\nc = acc %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f\r\n";
+    stub_file_add("/config/aed.ini", LONG_INI, (int) strlen(LONG_INI));
+    ed_init(&ed, 8, "prog.c");
+    n = run_it();
+    check("a command too long for hub is said", said(n, "too long for hub"), 1);
+    check("  and nothing is queued", stub_hub_jobs(), 0);
+    ed_destroy(&ed);
+
+    /* --- a fresh aed.ini carries [run], with the defaults --- */
+    stub_hub_reset(true);
+    stub_file_reset();
+    stub_file_add("prog.c", PROG_C, (int) strlen(PROG_C));
+    ed_init(&ed, 8, "prog.c");
+    {
+        int len = 0;
+        const char* ini = stub_file_content("/config/aed.ini", &len);
+        static aed_run_config rc;
+        cfg_defaults(&AED_RUN_CONFIG, &rc);
+        if (ini != NULL) {
+            cfg_parse(&AED_RUN_CONFIG, &rc, ini, len);
+        }
+        check_str("a first run writes [run] c", rc.c, AED_RUN_C);
+        check_str("  asm", rc.asm_, AED_RUN_ASM);
+        check_str("  and bas", rc.bas, AED_RUN_BAS);
+    }
+    ed_destroy(&ed);
+
+    /* --- and saving a setting from CTRL+E keeps it --- */
+    stub_file_reset();
+    static const char KEEP_INI[] =
+        "[editor]\r\ntab = 4\r\n[run]\r\nc = mycc %f\r\n";
+    stub_file_add("/config/aed.ini", KEEP_INI, (int) strlen(KEEP_INI));
+    {
+        config cfg;
+        cfg_defaults(&AED_CONFIG, &cfg);
+        cfg.tab_size = 8;
+        cfg_update(&AED_CONFIG, &cfg, "/config/aed.ini");
+        int len = 0;
+        const char* ini = stub_file_content("/config/aed.ini", &len);
+        static aed_run_config rc;
+        cfg_defaults(&AED_RUN_CONFIG, &rc);
+        if (ini != NULL) {
+            cfg_parse(&AED_RUN_CONFIG, &rc, ini, len);
+        }
+        check_str("a settings change leaves [run] as it was", rc.c, "mycc %f");
+    }
 
     if (failures > 0) {
         fprintf(stderr, "\n%d test(s) failed\n", failures);
