@@ -68,6 +68,9 @@ static const help_line HELP[] = {
     { "CTRL+N",           "find the next one" },
     { "CTRL+P",           "find the previous one" },
 
+    { NULL,               "RUNNING" },
+    { "CTRL+R",           "build and run .c .s .asm .bas" },
+
     { NULL,               "SETTINGS" },
     { "CTRL+E",           "settings" },
     { "CTRL+H",           "this list" },

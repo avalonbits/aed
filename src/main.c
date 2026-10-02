@@ -17,19 +17,29 @@
  */
 
 #include "aed.h"
+#include "aed_run.h"
 #include "screen.h"
 
 #include <stdio.h>
+#include <string.h>
 
 int main(int argc, char** argv) {
     static editor ed;
 
+    // Started by hub after CTRL+R, to come back to the file the run was
+    // from; or by hand with a file to open.
+    const bool resuming = argc > 1 && strcmp(argv[1], AED_RESUME_ARG) == 0;
     const char* fname = NULL;
-    if (argc > 1) {
+    if (resuming) {
+        fname = aed_resume_file();
+    } else if (argc > 1) {
         fname = argv[1];
     }
     if (!ed_init(&ed, TB_DOC_KB, fname)) {
         return 1;
+    }
+    if (resuming && fname != NULL) {
+        aed_resume(&ed);
     }
     ed_run(&ed);
 

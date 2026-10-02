@@ -25,7 +25,7 @@ WARN=(-std=c11 -Wall -Wextra -fsigned-char -g -fsanitize=address,undefined)
 # other half is the links below.
 CORE_CFLAGS=("${WARN[@]}" -Isrc/core -Itest/stubs)
 UI_CFLAGS=("${WARN[@]}" -Isrc/core -Isrc/ui -Itest/stubs)
-CFLAGS=("${WARN[@]}" -Isrc/core -Isrc/ui -Isrc -Itest/stubs)
+CFLAGS=("${WARN[@]}" -Isrc/core -Isrc/ui -Isrc -Itest/stubs -Ithird_party/hub-0.4.1/include)
 
 # The three layers, plus the stubbed platform layer. The UI is linked so tests
 # can drive whole commands: the two worst bugs so far lived in the
@@ -40,6 +40,9 @@ AED_SRCS=()
 for s in src/*.c; do
     [ "$s" = src/main.c ] || AED_SRCS+=("$s")
 done
+# hub, which only AED's own code uses, so it is linked with AED's objects and
+# never with the libraries'.
+AED_SRCS+=(test/stubs/hub_stub.c)
 STUB_SRCS=(test/stubs/agon_stubs.c)
 
 # An optional filter: `./test/run.sh paging` runs test_paging and nothing else,
