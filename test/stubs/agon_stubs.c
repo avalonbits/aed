@@ -157,6 +157,30 @@ static void stub_pixel_vdu(const char* b, unsigned size) {
     stub_pixel = (uint8_t) (ink ? stub_scr_fg : stub_scr_bg);
 }
 
+/* A mode change still in flight: MOS goes on reporting the old screen until
+ * the VDP's next mode packet, which on hardware arrives well after the VDU 22
+ * that asked for it. stub_vdp_mode_pending sets the screen the change will
+ * leave; asking the VDP for its mode (VDU 23,0,&86) is what brings the packet
+ * back, and the new numbers with it. */
+static int stub_pending_cols = -1;
+static int stub_pending_rows = -1;
+
+void stub_vdp_mode_pending(int cols, int rows) {
+    stub_pending_cols = cols;
+    stub_pending_rows = rows;
+}
+
+static void stub_mode_vdu(const char* b, unsigned size) {
+    if (size < 3 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x86) {
+        return;
+    }
+    if (stub_pending_rows >= 0) {
+        stub_set_screen(stub_pending_cols, stub_pending_rows);
+        stub_pending_cols = -1;
+        stub_pending_rows = -1;
+    }
+}
+
 static void stub_font_vdu(const char* b, unsigned size) {
     if (size < 7 || b[0] != 23 || b[1] != 0 || (unsigned char) b[2] != 0x95) {
         return;
@@ -181,6 +205,7 @@ void mos_puts(const char* b, unsigned size, char d) {
     stub_write_n++;
     if (b != NULL) {
         stub_font_vdu(b, size);
+        stub_mode_vdu(b, size);
         stub_pixel_vdu(b, size);
         if (size == 1 && (unsigned char) b[0] >= 32) {
             stub_cell_ch = b[0];    /* one character on its own: the probe */

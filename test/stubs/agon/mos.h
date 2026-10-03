@@ -66,6 +66,9 @@ void     stub_set_cell(int w, int h);
  * a VDP with no font API, which never answers -- the case the editor must not
  * wait on forever. */
 void     stub_vdp_mode_reply(int on);
+/* A mode change the VDP has not reported yet: MOS keeps the old screen until
+ * a VDU 23,0,&86 asks for the new one. */
+void     stub_vdp_mode_pending(int cols, int rows);
 
 /* Whether a font selection actually moves the stubbed geometry. Off models a
  * VDP that took the font but whose mode packet never reached MOS, so the
