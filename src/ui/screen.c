@@ -442,6 +442,12 @@ screen *scr_init(screen* scr, char cursor) {
 // carries on with the geometry it already had. About a second at 60 Hz.
 #define FONT_MODE_FRAMES 60
 
+// Waiting, on resuming, for a mode change the program left to finish. Longer
+// than the font's: a mode change clears and reallocates the whole screen, and
+// the wait ends as soon as the VDP answers, so the bound is only reached by a
+// VDP that never does. About three seconds.
+#define RESUME_MODE_FRAMES 180
+
 // Waiting for the VDP to answer the probe below. Measured: a VDP that has the
 // font API replies within one frame, so this is generous already, and every
 // frame of it is a frame added to startup on a VDP that has not.
@@ -627,6 +633,22 @@ void scr_resume(screen* scr) {
     VDP_PUTS(enable_scroll_protect);
     vdp_cursor_enable(false);
 
+    // The mode change has to have finished before anything is laid out from
+    // it. MOS learns the new screen only when the VDP's mode packet arrives,
+    // and on hardware that is well after the VDU 22 that asked for it: KISS
+    // hands back the moment it has sent one, and the editor read the old
+    // screen's rows and painted the footer into a layout that no longer
+    // existed. The emulator answers at once, so only the Agon showed it.
+    //
+    // Asking for the mode settles it: the VDP takes commands in order, so the
+    // answer comes after the change does. Bounded, like the font's wait --
+    // a VDP that never answers costs a pause, not a hang.
+    static char ask_mode[3] = {23, 0, (char) 0x86};
+    volatile uint8_t* sysvar = mos_sysvars();
+    sysvar[sysvar_vdp_pflags] = 0;
+    font_put(ask_mode, sizeof(ask_mode));
+    wait_mode_packet(RESUME_MODE_FRAMES);
+
     // The font goes back before the geometry is read, since the geometry is
     // the font's. A mode change selects the system font, but the buffer the
     // editor's font was made from survives it, so selecting it again is all
@@ -643,7 +665,7 @@ void scr_resume(screen* scr) {
         memcpy(select, SYSTEM_FONT, sizeof(select));
         select[4] = (char) (font & 0xFF);
         select[5] = (char) ((font >> 8) & 0xFF);
-        volatile uint8_t* sysvar = mos_sysvars();
+        sysvar = mos_sysvars();
         sysvar[sysvar_vdp_pflags] = 0;
         font_put(select, sizeof(select));
         wait_mode_packet(FONT_MODE_FRAMES);

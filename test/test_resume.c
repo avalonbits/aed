@@ -118,6 +118,24 @@ int main(void) {
               && ed.scr_.v_->currY_ < ed.scr_.v_->bottomY_, 1);
     check("  on the line it was on", tb_ypos(&ed.doc_->buf_), 70);
 
+    /* --- a mode change MOS has not heard about yet --- */
+    /* On hardware the program hands back while its mode change is still on
+     * its way: MOS goes on reporting the old screen until the VDP's packet
+     * comes. Laid out from that, the footer went to a row that no longer
+     * existed and the text area was left empty. The editor asks for the mode,
+     * and lays out from the answer. */
+    stub_vdp_font_applies(0);
+    stub_set_cell(8, 8);
+    stub_set_screen(80, 60);
+    stub_vdp_mode_pending(80, 30);
+    stub_colours_reset();
+    ed_resume(&ed);
+    stub_vdp_font_applies(1);
+    check("a mode change still in flight is waited for", ed.scr_.rows_, 30);
+    check("  the footer goes on the new last row",
+          ed.ui_.ypos_, ed.scr_.whole_.bottomY_);
+    check("  which is the screen's", ed.scr_.whole_.bottomY_, 29);
+
     ed_destroy(&ed);
 
     if (failures > 0) {
