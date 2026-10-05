@@ -121,6 +121,17 @@ int main(void) {
               ui_text(&ui, &scr, "Find: ", NULL, &buf, &sz), YES_OPT);
         check("  with what was typed",
               sz == 2 && buf != NULL && memcmp(buf, "ab", 2) == 0 ? 1 : 0, 1);
+
+        /* An accented letter, from a layout's dead key, goes into a prompt
+         * as it does into the document: find has to be able to look for it. */
+        static const key_press accented[] = {
+            { (char) 0xE1, VK_ACUTE_a, 0 }, { 13, VK_RETURN, 0 },
+        };
+        play(accented, 2, 1);
+        check("a text prompt takes an accented letter",
+              ui_text(&ui, &scr, "Find: ", NULL, &buf, &sz), YES_OPT);
+        check("  as the byte it is",
+              sz == 1 && buf != NULL && (unsigned char) buf[0] == 0xE1 ? 1 : 0, 1);
     }
 
     /* --- a source with nothing to do while waiting --- */
@@ -188,6 +199,30 @@ int main(void) {
         const split_line sl = tb_curr_line(&ed.doc_->buf_);
         check("  and the key it read is in the document",
               sl.ssz_ >= 4 && memcmp(sl.suffix_, "xone", 4) == 0 ? 1 : 0, 1);
+        ed_destroy(&ed);
+    }
+
+    /* --- an accented letter typed into the document --- */
+    {
+        static editor ed;
+        stub_file_reset();
+        static const char DOC[] = "one\r\n";
+        stub_file_set_content(DOC, (int) sizeof(DOC) - 1);
+        ed_init(&ed, 8, "doc.txt");
+        static const key_press keys[] = {
+            { (char) 0xF1, VK_TILDE_n, 0 },
+            { 17, VK_q, MOD_CTRL },
+            { 'n', VK_n, 0 },
+        };
+        play(keys, 3, 0);
+        ui_set_keys(&ed.ui_, &src);
+        ed_run(&ed);
+        const tb_pos top = { .line = 1, .x = 0 };
+        tb_seek(&ed.doc_->buf_, top);
+        const split_line sl = tb_curr_line(&ed.doc_->buf_);
+        check("ñ typed into the document is in it",
+              sl.ssz_ >= 4 && (unsigned char) sl.suffix_[0] == 0xF1
+              && memcmp(sl.suffix_ + 1, "one", 3) == 0 ? 1 : 0, 1);
         ed_destroy(&ed);
     }
 

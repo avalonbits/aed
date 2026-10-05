@@ -79,6 +79,21 @@ int main(void) {
         check("CTRL+S, O, Q, H and E are left to the program", bound, 0);
     }
 
+    /* --- characters a keyboard layout composes --- */
+    {
+        /* A dead key and a letter -- ´ then a, on the Spanish layout -- reach
+         * MOS as one key carrying the accented letter, in the VDP's
+         * Windows-1252: á is 0xE1, ñ 0xF1. char is signed on the eZ80 (and
+         * here), so those arrive negative, and were dropped as control
+         * codes. */
+        check("á, as the Spanish layout sends it, is typed",
+              (meaning(&ED_KEYS, (char) 0xE1, VK_ACUTE_a, 0).flags & KC_PUTC) != 0, 1);
+        check("  ñ too",
+              (meaning(&ED_KEYS, (char) 0xF1, VK_TILDE_n, 0).flags & KC_PUTC) != 0, 1);
+        check("  and DEL still is not",
+              (meaning(&ED_KEYS, 0x7F, VK_DELETE, 0).flags & KC_PUTC) != 0, 0);
+    }
+
     /* --- a program's keys in front of the editor's --- */
     {
         check("its own CTRL+S is its own",
