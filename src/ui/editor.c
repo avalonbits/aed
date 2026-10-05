@@ -781,8 +781,13 @@ key_command ed_translate(const keymap* km, key_press kp) {
         kc.flags |= KC_EDITS;
     }
 
+    // Unsigned, because char is signed on the eZ80: an accented letter -- á
+    // from a keyboard layout's dead key, 0xE1 in the VDP's Windows-1252 --
+    // is a character to type, and as a signed char it is negative and was
+    // dropped as though it were a control code.
     const char ctrl = kp.mods & MOD_CTRL;
-    if (!ctrl && (kp.ch == '\t' || (kp.ch != 0x7F && kp.ch >= 32))) {
+    const unsigned char ch = (unsigned char) kp.ch;
+    if (!ctrl && (ch == '\t' || (ch != 0x7F && ch >= 32))) {
         kc.flags |= KC_PUTC | KC_EDITS;
 
         return kc;

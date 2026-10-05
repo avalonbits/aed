@@ -499,7 +499,9 @@ RESPONSE ui_text(
         const char key = kp.ch;
         const VKey vkey = kp.vkey;
 
-        if (key != 0x7F && key > 0x20) {
+        // Unsigned, as in ed_translate: an accented letter is above 0x7F,
+        // and a signed char would turn it away.
+        if (key != 0x7F && (unsigned char) key > 0x20) {
             if (cb_put(cb, key)) {
                 putchar(key);
                 scr_show_cursor_ch(scr, cb_peek(cb));
